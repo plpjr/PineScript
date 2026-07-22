@@ -7,6 +7,10 @@
 //     and the size of the leg broken. Shown on the label and in the table.
 //   * Optional minimum-score gate, and optional fading of low-score breaks so
 //     strong structure reads at a glance.
+//   * Every component is user-adjustable: each measure has a weight and a
+//     "full marks" threshold. Weights are auto-normalised to 100, so zeroing
+//     one (e.g. volume on a synthetic feed) redistributes its share instead of
+//     silently capping the score and shifting every threshold you had tuned.
 //   * Why scoring rather than more filters: the existing filters are binary, so
 //     a break clearing by 0.21 ATR and one clearing by 1.4 ATR both just read
 //     "BOS". Tightening filters gives you FEWER signals; scoring tells you
@@ -337,6 +341,59 @@ showScore = input.bool(true, "  Show score on label", group = grpQ,
 scoreColors = input.bool(true, "  Fade low-score breaks", group = grpQ,
      tooltip = "Draws low-scoring breaks more transparently, so high-confidence structure stands out at a glance without reading numbers.\n\nA 90-score break is drawn solid; a 40-score break is drawn faint.")
 
+// =============================================================================
+// SCORE TUNING (advanced)
+// =============================================================================
+grpQ2 = "⑩ Score tuning (advanced)"
+
+// --- How much each measure is worth -------------------------------------------
+// Weights are NORMALISED to total 100, so you set them in relative terms and
+// never have to make them add up yourself. Zeroing one redistributes its share
+// across the rest, which keeps scores comparable across different weightings.
+wClear = input.int(30, "Weight · clearance beyond level", minval = 0, maxval = 100, group = grpQ2,
+     tooltip = "How much the score cares that price closed WELL past the level rather than barely past it.\n\n" +
+       "This is the single most reliable indicator of a real break, which is why it carries the most weight by default.\n\n" +
+       "Weights are relative and auto-normalised to 100 — you do not need to make them add up.")
+
+wDisp = input.int(25, "Weight · displacement", minval = 0, maxval = 100, group = grpQ2,
+     tooltip = "How much the score cares that the breaking candle was LARGE relative to recent volatility.\n\nRaise if your instrument breaks with obvious expansion. Lower on instruments that grind rather than impulse.")
+
+wBody = input.int(15, "Weight · body conviction", minval = 0, maxval = 100, group = grpQ2,
+     tooltip = "How much the score cares that the candle CLOSED near its extreme rather than leaving a long rejection wick.\n\nRaise if wick-fakeouts are your main problem — this penalises them without rejecting them outright, unlike the wick filter.")
+
+wVol = input.int(15, "Weight · volume participation", minval = 0, maxval = 100, group = grpQ2,
+     tooltip = "How much the score cares about volume expansion on the breaking candle.\n\n" +
+       "SET THIS TO 0 if your feed has synthetic or unreliable volume (many forex and CFD feeds). Its share is redistributed to the other measures, so you lose nothing.\n\n" +
+       "On futures, volume is real and worth keeping.")
+
+wLeg = input.int(15, "Weight · size of leg broken", minval = 0, maxval = 100, group = grpQ2,
+     tooltip = "How much the score cares that the swing being broken was a LARGE, well-formed leg rather than a shallow one.\n\nThis is the only component that looks at structural context rather than the breaking candle itself.")
+
+// --- Where each measure earns full marks ---------------------------------------
+tClear = input.float(0.40, "Full marks · clearance (× ATR)", minval = 0.05, step = 0.05, group = grpQ2,
+     tooltip = "Clearance beyond the level that earns the FULL clearance score.\n\n" +
+       "LOWER (0.25) = easier to max out, scores cluster high, less discrimination between good and great.\n" +
+       "HIGHER (0.60) = only emphatic breaks score well.\n\n" +
+       "If almost every break scores 85+, your thresholds are too easy — raise this and 'displacement' first.")
+
+tDisp = input.float(1.20, "Full marks · candle range (× ATR)", minval = 0.10, step = 0.10, group = grpQ2,
+     tooltip = "Breaking-candle range that earns the FULL displacement score, in ATR.")
+
+tBody = input.float(0.80, "Full marks · body % of range", minval = 0.40, maxval = 1.00, step = 0.05, group = grpQ2,
+     tooltip = "Body-to-range ratio that earns the FULL conviction score.\n\n0.80 = body is 80% of the candle's range. Scoring starts from 0.35 and rises to this value.")
+
+tVol = input.float(1.60, "Full marks · volume (× average)", minval = 0.20, step = 0.10, group = grpQ2,
+     tooltip = "Volume multiple that earns the FULL participation score.\n\nScoring starts from 0.70× average and rises to this value. Ignored when the volume weight is 0.")
+
+tLeg = input.float(2.00, "Full marks · leg size (× ATR)", minval = 0.10, step = 0.10, group = grpQ2,
+     tooltip = "Size of the broken leg, in ATR, that earns the FULL structural score.\n\nRaise on higher timeframes where legs are naturally larger.")
+
+// Normalise the weights so the score always lands on a 0-100 scale regardless of
+// what the user typed. Without this, zeroing volume would silently cap the score
+// at 85 and every threshold you had tuned would shift under you.
+float wSum  = wClear + wDisp + wBody + wVol + wLeg
+float wNorm = wSum > 0 ? 100.0 / wSum : 0.0
+
 lblSize = labelSize == "Tiny" ? size.tiny : labelSize == "Normal" ? size.normal : size.small
 styleOf(s) => s == "Solid" ? line.style_solid : s == "Dashed" ? line.style_dashed : line.style_dotted
 
@@ -477,37 +534,41 @@ bool  hasVolume   = not mUseVolume or na(volAvg) or volume >= volAvg * mVolMult
 // context each describe something the others cannot see.
 //
 // Contains no ta.* calls, so it is safe to call conditionally.
+// Clamp a raw measurement to the 0-1 fraction of its full-marks target.
+frac01(float v, float target) => math.min(1.0, math.max(0.0, v / math.max(target, 0.0001)))
+
 scoreBreak(bool isUp, float lvl) =>
     float sc = 0.0
     if atrVal > 0 and not na(lvl)
-        // 1. Clearance beyond the level (0-30). Full marks at 0.40 ATR past.
-        float clr = (isUp ? upRef - lvl : lvl - downRef) / atrVal
-        sc += math.min(30.0, math.max(0.0, clr / 0.40 * 30.0))
+        // Each component yields a 0-1 fraction, scaled by its normalised weight.
 
-        // 2. Displacement of the breaking candle (0-25). Full marks at 1.20 ATR.
-        sc += math.min(25.0, math.max(0.0, candleRange / atrVal / 1.20 * 25.0))
+        // 1. Clearance beyond the level.
+        sc += frac01((isUp ? upRef - lvl : lvl - downRef) / atrVal, tClear) * wClear * wNorm
 
-        // 3. Body conviction (0-15). Scores from 35% body upward; a long-wicked
+        // 2. Displacement of the breaking candle.
+        sc += frac01(candleRange / atrVal, tDisp) * wDisp * wNorm
+
+        // 3. Body conviction. Scored from 35% body upward, so a long-wicked
         //    rejection candle earns nothing here even if its range was large.
         float bodyPct = candleRange > 0 ? candleBody / candleRange : 0.0
-        sc += math.min(15.0, math.max(0.0, (bodyPct - 0.35) / 0.45 * 15.0))
+        sc += frac01(bodyPct - 0.35, math.max(tBody - 0.35, 0.01)) * wBody * wNorm
 
-        // 4. Volume participation (0-15). Neutral 7.5 when volume is missing or
-        //    synthetic, so feeds without real volume are not penalised.
-        float volPts = 7.5
+        // 4. Volume participation. Falls back to a neutral half-score when
+        //    volume is missing, so feeds without real volume are not penalised.
+        float volFrac = 0.5
         if not na(volAvg) and volAvg > 0
-            volPts := math.min(15.0, math.max(0.0, (volume / volAvg - 0.70) / 0.90 * 15.0))
-        sc += volPts
+            volFrac := frac01(volume / volAvg - 0.70, math.max(tVol - 0.70, 0.01))
+        sc += volFrac * wVol * wNorm
 
-        // 5. Size of the leg being broken (0-15). Breaking a large, well-formed
-        //    leg is more meaningful than breaking a shallow one.
-        float legPts = 7.5
-        // na propagates through arithmetic, so an absent reference simply
-        // leaves legRaw na and the neutral 7.5 stands.
+        // 5. Size of the leg being broken — the only component that reads
+        //    structural context rather than the breaking candle itself.
+        //    na propagates through arithmetic, so an absent reference simply
+        //    leaves legRaw na and the neutral half-score stands.
+        float legFrac = 0.5
         float legRaw = isUp ? lvl - refLow : refHigh - lvl
         if not na(legRaw)
-            legPts := math.min(15.0, math.max(0.0, legRaw / atrVal / 2.0 * 15.0))
-        sc += legPts
+            legFrac := frac01(legRaw / atrVal, tLeg)
+        sc += legFrac * wLeg * wNorm
     math.round(sc)
 
 var int lastBreakBar = na
