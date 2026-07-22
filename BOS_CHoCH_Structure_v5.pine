@@ -1,0 +1,778 @@
+// =============================================================================
+// BOS / CHoCH Market Structure  —  v5
+//
+// IMPROVEMENTS OVER v4:
+//   * Alerts: BOS/CHoCH up/down + retest alerts for TradingView notifications.
+//   * Bugfix: lastBrokenHigh/Low now reset on opposite breaks — no more false
+//     duplicate filtering across trend reversals.
+//   * Bugfix: refHigh/refLow reset after breaks so ATR size filter works
+//     correctly in new legs.
+//   * Smart pending confirmation: opposite breaks cancel pending; upgrades to
+//     more extreme levels replace stale pending breaks instead of waiting.
+//   * Max history: auto-cleans old lines/labels so you never hit the 500 cap.
+//   * Unconfirmed break preview: ghost markers when confirmBars > 0.
+//   * Verbose labels: shows ATR clearance on each break.
+//   * Configurable line extension: set how many bars BOS/CHoCH lines extend
+//     right instead of running forever.
+//   * Optional candle coloring by bias.
+//   * Optional internal structure (faster swing length, thinner lines).
+// =============================================================================
+//@version=5
+indicator("BOS / CHoCH Structure v5", overlay = true, max_bars_back = 100, max_lines_count = 500, max_labels_count = 500)
+
+// =============================================================================
+// SENSITIVITY MASTER CONTROLS
+// =============================================================================
+grpP = "① Sensitivity presets"
+
+preset = input.string("Balanced", "Preset", group = grpP,
+     options = ["Very Loose", "Loose", "Balanced", "Strict", "Very Strict", "Custom"],
+     tooltip = "One control that sets every filter at once.\n\n" +
+       "VERY LOOSE — catches almost every structure break. Many signals, many false ones. Use to see raw structure or on very slow instruments.\n\n" +
+       "LOOSE — slightly filtered. Good for scalping lower timeframes where you accept noise for earlier entries.\n\n" +
+       "BALANCED — sensible default for intraday futures on 5M–15M. Starting point for most people.\n\n" +
+       "STRICT — only well-defined breaks with real displacement. Fewer signals, later, higher quality.\n\n" +
+       "VERY STRICT — only major structure. Use on higher timeframes or when you only want A+ setups.\n\n" +
+       "CUSTOM — ignores the preset and uses every manual value you set in the sections below.")
+
+sensDial = input.int(5, "Fine tune (1 = strictest, 10 = loosest)", minval = 1, maxval = 10, group = grpP,
+     tooltip = "Nudges the preset up or down without changing preset.\n\n" +
+       "5 = the preset exactly as designed.\n" +
+       "Above 5 = progressively looser (more signals, earlier, noisier).\n" +
+       "Below 5 = progressively stricter (fewer signals, later, cleaner).\n\n" +
+       "Ignored when Preset = Custom.\n\n" +
+       "Practical use: if a preset is close but gives slightly too many signals on your instrument, drop this to 3–4 rather than switching preset entirely.")
+
+// Preset base values ----------------------------------------------------------
+int   pSwing    = preset == "Very Loose" ? 3   : preset == "Loose" ? 4    : preset == "Balanced" ? 5    : preset == "Strict" ? 7    : preset == "Very Strict" ? 10 : 5
+float pAtrMult  = preset == "Very Loose" ? 0.0 : preset == "Loose" ? 0.25 : preset == "Balanced" ? 0.5  : preset == "Strict" ? 0.8  : preset == "Very Strict" ? 1.2  : 0.5
+float pStrength = preset == "Very Loose" ? 0.0 : preset == "Loose" ? 0.05 : preset == "Balanced" ? 0.10 : preset == "Strict" ? 0.20 : preset == "Very Strict" ? 0.35 : 0.10
+float pDisplace = preset == "Very Loose" ? 0.0 : preset == "Loose" ? 0.35 : preset == "Balanced" ? 0.60 : preset == "Strict" ? 0.90 : preset == "Very Strict" ? 1.30 : 0.60
+float pEqualTol = preset == "Very Loose" ? 0.0 : preset == "Loose" ? 0.10 : preset == "Balanced" ? 0.15 : preset == "Strict" ? 0.25 : preset == "Very Strict" ? 0.35 : 0.15
+int   pCooldown = preset == "Very Loose" ? 0   : preset == "Loose" ? 2    : preset == "Balanced" ? 3    : preset == "Strict" ? 5    : preset == "Very Strict" ? 8    : 3
+
+// Dial scaling: 5 = neutral. Loosen (>5) shrinks thresholds, tighten (<5) grows them.
+float dialScale = math.pow(0.82, sensDial - 5)   // >5 → <1 (looser), <5 → >1 (stricter)
+float dialSwing = math.pow(0.90, sensDial - 5)
+
+// =============================================================================
+// CORE STRUCTURE SETTINGS
+// =============================================================================
+grpS = "② Core structure"
+
+mSwingLen = input.int(5, "Swing pivot length", minval = 1, group = grpS,
+     tooltip = "THE MOST IMPORTANT SETTING.\n\n" +
+       "How many bars must sit on each side of a candle for it to count as a swing high/low.\n\n" +
+       "LOWER (2–4) = detects small swings. More structure points, more signals, more noise. Also less confirmation lag.\n" +
+       "HIGHER (7–12) = only major swings. Cleaner structure, far fewer signals, more lag.\n\n" +
+       "This directly sets your confirmation delay: a swing cannot be confirmed until this many bars after it forms. At 5, labels appear ~5 bars late. That lag is unavoidable with pivot detection.\n\n" +
+       "Only used when Preset = Custom.")
+
+mAtrLen = input.int(14, "ATR length", minval = 1, group = grpS,
+     tooltip = "Lookback for the ATR used by every size-based filter below.\n\n" +
+       "SHORTER (7–10) = ATR reacts fast to volatility changes, so filters tighten and loosen quickly. Good for sessions with sharp volatility shifts.\n" +
+       "LONGER (20–50) = smoother, more stable thresholds. Less reactive to a single volatile bar.\n\n" +
+       "14 is standard and fine for most futures intraday work. This is used in all presets.")
+
+mUseAtrFilter = input.bool(true, "Filter minor swings by size", group = grpS,
+     tooltip = "Ignores swing points that are too small to be real structure.\n\n" +
+       "ON = a pivot only counts if it moved far enough from the last opposite swing. Removes the tiny wiggles inside consolidation that would otherwise be labelled as structure.\n" +
+       "OFF = every detected pivot counts, including micro-swings inside chop.\n\n" +
+       "Recommend leaving ON. Turn off only if you want to see raw unfiltered pivot structure.")
+
+mAtrMult = input.float(0.5, "  Min swing size (× ATR)", minval = 0.0, step = 0.05, group = grpS,
+     tooltip = "How far a pivot must be from the previous opposite swing to count as structure, measured in ATR.\n\n" +
+       "0.0–0.2 = almost nothing filtered. Very sensitive.\n" +
+       "0.4–0.6 = balanced. Filters obvious chop, keeps real swings.\n" +
+       "1.0+ = only large structural swings survive.\n\n" +
+       "MOVE UP if consolidation is being labelled as structure.\n" +
+       "MOVE DOWN if it's missing swings you'd clearly mark by hand.\n\n" +
+       "Only used when Preset = Custom.")
+
+// =============================================================================
+// BREAK-QUALITY FILTERS
+// =============================================================================
+grpF = "③ Break quality filters"
+
+mUseStrength = input.bool(true, "Require break strength", group = grpF,
+     tooltip = "Requires price to close BEYOND the level by a meaningful amount, not just one tick past it.\n\n" +
+       "ON = filters out marginal breaks that clear the level by a hair and immediately fail back inside. This is one of the highest-value filters.\n" +
+       "OFF = any close past the level counts, even by a single tick.\n\n" +
+       "Strongly recommend ON.")
+
+mStrength = input.float(0.10, "  Min clearance beyond level (× ATR)", minval = 0.0, step = 0.05, group = grpF,
+     tooltip = "How far past the level the close must be, in ATR.\n\n" +
+       "0.05 = barely filtered, catches nearly everything.\n" +
+       "0.10–0.20 = balanced. Removes tick-through fakeouts.\n" +
+       "0.30+ = only decisive breaks. Notably fewer signals and later entries.\n\n" +
+       "TRADEOFF: raising this improves quality but you enter later and miss breaks that were real but shallow.\n\n" +
+       "Only used when Preset = Custom.")
+
+mUseDisplace = input.bool(true, "Require displacement candle", group = grpF,
+     tooltip = "Requires the candle that breaks the level to have real size relative to recent volatility.\n\n" +
+       "ON = a break on a tiny indecision candle is rejected. Genuine institutional breaks usually come with expansion.\n" +
+       "OFF = any candle can break structure, including dojis.\n\n" +
+       "Recommend ON. This is the second-highest-value filter after break strength.")
+
+mDisplace = input.float(0.6, "  Min candle range (× ATR)", minval = 0.0, step = 0.1, group = grpF,
+     tooltip = "How large the breaking candle's full range must be, in ATR.\n\n" +
+       "0.3 = permissive, most candles qualify.\n" +
+       "0.6–0.8 = balanced. Requires visible expansion.\n" +
+       "1.2+ = only strong impulsive candles qualify. Few signals.\n\n" +
+       "MOVE UP if you're seeing weak breaks that stall immediately.\n" +
+       "MOVE DOWN if real breaks are being skipped in low-volatility sessions.\n\n" +
+       "Only used when Preset = Custom.")
+
+mUseBodyRatio = input.bool(false, "  Also require body > 50% of range", group = grpF,
+     tooltip = "Adds a conviction test on top of the range test.\n\n" +
+       "ON = the candle body must be more than half its total range, so a long-wicked rejection candle won't count as a break even if its range is large.\n" +
+       "OFF = only total range matters.\n\n" +
+       "Turn ON if you're getting breaks on candles that spiked through and closed back near their open.")
+
+mUseWickReject = input.bool(false, "Reject long-wick breaks", group = grpF,
+     tooltip = "Rejects breaks where the candle left a large wick BEYOND the level, which suggests the move was rejected rather than accepted.\n\n" +
+       "ON = if the wick past the level is bigger than the body past the level, the break is skipped. Useful for filtering liquidity sweeps that get labelled as breaks.\n" +
+       "OFF = wick shape is ignored.\n\n" +
+       "TRADEOFF: this can filter out genuine sweep-then-reverse setups that you may actually want to trade. Turn on only if wick-fakeouts are your main problem.")
+
+mUseVolume = input.bool(false, "Require volume expansion", group = grpF,
+     tooltip = "Requires the breaking candle to trade above its recent average volume.\n\n" +
+       "ON = breaks on thin volume are rejected. Real structure breaks usually come with participation.\n" +
+       "OFF = volume ignored.\n\n" +
+       "IMPORTANT: only meaningful on instruments with reliable volume data. On futures this generally works well; on some CFDs and forex feeds volume is synthetic and this filter will behave unpredictably. Verify your feed before trusting it.")
+
+mVolMult = input.float(1.2, "  Min volume (× average)", minval = 0.1, step = 0.1, group = grpF,
+     tooltip = "How much above average volume the breaking candle must be.\n\n" +
+       "1.0 = merely average volume.\n" +
+       "1.2–1.5 = clear expansion. Balanced.\n" +
+       "2.0+ = only high-participation breaks. Very restrictive.\n\n" +
+       "Only applies when 'Require volume expansion' is ON.")
+
+mVolLen = input.int(20, "  Volume average length", minval = 1, group = grpF,
+     tooltip = "Lookback for the average volume comparison.\n\n" +
+       "SHORTER (10) = compares against very recent activity, adapts quickly within a session.\n" +
+       "LONGER (50) = compares against a broader baseline, less affected by a single busy period.\n\n" +
+       "20 is a reasonable default for intraday.")
+
+mUseEqualTol = input.bool(true, "Merge near-equal levels", group = grpF,
+     tooltip = "Treats levels that sit within a small band of each other as the SAME level.\n\n" +
+       "ON = prevents the indicator printing two labels for what is really one double top or double bottom.\n" +
+       "OFF = each pivot is treated as a distinct level even if they're nearly identical.\n\n" +
+       "Recommend ON. Equal highs/lows are common and double-labelling them clutters the chart.")
+
+mEqualTol = input.float(0.15, "  Equal-level tolerance (× ATR)", minval = 0.0, step = 0.05, group = grpF,
+     tooltip = "How close two levels must be to be considered the same level, in ATR.\n\n" +
+       "0.05 = only near-identical prices merge.\n" +
+       "0.15 = balanced.\n" +
+       "0.30+ = aggressively merges nearby levels, which can suppress genuine separate breaks.\n\n" +
+       "Only used when Preset = Custom.")
+
+mCooldown = input.int(3, "Min bars between breaks", minval = 0, group = grpF,
+     tooltip = "Forces a gap between labelled breaks.\n\n" +
+       "0 = no cooldown, breaks can print on consecutive bars.\n" +
+       "3–5 = balanced. Stops rapid-fire labelling during chop.\n" +
+       "8+ = heavily throttled, only well-separated structure shifts appear.\n\n" +
+       "TRADEOFF: a high cooldown can suppress a genuine fast reversal that legitimately breaks structure twice in quick succession.\n\n" +
+       "Only used when Preset = Custom.")
+
+mConfirmBars = input.int(0, "Confirmation bars after break", minval = 0, maxval = 5, group = grpF,
+     tooltip = "Waits N bars after a break and only labels it if price is STILL beyond the level.\n\n" +
+       "0 = label immediately on the breaking candle's close.\n" +
+       "1–2 = waits for follow-through. Cuts fakeouts noticeably.\n" +
+       "3–5 = very conservative, but the label arrives well after the move started.\n\n" +
+       "TRADEOFF: this is the most direct quality-vs-lag dial in the indicator. Every bar you add here is a bar of entry you give up. Use it if fakeouts cost you more than late entries do.")
+
+mStrictBreak = input.bool(false, "Strict: full body beyond level", group = grpF,
+     tooltip = "Requires BOTH the open and the close to be beyond the level, not just the close.\n\n" +
+       "ON = the entire candle body must clear the level. Very restrictive, meaningfully later.\n" +
+       "OFF = a close beyond the level is enough (standard).\n\n" +
+       "Most people should leave this OFF and use break strength instead, which achieves a similar goal with less lag.")
+
+// =============================================================================
+// CONTEXT FILTERS
+// =============================================================================
+grpX = "④ Context filters"
+
+mUseTrendFilter = input.bool(false, "Only signal with EMA trend", group = grpX,
+     tooltip = "Suppresses breaks that go against a longer-term EMA.\n\n" +
+       "ON = bullish breaks only print when price is above the EMA, bearish breaks only when below. Aligns signals with the prevailing trend.\n" +
+       "OFF = all breaks print regardless of trend context.\n\n" +
+       "IMPORTANT TRADEOFF: this will suppress the very first CHoCH of a genuine reversal, because that's precisely the signal that fires against the trend. If you trade reversals, leave this OFF.")
+
+mTrendLen = input.int(50, "  EMA length", minval = 1, group = grpX,
+     tooltip = "Length of the trend EMA used by the filter above.\n\n" +
+       "SHORTER (20) = follows price closely, filter flips often.\n" +
+       "LONGER (100–200) = defines a slower, more structural trend.\n\n" +
+       "Only applies when 'Only signal with EMA trend' is ON.")
+
+mUseSession = input.bool(false, "Restrict to a session", group = grpX,
+     tooltip = "Only detects structure breaks inside a chosen time window.\n\n" +
+       "ON = ignores overnight and low-liquidity chop, which produces a lot of low-quality structure.\n" +
+       "OFF = analyses all bars.\n\n" +
+       "Useful if you trade a specific window, since breaks outside your session aren't actionable anyway.")
+
+mSession = input.session("0930-1600", "  Session window", group = grpX,
+     tooltip = "The time window to analyse, in exchange time.\n\n" +
+       "Examples:\n" +
+       "0930-1600 = US regular cash session\n" +
+       "0830-1130 = US morning only\n" +
+       "0200-0500 = London session\n\n" +
+       "Set your chart timezone correctly or this window won't land where you expect.")
+
+// =============================================================================
+// DISPLAY & HISTORY SETTINGS
+// =============================================================================
+grpD = "⑤ Display & history"
+
+showLabels = input.bool(true, "BOS / CHoCH labels", group = grpD,
+     tooltip = "Text labels on each break. Turn off for a cleaner chart if the coloured lines are enough.")
+labelSize  = input.string("Small", "Label size", options = ["Tiny", "Small", "Normal"], group = grpD,
+     tooltip = "Text size for break labels. Use Tiny on dense lower-timeframe charts.")
+verboseLabels = input.bool(false, "Verbose labels (show ATR clearance)", group = grpD,
+     tooltip = "ON = labels show 'BOS +0.3' or 'CHoCH -0.2' indicating how many ATR the break cleared beyond the level. Useful for quickly judging break quality.")
+showLiveLv = input.bool(true, "Live (unbroken) levels", group = grpD,
+     tooltip = "Dotted lines showing the levels price is CURRENTLY working against, before any break.\n\nThis is the most useful setting for live trading: it shows what needs to break for a signal to fire, so you can plan the trade before the label appears.")
+showPivots = input.bool(false, "Raw pivot markers", group = grpD,
+     tooltip = "Small triangles on every detected swing high/low, including ones the filters rejected.\n\nUseful for DIAGNOSIS: if the indicator is missing structure you'd mark by hand, turn this on to see whether the pivot was detected but filtered out, or never detected at all.")
+tintBias   = input.bool(false, "Tint background by bias", group = grpD,
+     tooltip = "Colours the chart background by current structure bias. Some find it useful for at-a-glance context, others find it distracting.")
+colorCandles = input.bool(false, "Color candles by bias", group = grpD,
+     tooltip = "Colours OHLC candles based on current structure bias. Bullish = BOS colour, Bearish = CHoCH colour, Neutral = default. Independent of background tint.")
+showTable  = input.bool(true, "Status table", group = grpD,
+     tooltip = "Corner panel showing current bias, the exact watched levels, bars since the last break, ATR, and active preset.\n\nThe numeric levels are the useful part: copy them straight into your trade journal rather than reading them off the chart.")
+maxHistory = input.int(50, "Max breaks to draw (0 = unlimited)", minval = 0, maxval = 200, group = grpD,
+     tooltip = "Limits how many historical BOS/CHoCH lines and labels remain on chart. Oldest auto-delete when exceeded.\n\n0 = no limit (may hit TradingView's 500 cap on busy charts).\n50 = keeps chart clean on intraday timeframes.\n\nLive levels and pivot markers are not counted.")
+
+showUnconfirmed = input.bool(true, "Show unconfirmed break preview", group = grpD,
+     tooltip = "When Confirmation Bars > 0, draws a faint ghost marker at the break level while waiting for confirmation. Lets you see the break forming in real time rather than waiting blindly.")
+
+// =============================================================================
+// INTERNAL STRUCTURE (Optional)
+// =============================================================================
+grpI = "⑥ Internal structure (optional)"
+
+useInternal = input.bool(false, "Show internal structure", group = grpI,
+     tooltip = "Tracks a second, faster swing length for minor structure inside the current leg.\n\nInternal BOS = minor break WITH trend.\nInternal CHoCH = minor break AGAINST trend (early reversal warning).\n\nDrawn with thinner, semi-transparent lines. Useful for entry timing within a higher-timeframe bias.")
+intSwingLen = input.int(3, "Internal swing length", minval = 1, group = grpI,
+     tooltip = "Must be smaller than main Swing Pivot Length. 2–3 is typical.")
+intLineWidth = input.int(1, "Internal line width", minval = 1, maxval = 3, group = grpI)
+intTransparency = input.int(65, "Internal line transparency", minval = 0, maxval = 90, group = grpI)
+
+// =============================================================================
+// LINE / VISUAL SETTINGS
+// =============================================================================
+grpB = "⑦ BOS lines"
+colBOS       = input.color(#38BDF8, "BOS colour", group = grpB,
+     tooltip = "Colour for Break of Structure lines and labels. BOS = a break WITH the existing trend, confirming continuation.")
+bosLineStyle = input.string("Solid", "BOS line style", options = ["Solid", "Dashed", "Dotted"], group = grpB,
+     tooltip = "Line style for BOS levels. Solid reads as more definitive, which suits continuation signals.")
+bosLineWidth = input.int(2, "BOS line width", minval = 1, maxval = 4, group = grpB,
+     tooltip = "Thickness of BOS lines. Raise if you're on a large monitor or find them hard to see.")
+bosExtendBars = input.int(0, "Extend BOS lines right (bars)", minval = 0, maxval = 500, group = grpB,
+     tooltip = "How many bars to draw the BOS line forward from the break bar.\n\n0 = line stops at the break bar (cleanest).\n20 = extends 20 bars forward.\n100 = extends 100 bars forward.\n\nUnlike 'extend.right' which runs forever, this keeps your chart clean on the right edge while still showing relevant levels ahead.")
+bosVertical  = input.bool(false, "Vertical marker on BOS bar", group = grpB,
+     tooltip = "Draws a small vertical tick on the exact bar where the BOS was confirmed, making the timing unambiguous.")
+showBOSLines = input.bool(true, "Draw BOS lines", group = grpB,
+     tooltip = "Master switch for all BOS line drawing. Turn off if you only care about CHoCH reversals.")
+
+grpC = "⑧ CHoCH lines"
+colCHoCH       = input.color(#FB923C, "CHoCH colour", group = grpC,
+     tooltip = "Colour for Change of Character lines and labels. CHoCH = a break AGAINST the existing trend, signalling a possible reversal.")
+chochLineStyle = input.string("Dashed", "CHoCH line style", options = ["Solid", "Dashed", "Dotted"], group = grpC,
+     tooltip = "Line style for CHoCH levels. Dashed distinguishes them from BOS at a glance.")
+chochLineWidth = input.int(2, "CHoCH line width", minval = 1, maxval = 4, group = grpC,
+     tooltip = "Thickness of CHoCH lines.")
+chochExtendBars = input.int(50, "Extend CHoCH lines right (bars)", minval = 0, maxval = 500, group = grpC,
+     tooltip = "How many bars to draw the CHoCH line forward from the break bar.\n\n0 = line stops at the break bar.\n50 = extends 50 bars forward (default — enough to see retests without clutter).\n200 = extends 200 bars.\n\nCHoCH levels often act as support/resistance, so some extension is useful. But 'forever' clutters the chart. Adjust to your timeframe: lower on 1M, higher on 1H+.")
+chochVertical  = input.bool(true, "Vertical marker on CHoCH bar", group = grpC,
+     tooltip = "ON (default) = marks the exact CHoCH bar. CHoCH signals are the easiest to misread in real time, so the precise bar is worth showing.")
+showCHoCHLines = input.bool(true, "Draw CHoCH lines", group = grpC,
+     tooltip = "Master switch for all CHoCH line drawing.")
+
+lblSize = labelSize == "Tiny" ? size.tiny : labelSize == "Normal" ? size.normal : size.small
+styleOf(s) => s == "Solid" ? line.style_solid : s == "Dashed" ? line.style_dashed : line.style_dotted
+
+// =============================================================================
+// RESOLVE EFFECTIVE VALUES (preset vs custom)
+// =============================================================================
+bool isCustom = preset == "Custom"
+
+int   swingLen     = isCustom ? mSwingLen : math.max(1, int(math.round(pSwing * dialSwing)))
+int   atrLen       = mAtrLen
+bool  useAtrFilter = isCustom ? mUseAtrFilter : pAtrMult > 0
+float atrMult      = isCustom ? mAtrMult : pAtrMult * dialScale
+
+bool  useStrength  = isCustom ? mUseStrength : pStrength > 0
+float strengthMult = isCustom ? mStrength : pStrength * dialScale
+
+bool  useDisplace  = isCustom ? mUseDisplace : pDisplace > 0
+float displaceMult = isCustom ? mDisplace : pDisplace * dialScale
+bool  useBodyRatio = mUseBodyRatio
+
+bool  useEqualTol  = isCustom ? mUseEqualTol : pEqualTol > 0
+float equalTolMult = isCustom ? mEqualTol : pEqualTol * dialScale
+
+int   cooldownBars = isCustom ? mCooldown : int(math.round(pCooldown * dialScale))
+
+bool  strictBreak  = mStrictBreak
+int   confirmBars  = mConfirmBars
+
+// =============================================================================
+// CORE CALCULATIONS
+// =============================================================================
+atrVal = ta.atr(atrLen)
+emaVal = ta.ema(close, mTrendLen)
+volAvg = ta.sma(volume, mVolLen)
+
+bool inSession = not mUseSession or not na(time(timeframe.period, mSession))
+
+float ph = ta.pivothigh(high, swingLen, swingLen)
+float pl = ta.pivotlow(low, swingLen, swingLen)
+
+// Internal structure pivots
+float iPh = useInternal ? ta.pivothigh(high, intSwingLen, intSwingLen) : na
+float iPl = useInternal ? ta.pivotlow(low, intSwingLen, intSwingLen) : na
+
+var float watchHigh    = na
+var int   watchHighBar = na
+var float watchLow     = na
+var int   watchLowBar  = na
+var float refHigh = na
+var float refLow  = na
+var float lastBrokenHigh = na
+var float lastBrokenLow  = na
+
+// Internal structure vars
+var float iWatchHigh = na
+var int   iWatchHighBar = na
+var float iWatchLow = na
+var int   iWatchLowBar = na
+var float iRefHigh = na
+var float iRefLow = na
+
+// =============================================================================
+// HISTORY MANAGEMENT ARRAYS
+// =============================================================================
+var array<line> histLines = array.new_line(0)
+var array<label> histLabels = array.new_label(0)
+var array<line> histVertLines = array.new_line(0)
+
+deleteOldest() =>
+    if maxHistory > 0
+        while array.size(histLines) > maxHistory
+            line.delete(array.shift(histLines))
+        while array.size(histLabels) > maxHistory
+            label.delete(array.shift(histLabels))
+        while array.size(histVertLines) > maxHistory
+            line.delete(array.shift(histVertLines))
+
+// =============================================================================
+// SWING DETECTION
+// =============================================================================
+if not na(ph)
+    bool bigEnough = not useAtrFilter or na(refLow) or (ph - refLow) >= atrMult * atrVal
+    if bigEnough
+        watchHigh    := ph
+        watchHighBar := bar_index - swingLen
+        refHigh      := ph
+
+if not na(pl)
+    bool bigEnough = not useAtrFilter or na(refHigh) or (refHigh - pl) >= atrMult * atrVal
+    if bigEnough
+        watchLow    := pl
+        watchLowBar := bar_index - swingLen
+        refLow      := pl
+
+// Anchor to true leg extreme
+if not na(watchHigh) and high > watchHigh and close <= watchHigh
+    watchHigh    := high
+    watchHighBar := bar_index
+if not na(watchLow) and low < watchLow and close >= watchLow
+    watchLow    := low
+    watchLowBar := bar_index
+
+// Internal swing detection
+if useInternal
+    if not na(iPh)
+        bool iBig = not useAtrFilter or na(iRefLow) or (iPh - iRefLow) >= atrMult * atrVal * 0.5
+        if iBig
+            iWatchHigh    := iPh
+            iWatchHighBar := bar_index - intSwingLen
+            iRefHigh      := iPh
+    if not na(iPl)
+        bool iBig = not useAtrFilter or na(iRefHigh) or (iRefHigh - iPl) >= atrMult * atrVal * 0.5
+        if iBig
+            iWatchLow    := iPl
+            iWatchLowBar := bar_index - intSwingLen
+            iRefLow      := iPl
+    if not na(iWatchHigh) and high > iWatchHigh and close <= iWatchHigh
+        iWatchHigh    := high
+        iWatchHighBar := bar_index
+    if not na(iWatchLow) and low < iWatchLow and close >= iWatchLow
+        iWatchLow    := low
+        iWatchLowBar := bar_index
+
+// ---------------------------- Break candidate --------------------------------
+float upRef   = strictBreak ? math.min(open, close) : close
+float downRef = strictBreak ? math.max(open, close) : close
+float clearance = useStrength ? strengthMult * atrVal : 0.0
+
+float candleRange = high - low
+float candleBody  = math.abs(close - open)
+bool  hasDisplace = not useDisplace or (candleRange >= displaceMult * atrVal and (not useBodyRatio or candleBody >= candleRange * 0.5))
+bool  hasVolume   = not mUseVolume or na(volAvg) or volume >= volAvg * mVolMult
+
+var int lastBreakBar = na
+bool coolOk = cooldownBars == 0 or na(lastBreakBar) or (bar_index - lastBreakBar) >= cooldownBars
+
+float eqTol = useEqualTol ? equalTolMult * atrVal : 0.0
+
+// Wick rejection: wick beyond level larger than body beyond level
+bool wickOkUp   = not mUseWickReject or na(watchHigh) or (high - math.max(open, close)) <= math.max(close - watchHigh, 0.0)
+bool wickOkDown = not mUseWickReject or na(watchLow)  or (math.min(open, close) - low)  <= math.max(watchLow - close, 0.0)
+
+bool trendOkUp   = not mUseTrendFilter or close > emaVal
+bool trendOkDown = not mUseTrendFilter or close < emaVal
+
+bool rawUp   = not na(watchHigh) and upRef   > watchHigh + clearance
+bool rawDown = not na(watchLow)  and downRef < watchLow  - clearance
+
+bool upNotDup   = na(lastBrokenHigh) or na(watchHigh) or math.abs(watchHigh - lastBrokenHigh) > eqTol
+bool downNotDup = na(lastBrokenLow)  or na(watchLow)  or math.abs(watchLow  - lastBrokenLow)  > eqTol
+
+bool candUp   = rawUp   and hasDisplace and hasVolume and coolOk and upNotDup   and wickOkUp   and trendOkUp   and inSession
+bool candDown = rawDown and hasDisplace and hasVolume and coolOk and downNotDup and wickOkDown and trendOkDown and inSession
+
+// Internal break candidates
+bool iRawUp   = useInternal and not na(iWatchHigh) and close > iWatchHigh
+bool iRawDown = useInternal and not na(iWatchLow)  and close < iWatchLow
+bool iCandUp  = iRawUp  and hasDisplace and hasVolume and trendOkUp   and inSession
+bool iCandDown= iRawDown and hasDisplace and hasVolume and trendOkDown and inSession
+
+// ---------------------------- Smart confirmation delay -----------------------
+var int   pendDir   = 0      // 1 up, -1 down, 0 none
+var int   pendBar   = na
+var float pendLevel = na
+var int   pendLevelBar = na
+var float pendClearance = 0.0
+
+bool fireUp   = false
+bool fireDown = false
+float fireLevel = na
+int   fireLevelBar = na
+float fireClearance = 0.0
+
+if confirmBars == 0
+    fireUp   := candUp
+    fireDown := candDown
+    fireLevel := candUp ? watchHigh : candDown ? watchLow : na
+    fireLevelBar := candUp ? watchHighBar : candDown ? watchLowBar : na
+    fireClearance := candUp ? (upRef - watchHigh) / atrVal : candDown ? (watchLow - downRef) / atrVal : 0.0
+else
+    // Cancel or upgrade pending breaks
+    if pendDir == 1
+        bool cancelled = close < pendLevel - eqTol or candDown
+        bool upgraded  = candUp and not na(watchHigh) and watchHigh > pendLevel + eqTol
+        if cancelled or upgraded
+            pendDir := 0
+            pendBar := na
+            pendLevel := na
+            pendLevelBar := na
+            pendClearance := 0.0
+            if upgraded
+                pendDir := 1
+                pendBar := bar_index
+                pendLevel := watchHigh
+                pendLevelBar := watchHighBar
+                pendClearance := (upRef - watchHigh) / atrVal
+    else if pendDir == -1
+        bool cancelled = close > pendLevel + eqTol or candUp
+        bool upgraded  = candDown and not na(watchLow) and watchLow < pendLevel - eqTol
+        if cancelled or upgraded
+            pendDir := 0
+            pendBar := na
+            pendLevel := na
+            pendLevelBar := na
+            pendClearance := 0.0
+            if upgraded
+                pendDir := -1
+                pendBar := bar_index
+                pendLevel := watchLow
+                pendLevelBar := watchLowBar
+                pendClearance := (watchLow - downRef) / atrVal
+
+    // Start new pending if none active
+    if pendDir == 0
+        if candUp
+            pendDir := 1
+            pendBar := bar_index
+            pendLevel := watchHigh
+            pendLevelBar := watchHighBar
+            pendClearance := atrVal > 0 ? (upRef - watchHigh) / atrVal : 0.0
+        else if candDown
+            pendDir := -1
+            pendBar := bar_index
+            pendLevel := watchLow
+            pendLevelBar := watchLowBar
+            pendClearance := atrVal > 0 ? (watchLow - downRef) / atrVal : 0.0
+
+    // Check for confirmation
+    if pendDir != 0 and bar_index - pendBar >= confirmBars
+        bool stillUp   = pendDir ==  1 and close > pendLevel
+        bool stillDown = pendDir == -1 and close < pendLevel
+        if stillUp
+            fireUp := true
+            fireLevel := pendLevel
+            fireLevelBar := pendLevelBar
+            fireClearance := pendClearance
+        if stillDown
+            fireDown := true
+            fireLevel := pendLevel
+            fireLevelBar := pendLevelBar
+            fireClearance := pendClearance
+        pendDir := 0
+        pendBar := na
+        pendLevel := na
+        pendLevelBar := na
+        pendClearance := 0.0
+
+// ---------------------------- State machine ----------------------------------
+var int bias = 0
+
+drawBreak(bool isUp, float lvl, int lvlBar, float clr, string txt, color col, string lStyle, int lWidth, int lExtendBars, bool lVert, bool showLine) =>
+    deleteOldest()
+    string labelText = txt
+    if verboseLabels and atrVal > 0
+        string sign = isUp ? "+" : "-"
+        labelText := txt + " " + sign + str.tostring(math.abs(clr), "#.#")
+    if showLabels
+        label lbl = label.new(bar_index, isUp ? high + atrVal * 0.6 : low - atrVal * 0.6, labelText,
+             style = isUp ? label.style_label_down : label.style_label_up,
+             color = color.new(color.black, 15), textcolor = col, size = lblSize)
+        array.push(histLabels, lbl)
+    if showLine
+        int rightBar = lExtendBars > 0 ? bar_index + lExtendBars : bar_index
+        line ln = line.new(lvlBar, lvl, rightBar, lvl,
+             color = col, style = styleOf(lStyle), width = lWidth)
+        array.push(histLines, ln)
+        if lVert
+            line vln = line.new(bar_index, lvl, bar_index, isUp ? high + atrVal * 0.4 : low - atrVal * 0.4,
+                 color = color.new(col, 45), style = line.style_dotted, width = 1)
+            array.push(histVertLines, vln)
+
+if fireUp and not na(fireLevel)
+    bool isChoch = bias <= 0
+    color col    = isChoch ? colCHoCH : colBOS
+    bool  drawIt = isChoch ? showCHoCHLines : showBOSLines
+    string txt   = isChoch ? "CHoCH" : "BOS"
+
+    drawBreak(true, fireLevel, fireLevelBar, fireClearance, txt, col,
+         isChoch ? chochLineStyle : bosLineStyle,
+         isChoch ? chochLineWidth : bosLineWidth,
+         isChoch ? chochExtendBars : bosExtendBars,
+         isChoch ? chochVertical : bosVertical,
+         drawIt)
+
+    // v5 FIX: reset opposite duplicate filter so old levels don't block new structure
+    lastBrokenHigh := fireLevel
+    lastBrokenLow  := na
+    bias           := 1
+    lastBreakBar   := bar_index
+    watchHigh      := na
+    watchHighBar   := na
+    watchLow       := na
+    watchLowBar    := na
+    // v5 FIX: reset ATR references so next leg is evaluated fresh
+    refHigh        := na
+    refLow         := na
+
+if fireDown and not na(fireLevel)
+    bool isChoch = bias >= 0
+    color col    = isChoch ? colCHoCH : colBOS
+    bool  drawIt = isChoch ? showCHoCHLines : showBOSLines
+    string txt   = isChoch ? "CHoCH" : "BOS"
+
+    drawBreak(false, fireLevel, fireLevelBar, fireClearance, txt, col,
+         isChoch ? chochLineStyle : bosLineStyle,
+         isChoch ? chochLineWidth : bosLineWidth,
+         isChoch ? chochExtendBars : bosExtendBars,
+         isChoch ? chochVertical : bosVertical,
+         drawIt)
+
+    // v5 FIX: reset opposite duplicate filter
+    lastBrokenLow  := fireLevel
+    lastBrokenHigh := na
+    bias           := -1
+    lastBreakBar   := bar_index
+    watchLow       := na
+    watchLowBar    := na
+    watchHigh      := na
+    watchHighBar   := na
+    // v5 FIX: reset ATR references
+    refHigh        := na
+    refLow         := na
+
+// ---------------------------- Internal structure breaks ----------------------
+if useInternal
+    if iCandUp and not na(iWatchHigh)
+        bool iIsChoch = bias <= 0
+        color iCol = iIsChoch ? colCHoCH : colBOS
+        string iTxt = iIsChoch ? "i-CHoCH" : "i-BOS"
+        if showLabels
+            label.new(bar_index, high + atrVal * 0.3, iTxt,
+                 style = label.style_label_down, color = color.new(color.black, 15),
+                 textcolor = color.new(iCol, intTransparency), size = size.tiny)
+        line.new(iWatchHighBar, iWatchHigh, bar_index + 30, iWatchHigh,
+             color = color.new(iCol, intTransparency), style = line.style_dotted,
+             width = intLineWidth)
+        iWatchHigh := na
+        iWatchHighBar := na
+        iWatchLow := na
+        iWatchLowBar := na
+        iRefHigh := na
+        iRefLow := na
+
+    if iCandDown and not na(iWatchLow)
+        bool iIsChoch = bias >= 0
+        color iCol = iIsChoch ? colCHoCH : colBOS
+        string iTxt = iIsChoch ? "i-CHoCH" : "i-BOS"
+        if showLabels
+            label.new(bar_index, low - atrVal * 0.3, iTxt,
+                 style = label.style_label_up, color = color.new(color.black, 15),
+                 textcolor = color.new(iCol, intTransparency), size = size.tiny)
+        line.new(iWatchLowBar, iWatchLow, bar_index + 30, iWatchLow,
+             color = color.new(iCol, intTransparency), style = line.style_dotted,
+             width = intLineWidth)
+        iWatchLow := na
+        iWatchLowBar := na
+        iWatchHigh := na
+        iWatchHighBar := na
+        iRefHigh := na
+        iRefLow := na
+
+// ---------------------------- Unconfirmed preview ----------------------------
+var line pendLine = na
+if showUnconfirmed and confirmBars > 0
+    if pendDir != 0 and not na(pendLevel)
+        line.delete(pendLine)
+        color pendCol = pendDir == 1 ? color.new(colBOS, 75) : color.new(colCHoCH, 75)
+        pendLine := line.new(pendLevelBar, pendLevel, bar_index, pendLevel,
+             color = pendCol, style = line.style_dotted, width = 1)
+    else
+        line.delete(pendLine)
+        pendLine := na
+else
+    line.delete(pendLine)
+    pendLine := na
+
+// ---------------------------- Live levels ------------------------------------
+var line liveHiLine = na
+var line liveLoLine = na
+
+if barstate.islast
+    line.delete(liveHiLine)
+    line.delete(liveLoLine)
+    if showLiveLv and not na(watchHigh)
+        liveHiLine := line.new(watchHighBar, watchHigh, bar_index + 20, watchHigh,
+             color = color.new(colBOS, 60), style = line.style_dotted, width = 1)
+    if showLiveLv and not na(watchLow)
+        liveLoLine := line.new(watchLowBar, watchLow, bar_index + 20, watchLow,
+             color = color.new(colCHoCH, 60), style = line.style_dotted, width = 1)
+
+// ---------------------------- Pivot markers ----------------------------------
+plotshape(showPivots and not na(ph), title = "Swing High", location = location.abovebar,
+     style = shape.triangledown, color = color.new(color.gray, 60), size = size.tiny, offset = -swingLen)
+plotshape(showPivots and not na(pl), title = "Swing Low", location = location.belowbar,
+     style = shape.triangleup, color = color.new(color.gray, 60), size = size.tiny, offset = -swingLen)
+
+bgcolor(tintBias and bias ==  1 ? color.new(colBOS, 94) : na, title = "Bullish bias")
+bgcolor(tintBias and bias == -1 ? color.new(colCHoCH, 94) : na, title = "Bearish bias")
+
+// Candle coloring
+barcolor(colorCandles ? (bias == 1 ? colBOS : bias == -1 ? colCHoCH : na) : na)
+
+// ---------------------------- Status table -----------------------------------
+var table st = table.new(position.top_right, 2, 7,
+     border_width = 1, border_color = color.new(color.gray, 70), frame_width = 0)
+
+if showTable and barstate.islast
+    color  biasCol = bias == 1 ? colBOS : bias == -1 ? colCHoCH : color.gray
+    string biasTxt = bias == 1 ? "Bullish" : bias == -1 ? "Bearish" : "Undefined"
+    color  cellBg  = color.new(color.black, 20)
+
+    table.cell(st, 0, 0, "Preset", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
+    table.cell(st, 1, 0, preset + (isCustom ? "" : " · " + str.tostring(sensDial)),
+         text_color = color.white, text_size = size.tiny, bgcolor = cellBg)
+
+    table.cell(st, 0, 1, "Bias", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
+    table.cell(st, 1, 1, biasTxt, text_color = biasCol, text_size = size.tiny, bgcolor = cellBg)
+
+    table.cell(st, 0, 2, "Watch high", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
+    table.cell(st, 1, 2, na(watchHigh) ? "—" : str.tostring(watchHigh, format.mintick),
+         text_color = colBOS, text_size = size.tiny, bgcolor = cellBg)
+
+    table.cell(st, 0, 3, "Watch low", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
+    table.cell(st, 1, 3, na(watchLow) ? "—" : str.tostring(watchLow, format.mintick),
+         text_color = colCHoCH, text_size = size.tiny, bgcolor = cellBg)
+
+    table.cell(st, 0, 4, "Bars since break", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
+    table.cell(st, 1, 4, na(lastBreakBar) ? "—" : str.tostring(bar_index - lastBreakBar),
+         text_color = color.white, text_size = size.tiny, bgcolor = cellBg)
+
+    table.cell(st, 0, 5, "Swing / ATR", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
+    table.cell(st, 1, 5, str.tostring(swingLen) + " · " + str.tostring(atrVal, format.mintick),
+         text_color = color.white, text_size = size.tiny, bgcolor = cellBg)
+
+    table.cell(st, 0, 6, "Pending", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
+    string pendTxt = pendDir == 1 ? "Up (" + str.tostring(bar_index - pendBar) + "/" + str.tostring(confirmBars) + ")" :
+                     pendDir == -1 ? "Down (" + str.tostring(bar_index - pendBar) + "/" + str.tostring(confirmBars) + ")" : "—"
+    color pendTxtCol = pendDir == 1 ? colBOS : pendDir == -1 ? colCHoCH : color.gray
+    table.cell(st, 1, 6, pendTxt, text_color = pendTxtCol, text_size = size.tiny, bgcolor = cellBg)
+
+// =============================================================================
+// ALERTS
+// =============================================================================
+alertcondition(fireUp and bias <= 0,  title = "CHoCH Bullish", message = "CHoCH Bullish — structure reversal up on {{ticker}} @ {{close}}")
+alertcondition(fireUp and bias > 0,   title = "BOS Bullish",   message = "BOS Bullish — continuation up on {{ticker}} @ {{close}}")
+alertcondition(fireDown and bias >= 0, title = "CHoCH Bearish", message = "CHoCH Bearish — structure reversal down on {{ticker}} @ {{close}}")
+alertcondition(fireDown and bias < 0,  title = "BOS Bearish",   message = "BOS Bearish — continuation down on {{ticker}} @ {{close}}")
+
+// Retest alert: price comes within 0.2 ATR of a recently broken level (within last 50 bars)
+var array<float> retestLevels = array.new_float(0)
+var array<int>   retestBars   = array.new_int(0)
+var array<bool>  retestIsHigh = array.new_bool(0)
+
+if fireUp
+    array.push(retestLevels, fireLevel)
+    array.push(retestBars, bar_index)
+    array.push(retestIsHigh, true)
+if fireDown
+    array.push(retestLevels, fireLevel)
+    array.push(retestBars, bar_index)
+    array.push(retestIsHigh, false)
+
+// Clean old retest data
+if array.size(retestLevels) > 0
+    int oldestBar = array.get(retestBars, 0)
+    if bar_index - oldestBar > 100
+        array.shift(retestLevels)
+        array.shift(retestBars)
+        array.shift(retestIsHigh)
+
+bool retestUp = false
+bool retestDown = false
+if barstate.isconfirmed and array.size(retestLevels) > 0
+    for i = 0 to array.size(retestLevels) - 1
+        int bBar = array.get(retestBars, i)
+        if bar_index - bBar > 3 and bar_index - bBar < 50
+            float lvl = array.get(retestLevels, i)
+            bool isHi = array.get(retestIsHigh, i)
+            float dist = math.abs(close - lvl)
+            if dist < atrVal * 0.2
+                if isHi and low <= lvl and close >= lvl
+                    retestUp := true
+                if not isHi and high >= lvl and close <= lvl
+                    retestDown := true
+
+alertcondition(retestUp,   title = "Retest Support",   message = "Price retesting broken support level on {{ticker}} @ {{close}}")
+alertcondition(retestDown, title = "Retest Resistance", message = "Price retesting broken resistance level on {{ticker}} @ {{close}}")
