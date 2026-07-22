@@ -1,5 +1,25 @@
 // =============================================================================
-// BOS / CHoCH Market Structure  —  v5
+// BOS / CHoCH Market Structure  —  v5.1
+//
+// NEW IN v5.1 — CONFIDENCE SCORING:
+//   * Every break is graded 0-100 across five independent measures: clearance
+//     beyond the level, displacement, body conviction, volume participation,
+//     and the size of the leg broken. Shown on the label and in the table.
+//   * Optional minimum-score gate, and optional fading of low-score breaks so
+//     strong structure reads at a glance.
+//   * Why scoring rather than more filters: the existing filters are binary, so
+//     a break clearing by 0.21 ATR and one clearing by 1.4 ATR both just read
+//     "BOS". Tightening filters gives you FEWER signals; scoring tells you
+//     which of them are actually good, and lets the chart show you where your
+//     own cutoff should be.
+//
+//   Bugfixes in v5.1:
+//   * Retest alerts no longer re-fire every bar while price sits on a level.
+//   * Retest arrays no longer grow without bound (single shift per bar could
+//     not keep up with bursts of breaks).
+//   * Retest no longer stores an na level when a break fires without one.
+//   * Divide-by-zero guard on clearance when confirmBars = 0, matching the
+//     guard the other two call sites already had.
 //
 // IMPROVEMENTS OVER v4:
 //   * Alerts: BOS/CHoCH up/down + retest alerts for TradingView notifications.
@@ -18,7 +38,7 @@
 //   * Optional internal structure (faster swing length, thinner lines).
 // =============================================================================
 //@version=5
-indicator("BOS / CHoCH Structure v5", overlay = true, max_bars_back = 100, max_lines_count = 500, max_labels_count = 500)
+indicator("BOS / CHoCH Structure v5.1", overlay = true, max_bars_back = 100, max_lines_count = 500, max_labels_count = 500)
 
 // =============================================================================
 // SENSITIVITY MASTER CONTROLS
@@ -289,6 +309,34 @@ chochVertical  = input.bool(true, "Vertical marker on CHoCH bar", group = grpC,
 showCHoCHLines = input.bool(true, "Draw CHoCH lines", group = grpC,
      tooltip = "Master switch for all CHoCH line drawing.")
 
+// =============================================================================
+// CONFIDENCE SCORE
+// =============================================================================
+grpQ = "⑨ Confidence score"
+
+useScore = input.bool(true, "Score every break 0-100", group = grpQ,
+     tooltip = "Grades each break on HOW WELL it passed, instead of a simple pass/fail.\n\n" +
+       "The filters above are binary: a break either qualifies or it doesn't. A break that cleared the level by 0.21 ATR and one that cleared it by 1.4 ATR both just say 'BOS'. This scores them, so you can tell a marginal signal from an emphatic one.\n\n" +
+       "Score is built from five independent measures:\n" +
+       "  Clearance beyond the level   0-30\n" +
+       "  Displacement of the candle   0-25\n" +
+       "  Body conviction              0-15\n" +
+       "  Volume participation         0-15\n" +
+       "  Size of the leg broken       0-15\n\n" +
+       "Rough reading: 75+ is emphatic, 55-75 is solid, below 40 is marginal.")
+
+minScore = input.int(0, "  Minimum score to signal", minval = 0, maxval = 100, group = grpQ,
+     tooltip = "Breaks scoring below this are not labelled at all.\n\n" +
+       "0 = label everything, score is display-only. START HERE.\n\n" +
+       "RECOMMENDED WORKFLOW: run at 0 for a week with scores shown. Watch which scores actually worked on your instrument. THEN set this to the number you observed, rather than guessing.\n\n" +
+       "Setting this blind is just a slower way of tightening the filters above. The point of the score is to let the chart tell you where your cutoff is.")
+
+showScore = input.bool(true, "  Show score on label", group = grpQ,
+     tooltip = "Appends the score to each label, e.g. 'BOS 82'. Turn off for a cleaner chart once you've settled on a minimum score.")
+
+scoreColors = input.bool(true, "  Fade low-score breaks", group = grpQ,
+     tooltip = "Draws low-scoring breaks more transparently, so high-confidence structure stands out at a glance without reading numbers.\n\nA 90-score break is drawn solid; a 40-score break is drawn faint.")
+
 lblSize = labelSize == "Tiny" ? size.tiny : labelSize == "Normal" ? size.normal : size.small
 styleOf(s) => s == "Solid" ? line.style_solid : s == "Dashed" ? line.style_dashed : line.style_dotted
 
@@ -422,6 +470,46 @@ float candleBody  = math.abs(close - open)
 bool  hasDisplace = not useDisplace or (candleRange >= displaceMult * atrVal and (not useBodyRatio or candleBody >= candleRange * 0.5))
 bool  hasVolume   = not mUseVolume or na(volAvg) or volume >= volAvg * mVolMult
 
+// ---------------------------- Confidence scoring -----------------------------
+// Grades a break 0-100 across five INDEPENDENT measures. Independence matters:
+// stacking three tests of "was the candle big?" adds lag without adding
+// information, whereas clearance / size / conviction / participation / leg
+// context each describe something the others cannot see.
+//
+// Contains no ta.* calls, so it is safe to call conditionally.
+scoreBreak(bool isUp, float lvl) =>
+    float sc = 0.0
+    if atrVal > 0 and not na(lvl)
+        // 1. Clearance beyond the level (0-30). Full marks at 0.40 ATR past.
+        float clr = (isUp ? upRef - lvl : lvl - downRef) / atrVal
+        sc += math.min(30.0, math.max(0.0, clr / 0.40 * 30.0))
+
+        // 2. Displacement of the breaking candle (0-25). Full marks at 1.20 ATR.
+        sc += math.min(25.0, math.max(0.0, candleRange / atrVal / 1.20 * 25.0))
+
+        // 3. Body conviction (0-15). Scores from 35% body upward; a long-wicked
+        //    rejection candle earns nothing here even if its range was large.
+        float bodyPct = candleRange > 0 ? candleBody / candleRange : 0.0
+        sc += math.min(15.0, math.max(0.0, (bodyPct - 0.35) / 0.45 * 15.0))
+
+        // 4. Volume participation (0-15). Neutral 7.5 when volume is missing or
+        //    synthetic, so feeds without real volume are not penalised.
+        float volPts = 7.5
+        if not na(volAvg) and volAvg > 0
+            volPts := math.min(15.0, math.max(0.0, (volume / volAvg - 0.70) / 0.90 * 15.0))
+        sc += volPts
+
+        // 5. Size of the leg being broken (0-15). Breaking a large, well-formed
+        //    leg is more meaningful than breaking a shallow one.
+        float legPts = 7.5
+        // na propagates through arithmetic, so an absent reference simply
+        // leaves legRaw na and the neutral 7.5 stands.
+        float legRaw = isUp ? lvl - refLow : refHigh - lvl
+        if not na(legRaw)
+            legPts := math.min(15.0, math.max(0.0, legRaw / atrVal / 2.0 * 15.0))
+        sc += legPts
+    math.round(sc)
+
 var int lastBreakBar = na
 bool coolOk = cooldownBars == 0 or na(lastBreakBar) or (bar_index - lastBreakBar) >= cooldownBars
 
@@ -443,6 +531,13 @@ bool downNotDup = na(lastBrokenLow)  or na(watchLow)  or math.abs(watchLow  - la
 bool candUp   = rawUp   and hasDisplace and hasVolume and coolOk and upNotDup   and wickOkUp   and trendOkUp   and inSession
 bool candDown = rawDown and hasDisplace and hasVolume and coolOk and downNotDup and wickOkDown and trendOkDown and inSession
 
+// Score the candidates, then apply the minimum-score gate.
+float scoreUp   = candUp   ? scoreBreak(true,  watchHigh) : 0.0
+float scoreDown = candDown ? scoreBreak(false, watchLow)  : 0.0
+if useScore and minScore > 0
+    candUp   := candUp   and scoreUp   >= minScore
+    candDown := candDown and scoreDown >= minScore
+
 // Internal break candidates
 bool iRawUp   = useInternal and not na(iWatchHigh) and close > iWatchHigh
 bool iRawDown = useInternal and not na(iWatchLow)  and close < iWatchLow
@@ -455,19 +550,23 @@ var int   pendBar   = na
 var float pendLevel = na
 var int   pendLevelBar = na
 var float pendClearance = 0.0
+var float pendScore = 0.0
 
 bool fireUp   = false
 bool fireDown = false
 float fireLevel = na
 int   fireLevelBar = na
 float fireClearance = 0.0
+float fireScore = 0.0
 
 if confirmBars == 0
     fireUp   := candUp
     fireDown := candDown
     fireLevel := candUp ? watchHigh : candDown ? watchLow : na
     fireLevelBar := candUp ? watchHighBar : candDown ? watchLowBar : na
-    fireClearance := candUp ? (upRef - watchHigh) / atrVal : candDown ? (watchLow - downRef) / atrVal : 0.0
+    // Guarded against a zero/na ATR, which the other two call sites already were.
+    fireClearance := atrVal > 0 ? (candUp ? (upRef - watchHigh) / atrVal : candDown ? (watchLow - downRef) / atrVal : 0.0) : 0.0
+    fireScore := candUp ? scoreUp : candDown ? scoreDown : 0.0
 else
     // Cancel or upgrade pending breaks
     if pendDir == 1
@@ -479,12 +578,14 @@ else
             pendLevel := na
             pendLevelBar := na
             pendClearance := 0.0
+            pendScore := 0.0
             if upgraded
                 pendDir := 1
                 pendBar := bar_index
                 pendLevel := watchHigh
                 pendLevelBar := watchHighBar
-                pendClearance := (upRef - watchHigh) / atrVal
+                pendClearance := atrVal > 0 ? (upRef - watchHigh) / atrVal : 0.0
+                pendScore := scoreUp
     else if pendDir == -1
         bool cancelled = close > pendLevel + eqTol or candUp
         bool upgraded  = candDown and not na(watchLow) and watchLow < pendLevel - eqTol
@@ -494,12 +595,14 @@ else
             pendLevel := na
             pendLevelBar := na
             pendClearance := 0.0
+            pendScore := 0.0
             if upgraded
                 pendDir := -1
                 pendBar := bar_index
                 pendLevel := watchLow
                 pendLevelBar := watchLowBar
-                pendClearance := (watchLow - downRef) / atrVal
+                pendClearance := atrVal > 0 ? (watchLow - downRef) / atrVal : 0.0
+                pendScore := scoreDown
 
     // Start new pending if none active
     if pendDir == 0
@@ -509,12 +612,14 @@ else
             pendLevel := watchHigh
             pendLevelBar := watchHighBar
             pendClearance := atrVal > 0 ? (upRef - watchHigh) / atrVal : 0.0
+            pendScore := scoreUp
         else if candDown
             pendDir := -1
             pendBar := bar_index
             pendLevel := watchLow
             pendLevelBar := watchLowBar
             pendClearance := atrVal > 0 ? (watchLow - downRef) / atrVal : 0.0
+            pendScore := scoreDown
 
     // Check for confirmation
     if pendDir != 0 and bar_index - pendBar >= confirmBars
@@ -525,39 +630,48 @@ else
             fireLevel := pendLevel
             fireLevelBar := pendLevelBar
             fireClearance := pendClearance
+            fireScore := pendScore
         if stillDown
             fireDown := true
             fireLevel := pendLevel
             fireLevelBar := pendLevelBar
             fireClearance := pendClearance
+            fireScore := pendScore
         pendDir := 0
         pendBar := na
         pendLevel := na
         pendLevelBar := na
         pendClearance := 0.0
+        pendScore := 0.0
 
 // ---------------------------- State machine ----------------------------------
 var int bias = 0
 
-drawBreak(bool isUp, float lvl, int lvlBar, float clr, string txt, color col, string lStyle, int lWidth, int lExtendBars, bool lVert, bool showLine) =>
+drawBreak(bool isUp, float lvl, int lvlBar, float clr, float scr, string txt, color col, string lStyle, int lWidth, int lExtendBars, bool lVert, bool showLine) =>
     deleteOldest()
     string labelText = txt
     if verboseLabels and atrVal > 0
         string sign = isUp ? "+" : "-"
-        labelText := txt + " " + sign + str.tostring(math.abs(clr), "#.#")
+        labelText := labelText + " " + sign + str.tostring(math.abs(clr), "#.#")
+    if useScore and showScore
+        labelText := labelText + " " + str.tostring(scr, "#")
+    // Fade weak breaks so strong structure reads at a glance. 40 and below is
+    // drawn faint, 90 and above solid.
+    int fade = useScore and scoreColors ? int(math.round(math.min(60.0, math.max(0.0, (90.0 - scr) * 1.2)))) : 0
+    color drawCol = color.new(col, fade)
     if showLabels
         label lbl = label.new(bar_index, isUp ? high + atrVal * 0.6 : low - atrVal * 0.6, labelText,
              style = isUp ? label.style_label_down : label.style_label_up,
-             color = color.new(color.black, 15), textcolor = col, size = lblSize)
+             color = color.new(color.black, 15), textcolor = drawCol, size = lblSize)
         array.push(histLabels, lbl)
     if showLine
         int rightBar = lExtendBars > 0 ? bar_index + lExtendBars : bar_index
         line ln = line.new(lvlBar, lvl, rightBar, lvl,
-             color = col, style = styleOf(lStyle), width = lWidth)
+             color = drawCol, style = styleOf(lStyle), width = lWidth)
         array.push(histLines, ln)
         if lVert
             line vln = line.new(bar_index, lvl, bar_index, isUp ? high + atrVal * 0.4 : low - atrVal * 0.4,
-                 color = color.new(col, 45), style = line.style_dotted, width = 1)
+                 color = color.new(col, math.min(90, fade + 45)), style = line.style_dotted, width = 1)
             array.push(histVertLines, vln)
 
 if fireUp and not na(fireLevel)
@@ -566,7 +680,7 @@ if fireUp and not na(fireLevel)
     bool  drawIt = isChoch ? showCHoCHLines : showBOSLines
     string txt   = isChoch ? "CHoCH" : "BOS"
 
-    drawBreak(true, fireLevel, fireLevelBar, fireClearance, txt, col,
+    drawBreak(true, fireLevel, fireLevelBar, fireClearance, fireScore, txt, col,
          isChoch ? chochLineStyle : bosLineStyle,
          isChoch ? chochLineWidth : bosLineWidth,
          isChoch ? chochExtendBars : bosExtendBars,
@@ -592,7 +706,7 @@ if fireDown and not na(fireLevel)
     bool  drawIt = isChoch ? showCHoCHLines : showBOSLines
     string txt   = isChoch ? "CHoCH" : "BOS"
 
-    drawBreak(false, fireLevel, fireLevelBar, fireClearance, txt, col,
+    drawBreak(false, fireLevel, fireLevelBar, fireClearance, fireScore, txt, col,
          isChoch ? chochLineStyle : bosLineStyle,
          isChoch ? chochLineWidth : bosLineWidth,
          isChoch ? chochExtendBars : bosExtendBars,
@@ -692,8 +806,13 @@ bgcolor(tintBias and bias == -1 ? color.new(colCHoCH, 94) : na, title = "Bearish
 barcolor(colorCandles ? (bias == 1 ? colBOS : bias == -1 ? colCHoCH : na) : na)
 
 // ---------------------------- Status table -----------------------------------
-var table st = table.new(position.top_right, 2, 7,
+var table st = table.new(position.top_right, 2, 8,
      border_width = 1, border_color = color.new(color.gray, 70), frame_width = 0)
+
+// Remember the most recent score so the table can show it between breaks.
+var float lastScore = na
+if fireUp or fireDown
+    lastScore := fireScore
 
 if showTable and barstate.islast
     color  biasCol = bias == 1 ? colBOS : bias == -1 ? colCHoCH : color.gray
@@ -723,11 +842,16 @@ if showTable and barstate.islast
     table.cell(st, 1, 5, str.tostring(swingLen) + " · " + str.tostring(atrVal, format.mintick),
          text_color = color.white, text_size = size.tiny, bgcolor = cellBg)
 
-    table.cell(st, 0, 6, "Pending", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
+    table.cell(st, 0, 6, "Last score", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
+    color scoreCol = na(lastScore) ? color.gray : lastScore >= 75 ? color.lime : lastScore >= 55 ? color.yellow : color.orange
+    table.cell(st, 1, 6, na(lastScore) ? "—" : str.tostring(lastScore, "#") + " / 100",
+         text_color = scoreCol, text_size = size.tiny, bgcolor = cellBg)
+
+    table.cell(st, 0, 7, "Pending", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
     string pendTxt = pendDir == 1 ? "Up (" + str.tostring(bar_index - pendBar) + "/" + str.tostring(confirmBars) + ")" :
                      pendDir == -1 ? "Down (" + str.tostring(bar_index - pendBar) + "/" + str.tostring(confirmBars) + ")" : "—"
     color pendTxtCol = pendDir == 1 ? colBOS : pendDir == -1 ? colCHoCH : color.gray
-    table.cell(st, 1, 6, pendTxt, text_color = pendTxtCol, text_size = size.tiny, bgcolor = cellBg)
+    table.cell(st, 1, 7, pendTxt, text_color = pendTxtCol, text_size = size.tiny, bgcolor = cellBg)
 
 // =============================================================================
 // ALERTS
@@ -737,42 +861,57 @@ alertcondition(fireUp and bias > 0,   title = "BOS Bullish",   message = "BOS Bu
 alertcondition(fireDown and bias >= 0, title = "CHoCH Bearish", message = "CHoCH Bearish — structure reversal down on {{ticker}} @ {{close}}")
 alertcondition(fireDown and bias < 0,  title = "BOS Bearish",   message = "BOS Bearish — continuation down on {{ticker}} @ {{close}}")
 
-// Retest alert: price comes within 0.2 ATR of a recently broken level (within last 50 bars)
+// Retest alert: price returns to a recently broken level and holds it.
+//
+// A break that gets retested and holds is a higher-confidence event than the
+// break itself, so these are worth more than the BOS/CHoCH alerts above.
 var array<float> retestLevels = array.new_float(0)
 var array<int>   retestBars   = array.new_int(0)
 var array<bool>  retestIsHigh = array.new_bool(0)
+var array<float> retestScores = array.new_float(0)
+var array<bool>  retestUsed   = array.new_bool(0)
 
-if fireUp
+if fireUp and not na(fireLevel)
     array.push(retestLevels, fireLevel)
     array.push(retestBars, bar_index)
     array.push(retestIsHigh, true)
-if fireDown
+    array.push(retestScores, fireScore)
+    array.push(retestUsed, false)
+if fireDown and not na(fireLevel)
     array.push(retestLevels, fireLevel)
     array.push(retestBars, bar_index)
     array.push(retestIsHigh, false)
+    array.push(retestScores, fireScore)
+    array.push(retestUsed, false)
 
-// Clean old retest data
-if array.size(retestLevels) > 0
-    int oldestBar = array.get(retestBars, 0)
-    if bar_index - oldestBar > 100
-        array.shift(retestLevels)
-        array.shift(retestBars)
-        array.shift(retestIsHigh)
+// Drop levels older than the retest window. A `while` here, not an `if`: the
+// original single shift per bar could not keep up with bursts of breaks, so the
+// arrays grew without bound on long histories.
+while array.size(retestBars) > 0 and bar_index - array.get(retestBars, 0) > 100
+    array.shift(retestLevels)
+    array.shift(retestBars)
+    array.shift(retestIsHigh)
+    array.shift(retestScores)
+    array.shift(retestUsed)
 
 bool retestUp = false
 bool retestDown = false
 if barstate.isconfirmed and array.size(retestLevels) > 0
     for i = 0 to array.size(retestLevels) - 1
         int bBar = array.get(retestBars, i)
-        if bar_index - bBar > 3 and bar_index - bBar < 50
-            float lvl = array.get(retestLevels, i)
-            bool isHi = array.get(retestIsHigh, i)
-            float dist = math.abs(close - lvl)
-            if dist < atrVal * 0.2
+        // Skip levels already retested once, otherwise a level that price sits
+        // on re-fires the alert every single bar.
+        if not array.get(retestUsed, i) and bar_index - bBar > 3 and bar_index - bBar < 50
+            float lvl  = array.get(retestLevels, i)
+            bool  isHi = array.get(retestIsHigh, i)
+            bool  scoreOk = not useScore or minScore == 0 or array.get(retestScores, i) >= minScore
+            if scoreOk and atrVal > 0 and math.abs(close - lvl) < atrVal * 0.2
                 if isHi and low <= lvl and close >= lvl
                     retestUp := true
+                    array.set(retestUsed, i, true)
                 if not isHi and high >= lvl and close <= lvl
                     retestDown := true
+                    array.set(retestUsed, i, true)
 
 alertcondition(retestUp,   title = "Retest Support",   message = "Price retesting broken support level on {{ticker}} @ {{close}}")
 alertcondition(retestDown, title = "Retest Resistance", message = "Price retesting broken resistance level on {{ticker}} @ {{close}}")
