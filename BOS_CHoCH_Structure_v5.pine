@@ -1,5 +1,24 @@
 // =============================================================================
-// BOS / CHoCH Market Structure  —  v6.0
+// BOS / CHoCH Market Structure  —  v6.1
+//
+// NEW IN v6.1 — HIT-RATE CORRECTNESS FIXES:
+//   * Hit-rate stats are now tracked SEPARATELY per zone type (order block /
+//     FVG / liquidity pool) instead of pooled into one set of buckets — an
+//     order block's history and a liquidity pool's no longer get blended.
+//   * New touched-vs-held distinction: a zone can be touched without being
+//     respected (price wicks in and keeps going). "Held" now requires price
+//     to close back away from the zone by a confirmation margin (Zones —
+//     shared style → "Hold confirmation margin"). Box labels update to
+//     "(tested)" on touch and "(held)" on confirmed rejection.
+//   * Fixed a same-bar timing lag: the nearest swing zone's confluence count
+//     used to read FVG/liquidity data that was up to one bar stale, because
+//     those detectors run later in the script than the swing zone box draw.
+//     A refresh pass now runs after all three detectors update, so the label
+//     always reflects same-bar-fresh overlaps.
+//   * The nearest zone's hit-rate now names WHICH type it's reporting on
+//     (whichever overlapping type has the largest sample size), e.g.
+//     "Resistance · 2 conf · OB hit 74%/held 41% (n=31)" — instead of a
+//     single blended number.
 //
 // NEW IN v6.0 — CONFLUENCE + HISTORICAL HIT-RATE:
 //   * Every zone box (order block, FVG, liquidity pool, swing zone) now
@@ -92,7 +111,7 @@
 //   * Optional internal structure (faster swing length, thinner lines).
 // =============================================================================
 //@version=5
-indicator("BOS / CHoCH Structure v6.0", overlay = true, max_bars_back = 100, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500)
+indicator("BOS / CHoCH Structure v6.1", overlay = true, max_bars_back = 100, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500)
 
 // =============================================================================
 // SENSITIVITY MASTER CONTROLS
@@ -464,6 +483,9 @@ zoneMaxPerType = input.int(20, "Max active zones per type", minval = 1, maxval =
 useConfluence = input.bool(true, "Show confluence + historical hit-rate", group = grpZ,
      tooltip = "Checks whether an order block, FVG, and/or liquidity pool overlap the nearest swing zone, and remembers — from THIS chart's own history — how often zones with that much agreement actually got touched before failing.\n\nShown on the swing zone label ('Resistance · 2 confluence') and as two extra status-table rows (nearest Resistance/Support, with a hit-rate % and its sample size).\n\nThis is an empirical frequency count, not a prediction model — treat any hit-rate with a small sample size (n) as noise, same as the confidence-score minimum-score advice.\n\nOFF = zone boxes still draw and label their own type, just without the confluence/hit-rate layer.")
 
+holdMargin = input.float(0.5, "  Hold confirmation margin (× ATR)", minval = 0.0, step = 0.1, group = grpZ,
+     tooltip = "How far price must close back AWAY from a zone, beyond its near edge, to count as a confirmed 'hold' rather than just a touch.\n\nA zone can be touched without holding — price can wick in and then plow straight through moments later. Touch rate alone can't tell those apart; this margin is what does.\n\nHigher = stricter, fewer touches qualify as a genuine hold. Lower (0) = almost any close back outside the zone counts.")
+
 // =============================================================================
 // SWING ZONES
 // =============================================================================
@@ -661,13 +683,26 @@ var array<int> obConfBucket  = array.new_int(0)
 var array<int> fvgConfBucket = array.new_int(0)
 var array<int> liqConfBucket = array.new_int(0)
 
-// Pooled across all three zone types, indexed by birth-confluence bucket
-// (0 / 1 / 2+): how many zones born at that confluence level have resolved so
-// far, and how many of those were actually touched before failing/expiring.
-// This is the entire "historical hit-rate" — a running frequency count, not a
-// model.
-var array<int> confTotal = array.new_int(3, 0)
-var array<int> confHit   = array.new_int(3, 0)
+// Kept SEPARATE per zone type (not pooled) — an order block and a liquidity
+// pool don't necessarily behave the same way, so blending their outcomes
+// together would average away a real difference rather than show it. Each
+// is indexed by birth-confluence bucket (0 / 1 / 2+).
+//   *Total*  — how many zones born at that bucket have resolved so far.
+//   *Hit*    — how many of those were touched at least once before failing.
+//   *Held*   — how many of those, after being touched, closed back away from
+//              the zone by a confirmation margin instead of plowing through.
+//              This is the "touched isn't the same as respected" distinction.
+var array<int> obConfTotal  = array.new_int(3, 0)
+var array<int> obConfHit    = array.new_int(3, 0)
+var array<int> obConfHeld   = array.new_int(3, 0)
+
+var array<int> fvgConfTotal = array.new_int(3, 0)
+var array<int> fvgConfHit   = array.new_int(3, 0)
+var array<int> fvgConfHeld  = array.new_int(3, 0)
+
+var array<int> liqConfTotal = array.new_int(3, 0)
+var array<int> liqConfHit   = array.new_int(3, 0)
+var array<int> liqConfHeld  = array.new_int(3, 0)
 
 // Counts active zones in the given parallel top/bottom arrays whose price
 // range overlaps [top, bot] AND whose bias flag equals matchBias — so callers
@@ -683,11 +718,16 @@ overlapCount(float top, float bot, array<float> tops, array<float> bots, array<b
                     n += 1
     n
 
-// Files one resolved zone's outcome into its birth-confluence bucket.
-logOutcome(int bucket, bool hit) =>
-    array.set(confTotal, bucket, array.get(confTotal, bucket) + 1)
+// Files one resolved zone's hit/miss outcome into its birth-confluence bucket.
+logOutcome(array<int> totalArr, array<int> hitArr, int bucket, bool hit) =>
+    array.set(totalArr, bucket, array.get(totalArr, bucket) + 1)
     if hit
-        array.set(confHit, bucket, array.get(confHit, bucket) + 1)
+        array.set(hitArr, bucket, array.get(hitArr, bucket) + 1)
+
+// Files a confirmed "held" (touched, then rejected away) at the moment it's
+// confirmed — independent of when the zone eventually gets deleted.
+logHeld(array<int> heldArr, int bucket) =>
+    array.set(heldArr, bucket, array.get(heldArr, bucket) + 1)
 
 deleteOldest() =>
     if maxHistory > 0
@@ -1045,7 +1085,7 @@ if useOB and fireUp
         array.push(obState, 0)
         array.push(obConfBucket, obConf)
         if array.size(obBox) > zoneMaxPerType
-            logOutcome(array.get(obConfBucket, 0), array.get(obState, 0) == 1)
+            logOutcome(obConfTotal, obConfHit, array.get(obConfBucket, 0), array.get(obState, 0) >= 1)
             box.delete(array.shift(obBox))
             array.shift(obTop)
             array.shift(obBottom)
@@ -1077,7 +1117,7 @@ if useOB and fireDown
         array.push(obState, 0)
         array.push(obConfBucket, obConf)
         if array.size(obBox) > zoneMaxPerType
-            logOutcome(array.get(obConfBucket, 0), array.get(obState, 0) == 1)
+            logOutcome(obConfTotal, obConfHit, array.get(obConfBucket, 0), array.get(obState, 0) >= 1)
             box.delete(array.shift(obBox))
             array.shift(obTop)
             array.shift(obBottom)
@@ -1139,19 +1179,16 @@ else
     pendLine := na
 
 // ---------------------------- Live levels ------------------------------------
+// Confluence isn't computed here — order blocks are already fresh for this
+// bar at this point in the script, but FVGs and liquidity pools are created
+// further down, so checking overlap against them here would read last bar's
+// state. The boxes are created here with a placeholder label; a refresh pass
+// after all three detectors have updated (below) fills in the real numbers
+// via box.set_text, so nothing reads stale data.
 var line liveHiLine = na
 var line liveLoLine = na
 var box  liveHiZone = na
 var box  liveLoZone = na
-
-// Read by the status table below. Recomputed to na every bar and only ever
-// set inside the barstate.islast block, same pattern as fireLevel/fireScore.
-float resConfluence = na
-float resHitRate    = na
-int   resHitN       = 0
-float supConfluence = na
-float supHitRate    = na
-int   supHitN       = 0
 
 if barstate.islast
     line.delete(liveHiLine)
@@ -1167,33 +1204,15 @@ if barstate.islast
     // Swing zones: the watched high/low shown as a wick-to-body box rather than
     // a single price line, so the whole area price needs to clear is visible.
     if showSwingZones and not na(watchHigh) and not na(watchHighBody)
-        float resTop = watchHigh
-        float resBot = math.min(watchHighBody, watchHigh)
-        string resTxt = "Resistance"
-        if useConfluence
-            resConfluence := overlapCount(resTop, resBot, obTop, obBottom, obIsBull, false) + overlapCount(resTop, resBot, fvgTop, fvgBottom, fvgIsBull, false) + overlapCount(resTop, resBot, liqTop, liqBottom, liqBuySide, true)
-            int resBucket = int(math.min(2, resConfluence))
-            resHitN := array.get(confTotal, resBucket)
-            resHitRate := resHitN > 0 ? 100.0 * array.get(confHit, resBucket) / resHitN : na
-            resTxt := resTxt + " · " + str.tostring(int(resConfluence)) + " conf" + (na(resHitRate) ? "" : " · " + str.tostring(resHitRate, "#") + "% (n=" + str.tostring(resHitN) + ")")
-        liveHiZone := box.new(watchHighBar, resTop, bar_index + effSwingExtend, resBot,
+        liveHiZone := box.new(watchHighBar, watchHigh, bar_index + effSwingExtend, math.min(watchHighBody, watchHigh),
              border_color = color.new(zoneBearColor, zoneOpacity), border_width = 1, border_style = line.style_dashed,
              bgcolor = color.new(zoneBearColor, math.min(95, zoneOpacity + 8)),
-             text = resTxt, text_size = size.tiny, text_color = color.white)
+             text = "Resistance", text_size = size.tiny, text_color = color.white)
     if showSwingZones and not na(watchLow) and not na(watchLowBody)
-        float supTop = math.max(watchLowBody, watchLow)
-        float supBot = watchLow
-        string supTxt = "Support"
-        if useConfluence
-            supConfluence := overlapCount(supTop, supBot, obTop, obBottom, obIsBull, true) + overlapCount(supTop, supBot, fvgTop, fvgBottom, fvgIsBull, true) + overlapCount(supTop, supBot, liqTop, liqBottom, liqBuySide, false)
-            int supBucket = int(math.min(2, supConfluence))
-            supHitN := array.get(confTotal, supBucket)
-            supHitRate := supHitN > 0 ? 100.0 * array.get(confHit, supBucket) / supHitN : na
-            supTxt := supTxt + " · " + str.tostring(int(supConfluence)) + " conf" + (na(supHitRate) ? "" : " · " + str.tostring(supHitRate, "#") + "% (n=" + str.tostring(supHitN) + ")")
-        liveLoZone := box.new(watchLowBar, supTop, bar_index + effSwingExtend, supBot,
+        liveLoZone := box.new(watchLowBar, math.max(watchLowBody, watchLow), bar_index + effSwingExtend, watchLow,
              border_color = color.new(zoneBullColor, zoneOpacity), border_width = 1, border_style = line.style_dashed,
              bgcolor = color.new(zoneBullColor, math.min(95, zoneOpacity + 8)),
-             text = supTxt, text_size = size.tiny, text_color = color.white)
+             text = "Support", text_size = size.tiny, text_color = color.white)
 
 // =============================================================================
 // SMART MONEY ZONES — order block / FVG / liquidity lifecycle
@@ -1212,10 +1231,11 @@ if useOB and array.size(obBox) > 0
 
         bool invalidated = bull ? close < bot : close > top
         bool touched     = bull ? low <= top : high >= bot
+        bool heldNow     = bull ? close >= top + holdMargin * atrVal : close <= bot - holdMargin * atrVal
 
         if invalidated
             if useConfluence
-                logOutcome(array.get(obConfBucket, i), touched or st == 1)
+                logOutcome(obConfTotal, obConfHit, array.get(obConfBucket, i), touched or st >= 1)
             box.delete(b)
             array.remove(obBox, i)
             array.remove(obTop, i)
@@ -1223,6 +1243,11 @@ if useOB and array.size(obBox) > 0
             array.remove(obIsBull, i)
             array.remove(obState, i)
             array.remove(obConfBucket, i)
+        else if st == 1 and heldNow
+            array.set(obState, i, 2)
+            if useConfluence
+                logHeld(obConfHeld, array.get(obConfBucket, i))
+            box.set_text(b, (bull ? "Bull OB" : "Bear OB") + " (held)")
         else if touched and st == 0
             array.set(obState, i, 1)
             color c = bull ? zoneBullColor : zoneBearColor
@@ -1258,7 +1283,7 @@ if useFVG and atrVal > 0
             line.new(bar_index - 2, (gapTop + gapBot) / 2, bar_index + effFvgExtend, (gapTop + gapBot) / 2,
                  color = color.new(zoneBullColor, math.max(0, zoneOpacity - 10)), style = line.style_dotted, width = 1)
         if array.size(fvgBox) > zoneMaxPerType
-            logOutcome(array.get(fvgConfBucket, 0), array.get(fvgState, 0) == 1)
+            logOutcome(fvgConfTotal, fvgConfHit, array.get(fvgConfBucket, 0), array.get(fvgState, 0) >= 1)
             box.delete(array.shift(fvgBox))
             array.shift(fvgTop)
             array.shift(fvgBottom)
@@ -1285,7 +1310,7 @@ if useFVG and atrVal > 0
             line.new(bar_index - 2, (gapTop + gapBot) / 2, bar_index + effFvgExtend, (gapTop + gapBot) / 2,
                  color = color.new(zoneBearColor, math.max(0, zoneOpacity - 10)), style = line.style_dotted, width = 1)
         if array.size(fvgBox) > zoneMaxPerType
-            logOutcome(array.get(fvgConfBucket, 0), array.get(fvgState, 0) == 1)
+            logOutcome(fvgConfTotal, fvgConfHit, array.get(fvgConfBucket, 0), array.get(fvgState, 0) >= 1)
             box.delete(array.shift(fvgBox))
             array.shift(fvgTop)
             array.shift(fvgBottom)
@@ -1305,10 +1330,11 @@ if useFVG and array.size(fvgBox) > 0
 
         bool filled  = bull ? low <= bot : high >= top
         bool touched = bull ? low <= top : high >= bot
+        bool heldNow = bull ? close >= top + holdMargin * atrVal : close <= bot - holdMargin * atrVal
 
         if filled
             if useConfluence
-                logOutcome(array.get(fvgConfBucket, i), touched or st == 1)
+                logOutcome(fvgConfTotal, fvgConfHit, array.get(fvgConfBucket, i), touched or st >= 1)
             box.delete(b)
             array.remove(fvgBox, i)
             array.remove(fvgTop, i)
@@ -1316,6 +1342,11 @@ if useFVG and array.size(fvgBox) > 0
             array.remove(fvgIsBull, i)
             array.remove(fvgState, i)
             array.remove(fvgConfBucket, i)
+        else if st == 1 and heldNow
+            array.set(fvgState, i, 2)
+            if useConfluence
+                logHeld(fvgConfHeld, array.get(fvgConfBucket, i))
+            box.set_text(b, (bull ? "Bull FVG" : "Bear FVG") + " (held)")
         else if touched and st == 0
             array.set(fvgState, i, 1)
             color c = bull ? zoneBullColor : zoneBearColor
@@ -1358,7 +1389,7 @@ if useLiquidity and not na(ph)
                 array.push(liqState, 0)
                 array.push(liqConfBucket, liqConf)
                 if array.size(liqBox) > zoneMaxPerType
-                    logOutcome(array.get(liqConfBucket, 0), array.get(liqState, 0) == 1)
+                    logOutcome(liqConfTotal, liqConfHit, array.get(liqConfBucket, 0), array.get(liqState, 0) >= 1)
                     box.delete(array.shift(liqBox))
                     array.shift(liqTop)
                     array.shift(liqBottom)
@@ -1395,7 +1426,7 @@ if useLiquidity and not na(pl)
                 array.push(liqState, 0)
                 array.push(liqConfBucket, liqConf)
                 if array.size(liqBox) > zoneMaxPerType
-                    logOutcome(array.get(liqConfBucket, 0), array.get(liqState, 0) == 1)
+                    logOutcome(liqConfTotal, liqConfHit, array.get(liqConfBucket, 0), array.get(liqState, 0) >= 1)
                     box.delete(array.shift(liqBox))
                     array.shift(liqTop)
                     array.shift(liqBottom)
@@ -1417,10 +1448,11 @@ if useLiquidity and array.size(liqBox) > 0
 
         bool swept    = buyS ? high >= top : low <= bot
         bool consumed = buyS ? close > top : close < bot
+        bool heldNow  = buyS ? close <= bot - holdMargin * atrVal : close >= top + holdMargin * atrVal
 
         if consumed
             if useConfluence
-                logOutcome(array.get(liqConfBucket, i), swept or st == 1)
+                logOutcome(liqConfTotal, liqConfHit, array.get(liqConfBucket, i), swept or st >= 1)
             box.delete(b)
             array.remove(liqBox, i)
             array.remove(liqTop, i)
@@ -1428,6 +1460,11 @@ if useLiquidity and array.size(liqBox) > 0
             array.remove(liqBuySide, i)
             array.remove(liqState, i)
             array.remove(liqConfBucket, i)
+        else if st == 1 and heldNow
+            array.set(liqState, i, 2)
+            if useConfluence
+                logHeld(liqConfHeld, array.get(liqConfBucket, i))
+            box.set_text(b, (buyS ? "Buy-side Liquidity" : "Sell-side Liquidity") + " (held)")
         else if swept and st == 0
             array.set(liqState, i, 1)
             color c = buyS ? zoneBearColor : zoneBullColor
@@ -1436,6 +1473,91 @@ if useLiquidity and array.size(liqBox) > 0
             box.set_text(b, (buyS ? "Buy-side Liquidity" : "Sell-side Liquidity") + " (swept)")
         else if st == 0
             box.set_right(b, bar_index + effLiqExtend)
+
+// ---------------------------- Confluence refresh ------------------------------
+// Runs after order blocks, FVGs, AND liquidity pools have all updated for this
+// bar, so the swing zone's confluence reads same-bar-fresh data from all
+// three — the swing zone boxes above are only created with a placeholder
+// label; this is what fills in the real text via box.set_text.
+//
+// Rather than blend all three detector types into one hit-rate number, pick
+// whichever overlapping type has the LARGEST historical sample size at this
+// confluence level and show its numbers, labelled by type — an order block's
+// and a liquidity pool's history aren't pooled together.
+float resConfluence = na
+float resHitRate     = na
+float resHeldRate     = na
+int   resHitN         = 0
+string resRepType     = ""
+float supConfluence  = na
+float supHitRate      = na
+float supHeldRate      = na
+int   supHitN          = 0
+string supRepType      = ""
+
+pickRep(int obN, int obTot, int obHit, int obHeld, int fvgN, int fvgTot, int fvgHit, int fvgHeld, int liqN, int liqTot, int liqHit, int liqHeld) =>
+    int    tot    = 0
+    int    hit    = 0
+    int    held   = 0
+    string repTag = ""
+    if obN > 0 and obTot >= fvgTot and obTot >= liqTot
+        tot := obTot
+        hit := obHit
+        held := obHeld
+        repTag := "OB"
+    else if fvgN > 0 and fvgTot >= liqTot
+        tot := fvgTot
+        hit := fvgHit
+        held := fvgHeld
+        repTag := "FVG"
+    else if liqN > 0
+        tot := liqTot
+        hit := liqHit
+        held := liqHeld
+        repTag := "Liq"
+    [tot, hit, held, repTag]
+
+if useConfluence and barstate.islast
+    if showSwingZones and not na(watchHigh) and not na(watchHighBody) and not na(liveHiZone)
+        float resTop = watchHigh
+        float resBot = math.min(watchHighBody, watchHigh)
+        int obOverlap  = overlapCount(resTop, resBot, obTop, obBottom, obIsBull, false)
+        int fvgOverlap = overlapCount(resTop, resBot, fvgTop, fvgBottom, fvgIsBull, false)
+        int liqOverlap = overlapCount(resTop, resBot, liqTop, liqBottom, liqBuySide, true)
+        resConfluence := obOverlap + fvgOverlap + liqOverlap
+        int bucket = int(math.min(2, resConfluence))
+        [tot, hit, held, repTag] = pickRep(
+             obOverlap,  array.get(obConfTotal,  bucket), array.get(obConfHit,  bucket), array.get(obConfHeld,  bucket),
+             fvgOverlap, array.get(fvgConfTotal, bucket), array.get(fvgConfHit, bucket), array.get(fvgConfHeld, bucket),
+             liqOverlap, array.get(liqConfTotal, bucket), array.get(liqConfHit, bucket), array.get(liqConfHeld, bucket))
+        resHitN := tot
+        resRepType := repTag
+        string resTxt = "Resistance · " + str.tostring(int(resConfluence)) + " conf"
+        if tot > 0
+            resHitRate := 100.0 * hit / tot
+            resHeldRate := 100.0 * held / tot
+            resTxt := resTxt + " · " + repTag + " " + str.tostring(resHitRate, "#") + "%/" + str.tostring(resHeldRate, "#") + "% (n=" + str.tostring(tot) + ")"
+        box.set_text(liveHiZone, resTxt)
+    if showSwingZones and not na(watchLow) and not na(watchLowBody) and not na(liveLoZone)
+        float supTop = math.max(watchLowBody, watchLow)
+        float supBot = watchLow
+        int obOverlap  = overlapCount(supTop, supBot, obTop, obBottom, obIsBull, true)
+        int fvgOverlap = overlapCount(supTop, supBot, fvgTop, fvgBottom, fvgIsBull, true)
+        int liqOverlap = overlapCount(supTop, supBot, liqTop, liqBottom, liqBuySide, false)
+        supConfluence := obOverlap + fvgOverlap + liqOverlap
+        int bucket = int(math.min(2, supConfluence))
+        [tot, hit, held, repTag] = pickRep(
+             obOverlap,  array.get(obConfTotal,  bucket), array.get(obConfHit,  bucket), array.get(obConfHeld,  bucket),
+             fvgOverlap, array.get(fvgConfTotal, bucket), array.get(fvgConfHit, bucket), array.get(fvgConfHeld, bucket),
+             liqOverlap, array.get(liqConfTotal, bucket), array.get(liqConfHit, bucket), array.get(liqConfHeld, bucket))
+        supHitN := tot
+        supRepType := repTag
+        string supTxt = "Support · " + str.tostring(int(supConfluence)) + " conf"
+        if tot > 0
+            supHitRate := 100.0 * hit / tot
+            supHeldRate := 100.0 * held / tot
+            supTxt := supTxt + " · " + repTag + " " + str.tostring(supHitRate, "#") + "%/" + str.tostring(supHeldRate, "#") + "% (n=" + str.tostring(tot) + ")"
+        box.set_text(liveLoZone, supTxt)
 
 // ---------------------------- Pivot markers ----------------------------------
 plotshape(showPivots and not na(ph), title = "Swing High", location = location.abovebar,
@@ -1498,11 +1620,11 @@ if showTable and barstate.islast
     table.cell(st, 1, 7, pendTxt, text_color = pendTxtCol, text_size = size.tiny, bgcolor = cellBg)
 
     table.cell(st, 0, 8, "Resistance", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
-    string resCellTxt = na(resConfluence) ? "—" : str.tostring(int(resConfluence)) + " conf" + (na(resHitRate) ? "" : " · " + str.tostring(resHitRate, "#") + "% (n=" + str.tostring(resHitN) + ")")
+    string resCellTxt = na(resConfluence) ? "—" : str.tostring(int(resConfluence)) + " conf" + (na(resHitRate) ? "" : " · " + resRepType + " hit " + str.tostring(resHitRate, "#") + "% / held " + str.tostring(resHeldRate, "#") + "% (n=" + str.tostring(resHitN) + ")")
     table.cell(st, 1, 8, resCellTxt, text_color = colCHoCH, text_size = size.tiny, bgcolor = cellBg)
 
     table.cell(st, 0, 9, "Support", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
-    string supCellTxt = na(supConfluence) ? "—" : str.tostring(int(supConfluence)) + " conf" + (na(supHitRate) ? "" : " · " + str.tostring(supHitRate, "#") + "% (n=" + str.tostring(supHitN) + ")")
+    string supCellTxt = na(supConfluence) ? "—" : str.tostring(int(supConfluence)) + " conf" + (na(supHitRate) ? "" : " · " + supRepType + " hit " + str.tostring(supHitRate, "#") + "% / held " + str.tostring(supHeldRate, "#") + "% (n=" + str.tostring(supHitN) + ")")
     table.cell(st, 1, 9, supCellTxt, text_color = colBOS, text_size = size.tiny, bgcolor = cellBg)
 
 // =============================================================================

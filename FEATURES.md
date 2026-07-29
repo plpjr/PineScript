@@ -1,4 +1,4 @@
-# BOS / CHoCH Structure v6.0 — Feature Guide
+# BOS / CHoCH Structure v6.1 — Feature Guide
 
 This indicator does one job: tell you the nearest support/resistance zones
 worth watching, and why. It labels **structure breaks** (BOS/CHoCH) with a
@@ -298,25 +298,33 @@ answer: **is the nearest zone worth watching, and how do we know?**
   right on the zone's label and in the status table's new **Resistance** /
   **Support** rows. Tells you: how many independent detectors agree this
   price area matters, at a glance.
-- **Historical hit-rate**: every order block, FVG, and liquidity pool is
-  tagged at the moment it's created with how many of the *other two* detector
-  types already overlapped it (0, 1, or "2+"). When that zone later resolves —
-  either touched before failing, or expired/invalidated untouched — the
-  outcome is filed into a running tally for that confluence level. The
-  nearest swing zone then displays that bucket's hit rate with its sample
-  size, e.g. `Resistance · 2 conf · 74% (n=31)`.
+- **Historical hit-rate, tracked separately per zone type**: every order
+  block, FVG, and liquidity pool is tagged at the moment it's created with how
+  many of the *other two* detector types already overlapped it (0, 1, or
+  "2+"). Order blocks, FVGs, and liquidity pools each keep their OWN set of
+  buckets — an order block's history and a liquidity pool's are never blended
+  together, since there's no reason to assume they behave the same way.
+- **Touched vs. held**: a zone can be touched without being respected — price
+  wicks in and keeps going. "Held" requires price to close back AWAY from the
+  zone by a confirmation margin (`Hold confirmation margin (× ATR)`) instead
+  of just tagging along the near edge. Box labels reflect this directly: a
+  zone appends "(tested)" the first time it's touched, and "(held)" if price
+  later confirms the rejection.
+- **Display picks the most-sampled type, and names it**: the nearest swing
+  zone shows the hit rate / hold rate of whichever overlapping type
+  (order block, FVG, or liquidity) has the largest sample size at that
+  confluence level, labelled so you know which one it is — e.g.
+  `Resistance · 2 conf · OB hit 74%/held 41% (n=31)`. This avoids quietly
+  averaging different zone types into one misleading number.
 - **Read this as a frequency count, not a prediction.** It's built entirely
   from this chart's own history — this instrument, this timeframe, whatever
   has actually happened here. The `n=` is shown on purpose: treat anything
   under roughly 20 samples as noise, exactly like the confidence-score
   section's advice about the minimum-score gate. Early in a chart's history,
   or right after changing a filter setting, expect the number to jump around
-  before it settles.
-- **Box lifecycle labels update too**: an order block or FVG appends
-  "(tested)" to its label the first time price wicks back into it; a
-  liquidity pool appends "(swept)". No new lifecycle rules — same
-  fade-on-touch, delete-on-invalidation behavior as before, just now visible
-  in the text.
+  before it settles — and note that changing ANY input restarts the sample
+  size from zero, since TradingView recalculates the whole script from bar 1
+  when an input changes.
 - Turning this OFF leaves every box still labelled with its type — it just
   removes the confluence count and hit-rate layer on top.
 
