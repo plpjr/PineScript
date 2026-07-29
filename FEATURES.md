@@ -35,6 +35,19 @@ you can tell them apart at a glance without reading text.
 - **Fine tune (1–10)** — nudges the chosen preset up or down without switching
   presets. 5 = preset as-is; above 5 loosens, below 5 tightens. Ignored on
   Custom. Use this instead of jumping presets when one is "almost right."
+- **Auto-adapt to timeframe** — rescales every *extend-right* and *lookback*
+  window (BOS/CHoCH line length, all four zone box widths, order-block search
+  depth, liquidity pivot memory, retest window) so each spans the same real
+  amount of time on every chart, instead of a fixed bar count. Tells you: a
+  50-bar setting is 50 minutes on a 1-minute chart and over a week on a
+  4-hour chart if left unscaled — this keeps it meaning the same thing when
+  you flip timeframes, so you don't have to retune those settings by hand
+  every time. Each scaled value is capped at that setting's own manual
+  min/max, so it never reaches a value you couldn't have picked yourself.
+  Deliberately leaves swing pivot length, filter thresholds, and score
+  weights alone — those still come from the Preset/Fine-tune dial, since
+  changing what *counts* as a valid break based on timeframe is a different
+  decision from how far to draw or look back once one fires.
 
 ---
 

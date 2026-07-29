@@ -1,5 +1,19 @@
 // =============================================================================
-// BOS / CHoCH Market Structure  —  v5.2
+// BOS / CHoCH Market Structure  —  v5.3
+//
+// NEW IN v5.3 — TIMEFRAME ADAPTATION:
+//   * "Auto-adapt to timeframe" (① Sensitivity presets) rescales every
+//     extend-right and lookback window — BOS/CHoCH line length, all four zone
+//     box widths, order-block search depth, liquidity pivot memory, retest
+//     window — so each represents the SAME slice of real time on every chart,
+//     instead of a fixed bar count that means 50 minutes on a 1-minute chart
+//     and over a week on a 4-hour chart.
+//   * Every scaled value is clamped to that setting's own manual min/max, so
+//     auto-adapt can never reach a value you couldn't have picked by hand.
+//   * Deliberately does NOT touch swing pivot length, filter thresholds, or
+//     score weights — those stay under the Preset/Fine-tune dial, since what
+//     COUNTS as a valid break is a different decision from how far to draw or
+//     look back once one fires.
 //
 // NEW IN v5.2 — SMART MONEY ZONES:
 //   * Swing zones: the live watched high/low is now a shaded wick-to-body box
@@ -56,7 +70,7 @@
 //   * Optional internal structure (faster swing length, thinner lines).
 // =============================================================================
 //@version=5
-indicator("BOS / CHoCH Structure v5.2", overlay = true, max_bars_back = 100, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500)
+indicator("BOS / CHoCH Structure v5.3", overlay = true, max_bars_back = 100, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500)
 
 // =============================================================================
 // SENSITIVITY MASTER CONTROLS
@@ -80,6 +94,9 @@ sensDial = input.int(5, "Fine tune (1 = strictest, 10 = loosest)", minval = 1, m
        "Below 5 = progressively stricter (fewer signals, later, cleaner).\n\n" +
        "Ignored when Preset = Custom.\n\n" +
        "Practical use: if a preset is close but gives slightly too many signals on your instrument, drop this to 3–4 rather than switching preset entirely.")
+
+useAutoTF = input.bool(true, "Auto-adapt to timeframe", group = grpP,
+     tooltip = "Scales every 'extend right' and 'lookback' window (BOS/CHoCH line length, zone box width, order-block search depth, liquidity pivot memory, retest window) so it represents the SAME slice of real time on every chart, instead of a fixed bar count that means 50 minutes on a 1-minute chart and over a week on a 4-hour chart.\n\nEach scaled value is capped at whatever that setting's own manual maximum already is, so auto-adapt can never reach a value you couldn't have picked by hand.\n\nDoes NOT touch swing pivot length, filter thresholds, or score weights — those stay under the Preset/Fine-tune dial above, since changing what COUNTS as a valid break based on timeframe is a different decision from how far to draw or look back once one fires.\n\nOFF = every bar-count setting below means exactly what you typed, unscaled.")
 
 // Preset base values ----------------------------------------------------------
 int   pSwing    = preset == "Very Loose" ? 3   : preset == "Loose" ? 4    : preset == "Balanced" ? 5    : preset == "Strict" ? 7    : preset == "Very Strict" ? 10 : 5
@@ -516,6 +533,36 @@ bool  strictBreak  = mStrictBreak
 int   confirmBars  = mConfirmBars
 
 // =============================================================================
+// TIMEFRAME ADAPTATION
+// =============================================================================
+// tfScale is the current chart's minutes-per-bar relative to the 15-minute
+// baseline every default bar-count below was designed around (the same
+// baseline the Balanced preset targets). Falls back to neutral (1.0) on
+// non-time-based charts (Renko/Range/Tick) where in_seconds() isn't meaningful.
+float tfSeconds = timeframe.in_seconds(timeframe.period)
+float tfScale   = tfSeconds > 0 ? (tfSeconds / 60.0) / 15.0 : 1.0
+
+// Rescales a bar count authored against the 15-minute baseline so it spans
+// the same real time on the current chart. Clamped to [minBars, maxBars] —
+// the same range the underlying input already allows — so auto-adapt can
+// never land outside a value you could have picked manually.
+scaleBars(int bars, int minBars, int maxBars) =>
+    useAutoTF ? int(math.max(minBars, math.min(maxBars, math.round(bars / tfScale)))) : bars
+
+int effBosExtend    = scaleBars(bosExtendBars, 0, 500)
+int effChochExtend  = scaleBars(chochExtendBars, 0, 500)
+int effSwingExtend  = scaleBars(swingZoneExtend, 0, 200)
+int effObLookback   = scaleBars(obLookback, 1, 50)
+int effObExtend     = scaleBars(obExtendBars, 0, 300)
+int effFvgExtend    = scaleBars(fvgExtendBars, 0, 300)
+int effLiqLookback  = scaleBars(liqLookback, 20, 500)
+int effLiqExtend    = scaleBars(liqExtendBars, 0, 300)
+int effIntExtend    = scaleBars(30, 3, 300)
+int effRetestWindow = scaleBars(100, 10, 500)
+int effRetestMinAge = scaleBars(3, 1, 20)
+int effRetestMaxAge = scaleBars(50, 5, 200)
+
+// =============================================================================
 // CORE CALCULATIONS
 // =============================================================================
 atrVal = ta.atr(atrLen)
@@ -866,7 +913,7 @@ if fireUp and not na(fireLevel)
     drawBreak(true, fireLevel, fireLevelBar, fireClearance, fireScore, txt, col,
          isChoch ? chochLineStyle : bosLineStyle,
          isChoch ? chochLineWidth : bosLineWidth,
-         isChoch ? chochExtendBars : bosExtendBars,
+         isChoch ? effChochExtend : effBosExtend,
          isChoch ? chochVertical : bosVertical,
          drawIt)
 
@@ -892,7 +939,7 @@ if fireDown and not na(fireLevel)
     drawBreak(false, fireLevel, fireLevelBar, fireClearance, fireScore, txt, col,
          isChoch ? chochLineStyle : bosLineStyle,
          isChoch ? chochLineWidth : bosLineWidth,
-         isChoch ? chochExtendBars : bosExtendBars,
+         isChoch ? effChochExtend : effBosExtend,
          isChoch ? chochVertical : bosVertical,
          drawIt)
 
@@ -912,20 +959,20 @@ if fireDown and not na(fireLevel)
 // ---------------------------- Order blocks (creation) ------------------------
 // The order block is the last opposite-coloured candle before the impulse that
 // just broke structure — searched backward from the break bar, capped at
-// obLookback so a slow grind doesn't attribute the break to a candle from
+// effObLookback so a slow grind doesn't attribute the break to a candle from
 // unrelated prior structure.
 if useOB and fireUp
     int   obOffset = na
     float obTopVal = na
     float obBotVal = na
-    for i = 1 to obLookback
+    for i = 1 to effObLookback
         if close[i] < open[i]
             obOffset := i
             obTopVal := high[i]
             obBotVal := low[i]
             break
     if not na(obOffset)
-        box ob = box.new(bar_index - obOffset, obTopVal, bar_index + obExtendBars, obBotVal,
+        box ob = box.new(bar_index - obOffset, obTopVal, bar_index + effObExtend, obBotVal,
              border_color = color.new(zoneBullColor, zoneOpacity), border_width = 1,
              bgcolor = color.new(zoneBullColor, math.min(95, zoneOpacity + 8)))
         array.push(obBox, ob)
@@ -944,14 +991,14 @@ if useOB and fireDown
     int   obOffset = na
     float obTopVal = na
     float obBotVal = na
-    for i = 1 to obLookback
+    for i = 1 to effObLookback
         if close[i] > open[i]
             obOffset := i
             obTopVal := high[i]
             obBotVal := low[i]
             break
     if not na(obOffset)
-        box ob = box.new(bar_index - obOffset, obTopVal, bar_index + obExtendBars, obBotVal,
+        box ob = box.new(bar_index - obOffset, obTopVal, bar_index + effObExtend, obBotVal,
              border_color = color.new(zoneBearColor, zoneOpacity), border_width = 1,
              bgcolor = color.new(zoneBearColor, math.min(95, zoneOpacity + 8)))
         array.push(obBox, ob)
@@ -976,7 +1023,7 @@ if useInternal
             label.new(bar_index, high + atrVal * 0.3, iTxt,
                  style = label.style_label_down, color = color.new(color.black, 15),
                  textcolor = color.new(iCol, intTransparency), size = size.tiny)
-        line.new(iWatchHighBar, iWatchHigh, bar_index + 30, iWatchHigh,
+        line.new(iWatchHighBar, iWatchHigh, bar_index + effIntExtend, iWatchHigh,
              color = color.new(iCol, intTransparency), style = line.style_dotted,
              width = intLineWidth)
         iWatchHigh := na
@@ -994,7 +1041,7 @@ if useInternal
             label.new(bar_index, low - atrVal * 0.3, iTxt,
                  style = label.style_label_up, color = color.new(color.black, 15),
                  textcolor = color.new(iCol, intTransparency), size = size.tiny)
-        line.new(iWatchLowBar, iWatchLow, bar_index + 30, iWatchLow,
+        line.new(iWatchLowBar, iWatchLow, bar_index + effIntExtend, iWatchLow,
              color = color.new(iCol, intTransparency), style = line.style_dotted,
              width = intLineWidth)
         iWatchLow := na
@@ -1039,11 +1086,11 @@ if barstate.islast
     // Swing zones: the watched high/low shown as a wick-to-body box rather than
     // a single price line, so the whole area price needs to clear is visible.
     if showSwingZones and not na(watchHigh) and not na(watchHighBody)
-        liveHiZone := box.new(watchHighBar, watchHigh, bar_index + swingZoneExtend, math.min(watchHighBody, watchHigh),
+        liveHiZone := box.new(watchHighBar, watchHigh, bar_index + effSwingExtend, math.min(watchHighBody, watchHigh),
              border_color = color.new(zoneBearColor, zoneOpacity), border_width = 1, border_style = line.style_dashed,
              bgcolor = color.new(zoneBearColor, math.min(95, zoneOpacity + 8)))
     if showSwingZones and not na(watchLow) and not na(watchLowBody)
-        liveLoZone := box.new(watchLowBar, math.max(watchLowBody, watchLow), bar_index + swingZoneExtend, watchLow,
+        liveLoZone := box.new(watchLowBar, math.max(watchLowBody, watchLow), bar_index + effSwingExtend, watchLow,
              border_color = color.new(zoneBullColor, zoneOpacity), border_width = 1, border_style = line.style_dashed,
              bgcolor = color.new(zoneBullColor, math.min(95, zoneOpacity + 8)))
 
@@ -1079,7 +1126,7 @@ if useOB and array.size(obBox) > 0
             box.set_border_color(b, color.new(c, math.min(95, zoneOpacity + zoneFadeExtra)))
             box.set_right(b, bar_index)
         else if st == 0
-            box.set_right(b, bar_index + obExtendBars)
+            box.set_right(b, bar_index + effObExtend)
 
 // ---------------------------- Fair value gaps ---------------------------------
 // Classic 3-candle imbalance: candle 1's wick doesn't overlap candle 3's wick.
@@ -1090,7 +1137,7 @@ if useFVG and atrVal > 0
     if bullGap
         float gapTop = low
         float gapBot = high[2]
-        box g = box.new(bar_index - 2, gapTop, bar_index + fvgExtendBars, gapBot,
+        box g = box.new(bar_index - 2, gapTop, bar_index + effFvgExtend, gapBot,
              border_color = color.new(zoneBullColor, zoneOpacity), border_width = 1, border_style = line.style_dotted,
              bgcolor = color.new(zoneBullColor, math.min(95, zoneOpacity + 8)))
         array.push(fvgBox, g)
@@ -1099,7 +1146,7 @@ if useFVG and atrVal > 0
         array.push(fvgIsBull, true)
         array.push(fvgState, 0)
         if fvgShowMidline
-            line.new(bar_index - 2, (gapTop + gapBot) / 2, bar_index + fvgExtendBars, (gapTop + gapBot) / 2,
+            line.new(bar_index - 2, (gapTop + gapBot) / 2, bar_index + effFvgExtend, (gapTop + gapBot) / 2,
                  color = color.new(zoneBullColor, math.max(0, zoneOpacity - 10)), style = line.style_dotted, width = 1)
         if array.size(fvgBox) > zoneMaxPerType
             box.delete(array.shift(fvgBox))
@@ -1111,7 +1158,7 @@ if useFVG and atrVal > 0
     if bearGap
         float gapTop = low[2]
         float gapBot = high
-        box g = box.new(bar_index - 2, gapTop, bar_index + fvgExtendBars, gapBot,
+        box g = box.new(bar_index - 2, gapTop, bar_index + effFvgExtend, gapBot,
              border_color = color.new(zoneBearColor, zoneOpacity), border_width = 1, border_style = line.style_dotted,
              bgcolor = color.new(zoneBearColor, math.min(95, zoneOpacity + 8)))
         array.push(fvgBox, g)
@@ -1120,7 +1167,7 @@ if useFVG and atrVal > 0
         array.push(fvgIsBull, false)
         array.push(fvgState, 0)
         if fvgShowMidline
-            line.new(bar_index - 2, (gapTop + gapBot) / 2, bar_index + fvgExtendBars, (gapTop + gapBot) / 2,
+            line.new(bar_index - 2, (gapTop + gapBot) / 2, bar_index + effFvgExtend, (gapTop + gapBot) / 2,
                  color = color.new(zoneBearColor, math.max(0, zoneOpacity - 10)), style = line.style_dotted, width = 1)
         if array.size(fvgBox) > zoneMaxPerType
             box.delete(array.shift(fvgBox))
@@ -1156,7 +1203,7 @@ if useFVG and array.size(fvgBox) > 0
             box.set_border_color(b, color.new(c, math.min(95, zoneOpacity + zoneFadeExtra)))
             box.set_right(b, bar_index)
         else if st == 0
-            box.set_right(b, bar_index + fvgExtendBars)
+            box.set_right(b, bar_index + effFvgExtend)
 
 // ---------------------------- Liquidity zones ---------------------------------
 // Equal highs/lows within tolerance mark resting liquidity. Uses the raw pivots
@@ -1166,7 +1213,7 @@ if useLiquidity and not na(ph)
     array.push(pivHighVals, ph)
     array.push(pivHighBars, bar_index - swingLen)
     while array.size(pivHighBars) > 0
-        if bar_index - array.get(pivHighBars, 0) > liqLookback
+        if bar_index - array.get(pivHighBars, 0) > effLiqLookback
             array.shift(pivHighVals)
             array.shift(pivHighBars)
         else
@@ -1177,7 +1224,7 @@ if useLiquidity and not na(ph)
             if math.abs(ph - v) <= liqTol * atrVal
                 float lTop = math.max(ph, v)
                 float lBot = math.min(ph, v)
-                box lb = box.new(array.get(pivHighBars, j), lTop, bar_index + liqExtendBars, lBot,
+                box lb = box.new(array.get(pivHighBars, j), lTop, bar_index + effLiqExtend, lBot,
                      border_color = color.new(zoneBearColor, zoneOpacity), border_width = 1,
                      bgcolor = color.new(zoneBearColor, math.min(95, zoneOpacity + 10)))
                 array.push(liqBox, lb)
@@ -1197,7 +1244,7 @@ if useLiquidity and not na(pl)
     array.push(pivLowVals, pl)
     array.push(pivLowBars, bar_index - swingLen)
     while array.size(pivLowBars) > 0
-        if bar_index - array.get(pivLowBars, 0) > liqLookback
+        if bar_index - array.get(pivLowBars, 0) > effLiqLookback
             array.shift(pivLowVals)
             array.shift(pivLowBars)
         else
@@ -1208,7 +1255,7 @@ if useLiquidity and not na(pl)
             if math.abs(pl - v) <= liqTol * atrVal
                 float lTop = math.max(pl, v)
                 float lBot = math.min(pl, v)
-                box lb = box.new(array.get(pivLowBars, j), lTop, bar_index + liqExtendBars, lBot,
+                box lb = box.new(array.get(pivLowBars, j), lTop, bar_index + effLiqExtend, lBot,
                      border_color = color.new(zoneBullColor, zoneOpacity), border_width = 1,
                      bgcolor = color.new(zoneBullColor, math.min(95, zoneOpacity + 10)))
                 array.push(liqBox, lb)
@@ -1251,7 +1298,7 @@ if useLiquidity and array.size(liqBox) > 0
             box.set_bgcolor(b, color.new(c, math.min(95, zoneOpacity + zoneFadeExtra + 10)))
             box.set_border_color(b, color.new(c, math.min(95, zoneOpacity + zoneFadeExtra)))
         else if st == 0
-            box.set_right(b, bar_index + liqExtendBars)
+            box.set_right(b, bar_index + effLiqExtend)
 
 // ---------------------------- Pivot markers ----------------------------------
 plotshape(showPivots and not na(ph), title = "Swing High", location = location.abovebar,
@@ -1352,7 +1399,7 @@ if fireDown and not na(fireLevel)
 // array.get(retestBars, 0) would still run (and error) on an empty array even
 // with array.size(retestBars) > 0 false on the same line.
 while array.size(retestBars) > 0
-    if bar_index - array.get(retestBars, 0) > 100
+    if bar_index - array.get(retestBars, 0) > effRetestWindow
         array.shift(retestLevels)
         array.shift(retestBars)
         array.shift(retestIsHigh)
@@ -1368,7 +1415,7 @@ if barstate.isconfirmed and array.size(retestLevels) > 0
         int bBar = array.get(retestBars, i)
         // Skip levels already retested once, otherwise a level that price sits
         // on re-fires the alert every single bar.
-        if not array.get(retestUsed, i) and bar_index - bBar > 3 and bar_index - bBar < 50
+        if not array.get(retestUsed, i) and bar_index - bBar > effRetestMinAge and bar_index - bBar < effRetestMaxAge
             float lvl  = array.get(retestLevels, i)
             bool  isHi = array.get(retestIsHigh, i)
             bool  scoreOk = not useScore or minScore == 0 or array.get(retestScores, i) >= minScore
