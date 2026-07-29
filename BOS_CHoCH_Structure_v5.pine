@@ -1,5 +1,19 @@
 // =============================================================================
-// BOS / CHoCH Market Structure  —  v5.1
+// BOS / CHoCH Market Structure  —  v5.2
+//
+// NEW IN v5.2 — SMART MONEY ZONES:
+//   * Swing zones: the live watched high/low is now a shaded wick-to-body box
+//     instead of a thin line, so the exact area price must clear is obvious.
+//   * Order blocks: the last opposite-coloured candle before a confirmed break,
+//     drawn as a box. Grows while untested, fades on first touch, deletes once
+//     price closes all the way through it (invalidated).
+//   * Fair value gaps: classic 3-candle imbalances, ATR-filtered for size.
+//     Fades on first partial fill, deletes once fully filled.
+//   * Liquidity zones: equal highs/lows within an ATR tolerance, marking
+//     resting buy-side/sell-side liquidity. Fades on a sweep (wick through),
+//     deletes once a close confirms the level was actually consumed.
+//   * All four share one box-history cap (Zones — shared style) so the chart
+//     stays under TradingView's object limits automatically.
 //
 // NEW IN v5.1 — CONFIDENCE SCORING:
 //   * Every break is graded 0-100 across five independent measures: clearance
@@ -42,7 +56,7 @@
 //   * Optional internal structure (faster swing length, thinner lines).
 // =============================================================================
 //@version=5
-indicator("BOS / CHoCH Structure v5.1", overlay = true, max_bars_back = 100, max_lines_count = 500, max_labels_count = 500)
+indicator("BOS / CHoCH Structure v5.2", overlay = true, max_bars_back = 100, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500)
 
 // =============================================================================
 // SENSITIVITY MASTER CONTROLS
@@ -388,6 +402,85 @@ tVol = input.float(1.60, "Full marks · volume (× average)", minval = 0.20, ste
 tLeg = input.float(2.00, "Full marks · leg size (× ATR)", minval = 0.10, step = 0.10, group = grpQ2,
      tooltip = "Size of the broken leg, in ATR, that earns the FULL structural score.\n\nRaise on higher timeframes where legs are naturally larger.")
 
+// =============================================================================
+// ZONES — SHARED STYLE
+// =============================================================================
+grpZ = "⑪ Zones — shared style"
+
+zoneBullColor = input.color(#22C55E, "Bullish zone colour", group = grpZ,
+     tooltip = "Base colour for every zone that favours longs: swing low zones, bullish order blocks, bullish FVGs, and sell-side liquidity pools.")
+
+zoneBearColor = input.color(#EF4444, "Bearish zone colour", group = grpZ,
+     tooltip = "Base colour for every zone that favours shorts: swing high zones, bearish order blocks, bearish FVGs, and buy-side liquidity pools.")
+
+zoneOpacity = input.int(82, "Active zone opacity", minval = 0, maxval = 95, group = grpZ,
+     tooltip = "Fill/border transparency for a live, untested zone. Higher = more see-through.\n\nLower this if zones feel too faint against your chart background.")
+
+zoneFadeExtra = input.int(12, "Extra fade once tested/mitigated", minval = 0, maxval = 40, group = grpZ,
+     tooltip = "Added transparency once a zone has been touched or filled, so used zones visually recede and only live, untouched zones jump out at you.")
+
+zoneMaxPerType = input.int(20, "Max active zones per type", minval = 1, maxval = 100, group = grpZ,
+     tooltip = "Oldest zone of each type (order block / FVG / liquidity pool) auto-deletes once this many are on the chart. Keeps you under TradingView's object caps and the chart readable.")
+
+// =============================================================================
+// SWING ZONES
+// =============================================================================
+grpZS = "⑫ Swing zones"
+
+showSwingZones = input.bool(true, "Shade swing high/low zones", group = grpZS,
+     tooltip = "Draws the CURRENT watched swing high and swing low as a shaded box instead of just a thin line — the exact area price needs to break for a signal to fire, made impossible to miss.\n\nThe box spans wick-to-body of the pivot candle: the wick is the exact extreme, the body edge is where real conviction started, so the zone reflects the whole area price likely reacts from, not just one tick.")
+
+swingZoneExtend = input.int(20, "  Extend zone right (bars)", minval = 0, maxval = 200, group = grpZS,
+     tooltip = "How far the swing zone box is drawn forward from the current bar. Purely visual — does not affect detection.")
+
+// =============================================================================
+// ORDER BLOCKS
+// =============================================================================
+grpZO = "⑬ Order blocks"
+
+useOB = input.bool(true, "Show order blocks", group = grpZO,
+     tooltip = "An order block is the LAST opposite-coloured candle before an impulsive break of structure — the candle where the move likely originated. Traders watch these as high-probability entry zones on a retest.\n\nBullish OB = last down-close candle before a break up. Bearish OB = last up-close candle before a break down.\n\nLifecycle: the box grows while untested, fades the first time price wicks back into it, and deletes once price CLOSES all the way through the far side (invalidated).")
+
+obLookback = input.int(15, "  Search back this many bars", minval = 1, maxval = 50, group = grpZO,
+     tooltip = "How far back from the break candle to search for the origin candle. Raise on higher timeframes where the origin candle can sit further back; lower to keep only very tight, recent origins.")
+
+obExtendBars = input.int(30, "  Extend box right (bars)", minval = 0, maxval = 300, group = grpZO,
+     tooltip = "How far an ACTIVE (untested) order block box is drawn forward while price hasn't returned to it yet.")
+
+// =============================================================================
+// FAIR VALUE GAPS
+// =============================================================================
+grpZF = "⑭ Fair value gaps"
+
+useFVG = input.bool(true, "Show fair value gaps", group = grpZF,
+     tooltip = "A fair value gap (FVG) is a 3-candle imbalance: the wick of candle 1 doesn't overlap the wick of candle 3, leaving a gap the market moved through without trading. Price often returns to 'fill' this gap before continuing.\n\nBullish FVG = gap left behind an up move (support-ish). Bearish FVG = gap left behind a down move (resistance-ish).\n\nLifecycle: fades the first time price wicks back into the gap, deletes once price CLOSES all the way through it (fully filled).")
+
+fvgMinSize = input.float(0.05, "  Min gap size (× ATR)", minval = 0.0, step = 0.05, group = grpZF,
+     tooltip = "Filters out tiny, insignificant gaps.\n\n0.0 = show every gap, even one tick wide.\n0.05-0.15 = balanced, hides noise on choppy instruments.\n0.3+ = only large, obvious imbalances.")
+
+fvgExtendBars = input.int(30, "  Extend box right (bars)", minval = 0, maxval = 300, group = grpZF,
+     tooltip = "How far an unfilled FVG box is drawn forward while price hasn't returned to fill it.")
+
+fvgShowMidline = input.bool(false, "  Show 50% midline (CE)", group = grpZF,
+     tooltip = "Draws a thin dotted line through the middle of the gap — the 'consequent encroachment' level some traders treat as the real reaction point rather than the whole gap.")
+
+// =============================================================================
+// LIQUIDITY ZONES
+// =============================================================================
+grpZL = "⑮ Liquidity zones"
+
+useLiquidity = input.bool(true, "Show liquidity zones", group = grpZL,
+     tooltip = "Marks equal (or near-equal) highs and lows as resting liquidity pools — clusters of stop-losses and breakout orders that price is statistically drawn toward before reversing.\n\nBuy-side liquidity = equal highs (above price). Sell-side liquidity = equal lows (below price).\n\nLifecycle: fades the moment price wicks through (a sweep attempt), deletes once a CLOSE confirms the level is consumed.")
+
+liqTol = input.float(0.12, "  Equal-level tolerance (× ATR)", minval = 0.01, step = 0.01, group = grpZL,
+     tooltip = "How close two swing points must be, in ATR, to count as 'equal' and form a pool.\n\nSmaller = only near-identical levels cluster. Larger = merges more distant swings into one pool, which can overstate how 'equal' they really were.")
+
+liqLookback = input.int(150, "  Pivot lookback (bars)", minval = 20, maxval = 500, group = grpZL,
+     tooltip = "How far back to look for a matching prior pivot when deciding whether a new pivot forms a liquidity pool. Longer = catches older equal highs/lows; shorter = only recent, more relevant pools.")
+
+liqExtendBars = input.int(40, "  Extend zone right (bars)", minval = 0, maxval = 300, group = grpZL,
+     tooltip = "How far an unswept liquidity zone is drawn forward.")
+
 // Normalise the weights so the score always lands on a 0-100 scale regardless of
 // what the user typed. Without this, zeroing volume would silently cap the score
 // at 85 and every threshold you had tuned would shift under you.
@@ -442,6 +535,8 @@ var float watchHigh    = na
 var int   watchHighBar = na
 var float watchLow     = na
 var int   watchLowBar  = na
+var float watchHighBody = na   // body edge of the swing-high pivot candle (for the swing zone box)
+var float watchLowBody  = na   // body edge of the swing-low pivot candle
 var float refHigh = na
 var float refLow  = na
 var float lastBrokenHigh = na
@@ -462,6 +557,31 @@ var array<line> histLines = array.new_line(0)
 var array<label> histLabels = array.new_label(0)
 var array<line> histVertLines = array.new_line(0)
 
+// Zone box arrays. Each zone type keeps its geometry/state in parallel arrays
+// alongside the box objects themselves, since Pine arrays can't hold structs.
+var array<box>   obBox    = array.new_box(0)
+var array<float> obTop    = array.new_float(0)
+var array<float> obBottom = array.new_float(0)
+var array<bool>  obIsBull = array.new_bool(0)
+var array<int>   obState  = array.new_int(0)   // 0 = active/growing, 1 = touched/faded
+
+var array<box>   fvgBox    = array.new_box(0)
+var array<float> fvgTop    = array.new_float(0)
+var array<float> fvgBottom = array.new_float(0)
+var array<bool>  fvgIsBull = array.new_bool(0)
+var array<int>   fvgState  = array.new_int(0)
+
+var array<float> pivHighVals = array.new_float(0)
+var array<int>   pivHighBars = array.new_int(0)
+var array<float> pivLowVals  = array.new_float(0)
+var array<int>   pivLowBars  = array.new_int(0)
+
+var array<box>   liqBox      = array.new_box(0)
+var array<float> liqTop      = array.new_float(0)
+var array<float> liqBottom   = array.new_float(0)
+var array<bool>  liqBuySide  = array.new_bool(0)   // true = equal highs (above price), false = equal lows (below)
+var array<int>   liqState    = array.new_int(0)
+
 deleteOldest() =>
     if maxHistory > 0
         while array.size(histLines) > maxHistory
@@ -477,16 +597,18 @@ deleteOldest() =>
 if not na(ph)
     bool bigEnough = not useAtrFilter or na(refLow) or (ph - refLow) >= atrMult * atrVal
     if bigEnough
-        watchHigh    := ph
-        watchHighBar := bar_index - swingLen
-        refHigh      := ph
+        watchHigh     := ph
+        watchHighBar  := bar_index - swingLen
+        watchHighBody := math.max(open[swingLen], close[swingLen])
+        refHigh       := ph
 
 if not na(pl)
     bool bigEnough = not useAtrFilter or na(refHigh) or (refHigh - pl) >= atrMult * atrVal
     if bigEnough
-        watchLow    := pl
-        watchLowBar := bar_index - swingLen
-        refLow      := pl
+        watchLow     := pl
+        watchLowBar  := bar_index - swingLen
+        watchLowBody := math.min(open[swingLen], close[swingLen])
+        refLow       := pl
 
 // Anchor to true leg extreme
 if not na(watchHigh) and high > watchHigh and close <= watchHigh
@@ -787,6 +909,63 @@ if fireDown and not na(fireLevel)
     refHigh        := na
     refLow         := na
 
+// ---------------------------- Order blocks (creation) ------------------------
+// The order block is the last opposite-coloured candle before the impulse that
+// just broke structure — searched backward from the break bar, capped at
+// obLookback so a slow grind doesn't attribute the break to a candle from
+// unrelated prior structure.
+if useOB and fireUp
+    int   obOffset = na
+    float obTopVal = na
+    float obBotVal = na
+    for i = 1 to obLookback
+        if close[i] < open[i]
+            obOffset := i
+            obTopVal := high[i]
+            obBotVal := low[i]
+            break
+    if not na(obOffset)
+        box ob = box.new(bar_index - obOffset, obTopVal, bar_index + obExtendBars, obBotVal,
+             border_color = color.new(zoneBullColor, zoneOpacity), border_width = 1,
+             bgcolor = color.new(zoneBullColor, math.min(95, zoneOpacity + 8)))
+        array.push(obBox, ob)
+        array.push(obTop, obTopVal)
+        array.push(obBottom, obBotVal)
+        array.push(obIsBull, true)
+        array.push(obState, 0)
+        if array.size(obBox) > zoneMaxPerType
+            box.delete(array.shift(obBox))
+            array.shift(obTop)
+            array.shift(obBottom)
+            array.shift(obIsBull)
+            array.shift(obState)
+
+if useOB and fireDown
+    int   obOffset = na
+    float obTopVal = na
+    float obBotVal = na
+    for i = 1 to obLookback
+        if close[i] > open[i]
+            obOffset := i
+            obTopVal := high[i]
+            obBotVal := low[i]
+            break
+    if not na(obOffset)
+        box ob = box.new(bar_index - obOffset, obTopVal, bar_index + obExtendBars, obBotVal,
+             border_color = color.new(zoneBearColor, zoneOpacity), border_width = 1,
+             bgcolor = color.new(zoneBearColor, math.min(95, zoneOpacity + 8)))
+        array.push(obBox, ob)
+        array.push(obTop, obTopVal)
+        array.push(obBottom, obBotVal)
+        array.push(obIsBull, false)
+        array.push(obState, 0)
+        if array.size(obBox) > zoneMaxPerType
+            box.delete(array.shift(obBox))
+            array.shift(obTop)
+            array.shift(obBottom)
+            array.shift(obIsBull)
+            array.shift(obState)
+
 // ---------------------------- Internal structure breaks ----------------------
 if useInternal
     if iCandUp and not na(iWatchHigh)
@@ -843,16 +1022,230 @@ else
 // ---------------------------- Live levels ------------------------------------
 var line liveHiLine = na
 var line liveLoLine = na
+var box  liveHiZone = na
+var box  liveLoZone = na
 
 if barstate.islast
     line.delete(liveHiLine)
     line.delete(liveLoLine)
+    box.delete(liveHiZone)
+    box.delete(liveLoZone)
     if showLiveLv and not na(watchHigh)
         liveHiLine := line.new(watchHighBar, watchHigh, bar_index + 20, watchHigh,
              color = color.new(colBOS, 60), style = line.style_dotted, width = 1)
     if showLiveLv and not na(watchLow)
         liveLoLine := line.new(watchLowBar, watchLow, bar_index + 20, watchLow,
              color = color.new(colCHoCH, 60), style = line.style_dotted, width = 1)
+    // Swing zones: the watched high/low shown as a wick-to-body box rather than
+    // a single price line, so the whole area price needs to clear is visible.
+    if showSwingZones and not na(watchHigh) and not na(watchHighBody)
+        liveHiZone := box.new(watchHighBar, watchHigh, bar_index + swingZoneExtend, math.min(watchHighBody, watchHigh),
+             border_color = color.new(zoneBearColor, zoneOpacity), border_width = 1, border_style = line.style_dashed,
+             bgcolor = color.new(zoneBearColor, math.min(95, zoneOpacity + 8)))
+    if showSwingZones and not na(watchLow) and not na(watchLowBody)
+        liveLoZone := box.new(watchLowBar, math.max(watchLowBody, watchLow), bar_index + swingZoneExtend, watchLow,
+             border_color = color.new(zoneBullColor, zoneOpacity), border_width = 1, border_style = line.style_dashed,
+             bgcolor = color.new(zoneBullColor, math.min(95, zoneOpacity + 8)))
+
+// =============================================================================
+// SMART MONEY ZONES — order block / FVG / liquidity lifecycle
+// =============================================================================
+
+// ---------------------------- Order blocks (mitigation) ----------------------
+// Runs every bar: grows the box while untested, fades it the first time price
+// wicks back in, deletes it once price CLOSES all the way through (invalidated).
+if useOB and array.size(obBox) > 0
+    for i = array.size(obBox) - 1 to 0
+        box   b    = array.get(obBox, i)
+        float top  = array.get(obTop, i)
+        float bot  = array.get(obBottom, i)
+        bool  bull = array.get(obIsBull, i)
+        int   st   = array.get(obState, i)
+
+        bool invalidated = bull ? close < bot : close > top
+        bool touched     = bull ? low <= top : high >= bot
+
+        if invalidated
+            box.delete(b)
+            array.remove(obBox, i)
+            array.remove(obTop, i)
+            array.remove(obBottom, i)
+            array.remove(obIsBull, i)
+            array.remove(obState, i)
+        else if touched and st == 0
+            array.set(obState, i, 1)
+            color c = bull ? zoneBullColor : zoneBearColor
+            box.set_bgcolor(b, color.new(c, math.min(95, zoneOpacity + zoneFadeExtra + 8)))
+            box.set_border_color(b, color.new(c, math.min(95, zoneOpacity + zoneFadeExtra)))
+            box.set_right(b, bar_index)
+        else if st == 0
+            box.set_right(b, bar_index + obExtendBars)
+
+// ---------------------------- Fair value gaps ---------------------------------
+// Classic 3-candle imbalance: candle 1's wick doesn't overlap candle 3's wick.
+if useFVG and atrVal > 0
+    bool bullGap = low > high[2] and (low - high[2]) >= fvgMinSize * atrVal
+    bool bearGap = high < low[2] and (low[2] - high) >= fvgMinSize * atrVal
+
+    if bullGap
+        float gapTop = low
+        float gapBot = high[2]
+        box g = box.new(bar_index - 2, gapTop, bar_index + fvgExtendBars, gapBot,
+             border_color = color.new(zoneBullColor, zoneOpacity), border_width = 1, border_style = line.style_dotted,
+             bgcolor = color.new(zoneBullColor, math.min(95, zoneOpacity + 8)))
+        array.push(fvgBox, g)
+        array.push(fvgTop, gapTop)
+        array.push(fvgBottom, gapBot)
+        array.push(fvgIsBull, true)
+        array.push(fvgState, 0)
+        if fvgShowMidline
+            line.new(bar_index - 2, (gapTop + gapBot) / 2, bar_index + fvgExtendBars, (gapTop + gapBot) / 2,
+                 color = color.new(zoneBullColor, math.max(0, zoneOpacity - 10)), style = line.style_dotted, width = 1)
+        if array.size(fvgBox) > zoneMaxPerType
+            box.delete(array.shift(fvgBox))
+            array.shift(fvgTop)
+            array.shift(fvgBottom)
+            array.shift(fvgIsBull)
+            array.shift(fvgState)
+
+    if bearGap
+        float gapTop = low[2]
+        float gapBot = high
+        box g = box.new(bar_index - 2, gapTop, bar_index + fvgExtendBars, gapBot,
+             border_color = color.new(zoneBearColor, zoneOpacity), border_width = 1, border_style = line.style_dotted,
+             bgcolor = color.new(zoneBearColor, math.min(95, zoneOpacity + 8)))
+        array.push(fvgBox, g)
+        array.push(fvgTop, gapTop)
+        array.push(fvgBottom, gapBot)
+        array.push(fvgIsBull, false)
+        array.push(fvgState, 0)
+        if fvgShowMidline
+            line.new(bar_index - 2, (gapTop + gapBot) / 2, bar_index + fvgExtendBars, (gapTop + gapBot) / 2,
+                 color = color.new(zoneBearColor, math.max(0, zoneOpacity - 10)), style = line.style_dotted, width = 1)
+        if array.size(fvgBox) > zoneMaxPerType
+            box.delete(array.shift(fvgBox))
+            array.shift(fvgTop)
+            array.shift(fvgBottom)
+            array.shift(fvgIsBull)
+            array.shift(fvgState)
+
+// FVG lifecycle: grows while unfilled, fades on first wick back into the gap,
+// deletes once price CLOSES all the way through it (fully filled).
+if useFVG and array.size(fvgBox) > 0
+    for i = array.size(fvgBox) - 1 to 0
+        box   b    = array.get(fvgBox, i)
+        float top  = array.get(fvgTop, i)
+        float bot  = array.get(fvgBottom, i)
+        bool  bull = array.get(fvgIsBull, i)
+        int   st   = array.get(fvgState, i)
+
+        bool filled  = bull ? low <= bot : high >= top
+        bool touched = bull ? low <= top : high >= bot
+
+        if filled
+            box.delete(b)
+            array.remove(fvgBox, i)
+            array.remove(fvgTop, i)
+            array.remove(fvgBottom, i)
+            array.remove(fvgIsBull, i)
+            array.remove(fvgState, i)
+        else if touched and st == 0
+            array.set(fvgState, i, 1)
+            color c = bull ? zoneBullColor : zoneBearColor
+            box.set_bgcolor(b, color.new(c, math.min(95, zoneOpacity + zoneFadeExtra + 8)))
+            box.set_border_color(b, color.new(c, math.min(95, zoneOpacity + zoneFadeExtra)))
+            box.set_right(b, bar_index)
+        else if st == 0
+            box.set_right(b, bar_index + fvgExtendBars)
+
+// ---------------------------- Liquidity zones ---------------------------------
+// Equal highs/lows within tolerance mark resting liquidity. Uses the raw pivots
+// (not the ATR-filtered structural swings) since equal-wick clustering is about
+// literal price memory, not whether a swing was "big enough" to matter for BOS.
+if useLiquidity and not na(ph)
+    array.push(pivHighVals, ph)
+    array.push(pivHighBars, bar_index - swingLen)
+    while array.size(pivHighBars) > 0 and bar_index - array.get(pivHighBars, 0) > liqLookback
+        array.shift(pivHighVals)
+        array.shift(pivHighBars)
+    if atrVal > 0 and array.size(pivHighVals) > 1
+        for j = array.size(pivHighVals) - 2 to 0
+            float v = array.get(pivHighVals, j)
+            if math.abs(ph - v) <= liqTol * atrVal
+                float lTop = math.max(ph, v)
+                float lBot = math.min(ph, v)
+                box lb = box.new(array.get(pivHighBars, j), lTop, bar_index + liqExtendBars, lBot,
+                     border_color = color.new(zoneBearColor, zoneOpacity), border_width = 1,
+                     bgcolor = color.new(zoneBearColor, math.min(95, zoneOpacity + 10)))
+                array.push(liqBox, lb)
+                array.push(liqTop, lTop)
+                array.push(liqBottom, lBot)
+                array.push(liqBuySide, true)
+                array.push(liqState, 0)
+                if array.size(liqBox) > zoneMaxPerType
+                    box.delete(array.shift(liqBox))
+                    array.shift(liqTop)
+                    array.shift(liqBottom)
+                    array.shift(liqBuySide)
+                    array.shift(liqState)
+                break
+
+if useLiquidity and not na(pl)
+    array.push(pivLowVals, pl)
+    array.push(pivLowBars, bar_index - swingLen)
+    while array.size(pivLowBars) > 0 and bar_index - array.get(pivLowBars, 0) > liqLookback
+        array.shift(pivLowVals)
+        array.shift(pivLowBars)
+    if atrVal > 0 and array.size(pivLowVals) > 1
+        for j = array.size(pivLowVals) - 2 to 0
+            float v = array.get(pivLowVals, j)
+            if math.abs(pl - v) <= liqTol * atrVal
+                float lTop = math.max(pl, v)
+                float lBot = math.min(pl, v)
+                box lb = box.new(array.get(pivLowBars, j), lTop, bar_index + liqExtendBars, lBot,
+                     border_color = color.new(zoneBullColor, zoneOpacity), border_width = 1,
+                     bgcolor = color.new(zoneBullColor, math.min(95, zoneOpacity + 10)))
+                array.push(liqBox, lb)
+                array.push(liqTop, lTop)
+                array.push(liqBottom, lBot)
+                array.push(liqBuySide, false)
+                array.push(liqState, 0)
+                if array.size(liqBox) > zoneMaxPerType
+                    box.delete(array.shift(liqBox))
+                    array.shift(liqTop)
+                    array.shift(liqBottom)
+                    array.shift(liqBuySide)
+                    array.shift(liqState)
+                break
+
+// Liquidity lifecycle: fades the moment price wicks through (a sweep attempt),
+// deletes once a CLOSE beyond the level confirms it's actually been consumed —
+// whether or not price reversed, the resting orders are gone either way.
+if useLiquidity and array.size(liqBox) > 0
+    for i = array.size(liqBox) - 1 to 0
+        box   b    = array.get(liqBox, i)
+        float top  = array.get(liqTop, i)
+        float bot  = array.get(liqBottom, i)
+        bool  buyS = array.get(liqBuySide, i)
+        int   st   = array.get(liqState, i)
+
+        bool swept    = buyS ? high >= top : low <= bot
+        bool consumed = buyS ? close > top : close < bot
+
+        if consumed
+            box.delete(b)
+            array.remove(liqBox, i)
+            array.remove(liqTop, i)
+            array.remove(liqBottom, i)
+            array.remove(liqBuySide, i)
+            array.remove(liqState, i)
+        else if swept and st == 0
+            array.set(liqState, i, 1)
+            color c = buyS ? zoneBearColor : zoneBullColor
+            box.set_bgcolor(b, color.new(c, math.min(95, zoneOpacity + zoneFadeExtra + 10)))
+            box.set_border_color(b, color.new(c, math.min(95, zoneOpacity + zoneFadeExtra)))
+        else if st == 0
+            box.set_right(b, bar_index + liqExtendBars)
 
 // ---------------------------- Pivot markers ----------------------------------
 plotshape(showPivots and not na(ph), title = "Swing High", location = location.abovebar,
