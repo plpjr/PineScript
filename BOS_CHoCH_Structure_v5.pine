@@ -1,5 +1,27 @@
 // =============================================================================
-// BOS / CHoCH Market Structure  —  v5.3
+// BOS / CHoCH Market Structure  —  v6.0
+//
+// NEW IN v6.0 — CONFLUENCE + HISTORICAL HIT-RATE:
+//   * Every zone box (order block, FVG, liquidity pool, swing zone) now
+//     carries a text label naming its type, instead of being an unlabelled
+//     box.
+//   * Confluence: whenever a swing zone is the nearest one above/below price,
+//     it's checked against every active, same-directional-bias order block /
+//     FVG / liquidity pool for price overlap. Each type that overlaps adds to
+//     a confluence count shown right on the zone.
+//   * Historical hit-rate: every order block, FVG, and liquidity pool is
+//     tagged at birth with how many OTHER detector types already overlapped
+//     it (0 / 1 / 2+). When it resolves — touched vs. expired untouched —
+//     that outcome is filed into a running per-bucket tally. The nearest
+//     swing zone then shows that bucket's hit rate with its sample size,
+//     e.g. "Resistance · 2 conf · 74% (n=31)".
+//   * This is an empirical frequency count from THIS chart's own history, not
+//     a prediction model — shown with n= on purpose so a small sample reads
+//     as noise, not signal.
+//   * New "Resistance"/"Support" rows in the status table surface the same
+//     numbers without needing to find the box on the chart.
+//   * Toggle: "Show confluence + historical hit-rate" (⑪ Zones — shared
+//     style) — OFF just labels each box with its type, no scoring layer.
 //
 // NEW IN v5.3 — TIMEFRAME ADAPTATION:
 //   * "Auto-adapt to timeframe" (① Sensitivity presets) rescales every
@@ -70,7 +92,7 @@
 //   * Optional internal structure (faster swing length, thinner lines).
 // =============================================================================
 //@version=5
-indicator("BOS / CHoCH Structure v5.3", overlay = true, max_bars_back = 100, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500)
+indicator("BOS / CHoCH Structure v6.0", overlay = true, max_bars_back = 100, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500)
 
 // =============================================================================
 // SENSITIVITY MASTER CONTROLS
@@ -439,6 +461,9 @@ zoneFadeExtra = input.int(12, "Extra fade once tested/mitigated", minval = 0, ma
 zoneMaxPerType = input.int(20, "Max active zones per type", minval = 1, maxval = 100, group = grpZ,
      tooltip = "Oldest zone of each type (order block / FVG / liquidity pool) auto-deletes once this many are on the chart. Keeps you under TradingView's object caps and the chart readable.")
 
+useConfluence = input.bool(true, "Show confluence + historical hit-rate", group = grpZ,
+     tooltip = "Checks whether an order block, FVG, and/or liquidity pool overlap the nearest swing zone, and remembers — from THIS chart's own history — how often zones with that much agreement actually got touched before failing.\n\nShown on the swing zone label ('Resistance · 2 confluence') and as two extra status-table rows (nearest Resistance/Support, with a hit-rate % and its sample size).\n\nThis is an empirical frequency count, not a prediction model — treat any hit-rate with a small sample size (n) as noise, same as the confidence-score minimum-score advice.\n\nOFF = zone boxes still draw and label their own type, just without the confluence/hit-rate layer.")
+
 // =============================================================================
 // SWING ZONES
 // =============================================================================
@@ -628,6 +653,41 @@ var array<float> liqTop      = array.new_float(0)
 var array<float> liqBottom   = array.new_float(0)
 var array<bool>  liqBuySide  = array.new_bool(0)   // true = equal highs (above price), false = equal lows (below)
 var array<int>   liqState    = array.new_int(0)
+
+// Birth-confluence bucket (0, 1, or 2 — "2" means 2-or-more) for each zone,
+// parallel to the arrays above. Set once at creation, used to file the zone's
+// eventual hit/miss outcome into the right bucket below.
+var array<int> obConfBucket  = array.new_int(0)
+var array<int> fvgConfBucket = array.new_int(0)
+var array<int> liqConfBucket = array.new_int(0)
+
+// Pooled across all three zone types, indexed by birth-confluence bucket
+// (0 / 1 / 2+): how many zones born at that confluence level have resolved so
+// far, and how many of those were actually touched before failing/expiring.
+// This is the entire "historical hit-rate" — a running frequency count, not a
+// model.
+var array<int> confTotal = array.new_int(3, 0)
+var array<int> confHit   = array.new_int(3, 0)
+
+// Counts active zones in the given parallel top/bottom arrays whose price
+// range overlaps [top, bot] AND whose bias flag equals matchBias — so callers
+// can restrict the count to same-directional-bias boxes only.
+overlapCount(float top, float bot, array<float> tops, array<float> bots, array<bool> biasArr, bool matchBias) =>
+    int n = 0
+    if array.size(tops) > 0
+        for k = 0 to array.size(tops) - 1
+            if array.get(biasArr, k) == matchBias
+                float t = array.get(tops, k)
+                float b = array.get(bots, k)
+                if b <= top and bot <= t
+                    n += 1
+    n
+
+// Files one resolved zone's outcome into its birth-confluence bucket.
+logOutcome(int bucket, bool hit) =>
+    array.set(confTotal, bucket, array.get(confTotal, bucket) + 1)
+    if hit
+        array.set(confHit, bucket, array.get(confHit, bucket) + 1)
 
 deleteOldest() =>
     if maxHistory > 0
@@ -972,20 +1032,26 @@ if useOB and fireUp
             obBotVal := low[i]
             break
     if not na(obOffset)
+        int obConf = useConfluence ? math.min(2, overlapCount(obTopVal, obBotVal, fvgTop, fvgBottom, fvgIsBull, true) + overlapCount(obTopVal, obBotVal, liqTop, liqBottom, liqBuySide, false)) : 0
+        string obTxt = "Bull OB" + (useConfluence ? " · " + str.tostring(obConf) + (obConf >= 2 ? "+ conf" : " conf") : "")
         box ob = box.new(bar_index - obOffset, obTopVal, bar_index + effObExtend, obBotVal,
              border_color = color.new(zoneBullColor, zoneOpacity), border_width = 1,
-             bgcolor = color.new(zoneBullColor, math.min(95, zoneOpacity + 8)))
+             bgcolor = color.new(zoneBullColor, math.min(95, zoneOpacity + 8)),
+             text = obTxt, text_size = size.tiny, text_color = color.white)
         array.push(obBox, ob)
         array.push(obTop, obTopVal)
         array.push(obBottom, obBotVal)
         array.push(obIsBull, true)
         array.push(obState, 0)
+        array.push(obConfBucket, obConf)
         if array.size(obBox) > zoneMaxPerType
+            logOutcome(array.get(obConfBucket, 0), array.get(obState, 0) == 1)
             box.delete(array.shift(obBox))
             array.shift(obTop)
             array.shift(obBottom)
             array.shift(obIsBull)
             array.shift(obState)
+            array.shift(obConfBucket)
 
 if useOB and fireDown
     int   obOffset = na
@@ -998,20 +1064,26 @@ if useOB and fireDown
             obBotVal := low[i]
             break
     if not na(obOffset)
+        int obConf = useConfluence ? math.min(2, overlapCount(obTopVal, obBotVal, fvgTop, fvgBottom, fvgIsBull, false) + overlapCount(obTopVal, obBotVal, liqTop, liqBottom, liqBuySide, true)) : 0
+        string obTxt = "Bear OB" + (useConfluence ? " · " + str.tostring(obConf) + (obConf >= 2 ? "+ conf" : " conf") : "")
         box ob = box.new(bar_index - obOffset, obTopVal, bar_index + effObExtend, obBotVal,
              border_color = color.new(zoneBearColor, zoneOpacity), border_width = 1,
-             bgcolor = color.new(zoneBearColor, math.min(95, zoneOpacity + 8)))
+             bgcolor = color.new(zoneBearColor, math.min(95, zoneOpacity + 8)),
+             text = obTxt, text_size = size.tiny, text_color = color.white)
         array.push(obBox, ob)
         array.push(obTop, obTopVal)
         array.push(obBottom, obBotVal)
         array.push(obIsBull, false)
         array.push(obState, 0)
+        array.push(obConfBucket, obConf)
         if array.size(obBox) > zoneMaxPerType
+            logOutcome(array.get(obConfBucket, 0), array.get(obState, 0) == 1)
             box.delete(array.shift(obBox))
             array.shift(obTop)
             array.shift(obBottom)
             array.shift(obIsBull)
             array.shift(obState)
+            array.shift(obConfBucket)
 
 // ---------------------------- Internal structure breaks ----------------------
 if useInternal
@@ -1072,6 +1144,15 @@ var line liveLoLine = na
 var box  liveHiZone = na
 var box  liveLoZone = na
 
+// Read by the status table below. Recomputed to na every bar and only ever
+// set inside the barstate.islast block, same pattern as fireLevel/fireScore.
+float resConfluence = na
+float resHitRate    = na
+int   resHitN       = 0
+float supConfluence = na
+float supHitRate    = na
+int   supHitN       = 0
+
 if barstate.islast
     line.delete(liveHiLine)
     line.delete(liveLoLine)
@@ -1086,13 +1167,33 @@ if barstate.islast
     // Swing zones: the watched high/low shown as a wick-to-body box rather than
     // a single price line, so the whole area price needs to clear is visible.
     if showSwingZones and not na(watchHigh) and not na(watchHighBody)
-        liveHiZone := box.new(watchHighBar, watchHigh, bar_index + effSwingExtend, math.min(watchHighBody, watchHigh),
+        float resTop = watchHigh
+        float resBot = math.min(watchHighBody, watchHigh)
+        string resTxt = "Resistance"
+        if useConfluence
+            resConfluence := overlapCount(resTop, resBot, obTop, obBottom, obIsBull, false) + overlapCount(resTop, resBot, fvgTop, fvgBottom, fvgIsBull, false) + overlapCount(resTop, resBot, liqTop, liqBottom, liqBuySide, true)
+            int resBucket = int(math.min(2, resConfluence))
+            resHitN := array.get(confTotal, resBucket)
+            resHitRate := resHitN > 0 ? 100.0 * array.get(confHit, resBucket) / resHitN : na
+            resTxt := resTxt + " · " + str.tostring(int(resConfluence)) + " conf" + (na(resHitRate) ? "" : " · " + str.tostring(resHitRate, "#") + "% (n=" + str.tostring(resHitN) + ")")
+        liveHiZone := box.new(watchHighBar, resTop, bar_index + effSwingExtend, resBot,
              border_color = color.new(zoneBearColor, zoneOpacity), border_width = 1, border_style = line.style_dashed,
-             bgcolor = color.new(zoneBearColor, math.min(95, zoneOpacity + 8)))
+             bgcolor = color.new(zoneBearColor, math.min(95, zoneOpacity + 8)),
+             text = resTxt, text_size = size.tiny, text_color = color.white)
     if showSwingZones and not na(watchLow) and not na(watchLowBody)
-        liveLoZone := box.new(watchLowBar, math.max(watchLowBody, watchLow), bar_index + effSwingExtend, watchLow,
+        float supTop = math.max(watchLowBody, watchLow)
+        float supBot = watchLow
+        string supTxt = "Support"
+        if useConfluence
+            supConfluence := overlapCount(supTop, supBot, obTop, obBottom, obIsBull, true) + overlapCount(supTop, supBot, fvgTop, fvgBottom, fvgIsBull, true) + overlapCount(supTop, supBot, liqTop, liqBottom, liqBuySide, false)
+            int supBucket = int(math.min(2, supConfluence))
+            supHitN := array.get(confTotal, supBucket)
+            supHitRate := supHitN > 0 ? 100.0 * array.get(confHit, supBucket) / supHitN : na
+            supTxt := supTxt + " · " + str.tostring(int(supConfluence)) + " conf" + (na(supHitRate) ? "" : " · " + str.tostring(supHitRate, "#") + "% (n=" + str.tostring(supHitN) + ")")
+        liveLoZone := box.new(watchLowBar, supTop, bar_index + effSwingExtend, supBot,
              border_color = color.new(zoneBullColor, zoneOpacity), border_width = 1, border_style = line.style_dashed,
-             bgcolor = color.new(zoneBullColor, math.min(95, zoneOpacity + 8)))
+             bgcolor = color.new(zoneBullColor, math.min(95, zoneOpacity + 8)),
+             text = supTxt, text_size = size.tiny, text_color = color.white)
 
 // =============================================================================
 // SMART MONEY ZONES — order block / FVG / liquidity lifecycle
@@ -1113,18 +1214,22 @@ if useOB and array.size(obBox) > 0
         bool touched     = bull ? low <= top : high >= bot
 
         if invalidated
+            if useConfluence
+                logOutcome(array.get(obConfBucket, i), touched or st == 1)
             box.delete(b)
             array.remove(obBox, i)
             array.remove(obTop, i)
             array.remove(obBottom, i)
             array.remove(obIsBull, i)
             array.remove(obState, i)
+            array.remove(obConfBucket, i)
         else if touched and st == 0
             array.set(obState, i, 1)
             color c = bull ? zoneBullColor : zoneBearColor
             box.set_bgcolor(b, color.new(c, math.min(95, zoneOpacity + zoneFadeExtra + 8)))
             box.set_border_color(b, color.new(c, math.min(95, zoneOpacity + zoneFadeExtra)))
             box.set_right(b, bar_index)
+            box.set_text(b, (bull ? "Bull OB" : "Bear OB") + " (tested)")
         else if st == 0
             box.set_right(b, bar_index + effObExtend)
 
@@ -1137,44 +1242,56 @@ if useFVG and atrVal > 0
     if bullGap
         float gapTop = low
         float gapBot = high[2]
+        int fvgConf = useConfluence ? math.min(2, overlapCount(gapTop, gapBot, obTop, obBottom, obIsBull, true) + overlapCount(gapTop, gapBot, liqTop, liqBottom, liqBuySide, false)) : 0
+        string fvgTxt = "Bull FVG" + (useConfluence ? " · " + str.tostring(fvgConf) + (fvgConf >= 2 ? "+ conf" : " conf") : "")
         box g = box.new(bar_index - 2, gapTop, bar_index + effFvgExtend, gapBot,
              border_color = color.new(zoneBullColor, zoneOpacity), border_width = 1, border_style = line.style_dotted,
-             bgcolor = color.new(zoneBullColor, math.min(95, zoneOpacity + 8)))
+             bgcolor = color.new(zoneBullColor, math.min(95, zoneOpacity + 8)),
+             text = fvgTxt, text_size = size.tiny, text_color = color.white)
         array.push(fvgBox, g)
         array.push(fvgTop, gapTop)
         array.push(fvgBottom, gapBot)
         array.push(fvgIsBull, true)
         array.push(fvgState, 0)
+        array.push(fvgConfBucket, fvgConf)
         if fvgShowMidline
             line.new(bar_index - 2, (gapTop + gapBot) / 2, bar_index + effFvgExtend, (gapTop + gapBot) / 2,
                  color = color.new(zoneBullColor, math.max(0, zoneOpacity - 10)), style = line.style_dotted, width = 1)
         if array.size(fvgBox) > zoneMaxPerType
+            logOutcome(array.get(fvgConfBucket, 0), array.get(fvgState, 0) == 1)
             box.delete(array.shift(fvgBox))
             array.shift(fvgTop)
             array.shift(fvgBottom)
             array.shift(fvgIsBull)
             array.shift(fvgState)
+            array.shift(fvgConfBucket)
 
     if bearGap
         float gapTop = low[2]
         float gapBot = high
+        int fvgConf = useConfluence ? math.min(2, overlapCount(gapTop, gapBot, obTop, obBottom, obIsBull, false) + overlapCount(gapTop, gapBot, liqTop, liqBottom, liqBuySide, true)) : 0
+        string fvgTxt = "Bear FVG" + (useConfluence ? " · " + str.tostring(fvgConf) + (fvgConf >= 2 ? "+ conf" : " conf") : "")
         box g = box.new(bar_index - 2, gapTop, bar_index + effFvgExtend, gapBot,
              border_color = color.new(zoneBearColor, zoneOpacity), border_width = 1, border_style = line.style_dotted,
-             bgcolor = color.new(zoneBearColor, math.min(95, zoneOpacity + 8)))
+             bgcolor = color.new(zoneBearColor, math.min(95, zoneOpacity + 8)),
+             text = fvgTxt, text_size = size.tiny, text_color = color.white)
         array.push(fvgBox, g)
         array.push(fvgTop, gapTop)
         array.push(fvgBottom, gapBot)
         array.push(fvgIsBull, false)
         array.push(fvgState, 0)
+        array.push(fvgConfBucket, fvgConf)
         if fvgShowMidline
             line.new(bar_index - 2, (gapTop + gapBot) / 2, bar_index + effFvgExtend, (gapTop + gapBot) / 2,
                  color = color.new(zoneBearColor, math.max(0, zoneOpacity - 10)), style = line.style_dotted, width = 1)
         if array.size(fvgBox) > zoneMaxPerType
+            logOutcome(array.get(fvgConfBucket, 0), array.get(fvgState, 0) == 1)
             box.delete(array.shift(fvgBox))
             array.shift(fvgTop)
             array.shift(fvgBottom)
             array.shift(fvgIsBull)
             array.shift(fvgState)
+            array.shift(fvgConfBucket)
 
 // FVG lifecycle: grows while unfilled, fades on first wick back into the gap,
 // deletes once price CLOSES all the way through it (fully filled).
@@ -1190,18 +1307,22 @@ if useFVG and array.size(fvgBox) > 0
         bool touched = bull ? low <= top : high >= bot
 
         if filled
+            if useConfluence
+                logOutcome(array.get(fvgConfBucket, i), touched or st == 1)
             box.delete(b)
             array.remove(fvgBox, i)
             array.remove(fvgTop, i)
             array.remove(fvgBottom, i)
             array.remove(fvgIsBull, i)
             array.remove(fvgState, i)
+            array.remove(fvgConfBucket, i)
         else if touched and st == 0
             array.set(fvgState, i, 1)
             color c = bull ? zoneBullColor : zoneBearColor
             box.set_bgcolor(b, color.new(c, math.min(95, zoneOpacity + zoneFadeExtra + 8)))
             box.set_border_color(b, color.new(c, math.min(95, zoneOpacity + zoneFadeExtra)))
             box.set_right(b, bar_index)
+            box.set_text(b, (bull ? "Bull FVG" : "Bear FVG") + " (tested)")
         else if st == 0
             box.set_right(b, bar_index + effFvgExtend)
 
@@ -1224,20 +1345,26 @@ if useLiquidity and not na(ph)
             if math.abs(ph - v) <= liqTol * atrVal
                 float lTop = math.max(ph, v)
                 float lBot = math.min(ph, v)
+                int liqConf = useConfluence ? math.min(2, overlapCount(lTop, lBot, obTop, obBottom, obIsBull, false) + overlapCount(lTop, lBot, fvgTop, fvgBottom, fvgIsBull, false)) : 0
+                string liqTxt = "Buy-side Liquidity" + (useConfluence ? " · " + str.tostring(liqConf) + (liqConf >= 2 ? "+ conf" : " conf") : "")
                 box lb = box.new(array.get(pivHighBars, j), lTop, bar_index + effLiqExtend, lBot,
                      border_color = color.new(zoneBearColor, zoneOpacity), border_width = 1,
-                     bgcolor = color.new(zoneBearColor, math.min(95, zoneOpacity + 10)))
+                     bgcolor = color.new(zoneBearColor, math.min(95, zoneOpacity + 10)),
+                     text = liqTxt, text_size = size.tiny, text_color = color.white)
                 array.push(liqBox, lb)
                 array.push(liqTop, lTop)
                 array.push(liqBottom, lBot)
                 array.push(liqBuySide, true)
                 array.push(liqState, 0)
+                array.push(liqConfBucket, liqConf)
                 if array.size(liqBox) > zoneMaxPerType
+                    logOutcome(array.get(liqConfBucket, 0), array.get(liqState, 0) == 1)
                     box.delete(array.shift(liqBox))
                     array.shift(liqTop)
                     array.shift(liqBottom)
                     array.shift(liqBuySide)
                     array.shift(liqState)
+                    array.shift(liqConfBucket)
                 break
 
 if useLiquidity and not na(pl)
@@ -1255,20 +1382,26 @@ if useLiquidity and not na(pl)
             if math.abs(pl - v) <= liqTol * atrVal
                 float lTop = math.max(pl, v)
                 float lBot = math.min(pl, v)
+                int liqConf = useConfluence ? math.min(2, overlapCount(lTop, lBot, obTop, obBottom, obIsBull, true) + overlapCount(lTop, lBot, fvgTop, fvgBottom, fvgIsBull, true)) : 0
+                string liqTxt = "Sell-side Liquidity" + (useConfluence ? " · " + str.tostring(liqConf) + (liqConf >= 2 ? "+ conf" : " conf") : "")
                 box lb = box.new(array.get(pivLowBars, j), lTop, bar_index + effLiqExtend, lBot,
                      border_color = color.new(zoneBullColor, zoneOpacity), border_width = 1,
-                     bgcolor = color.new(zoneBullColor, math.min(95, zoneOpacity + 10)))
+                     bgcolor = color.new(zoneBullColor, math.min(95, zoneOpacity + 10)),
+                     text = liqTxt, text_size = size.tiny, text_color = color.white)
                 array.push(liqBox, lb)
                 array.push(liqTop, lTop)
                 array.push(liqBottom, lBot)
                 array.push(liqBuySide, false)
                 array.push(liqState, 0)
+                array.push(liqConfBucket, liqConf)
                 if array.size(liqBox) > zoneMaxPerType
+                    logOutcome(array.get(liqConfBucket, 0), array.get(liqState, 0) == 1)
                     box.delete(array.shift(liqBox))
                     array.shift(liqTop)
                     array.shift(liqBottom)
                     array.shift(liqBuySide)
                     array.shift(liqState)
+                    array.shift(liqConfBucket)
                 break
 
 // Liquidity lifecycle: fades the moment price wicks through (a sweep attempt),
@@ -1286,17 +1419,21 @@ if useLiquidity and array.size(liqBox) > 0
         bool consumed = buyS ? close > top : close < bot
 
         if consumed
+            if useConfluence
+                logOutcome(array.get(liqConfBucket, i), swept or st == 1)
             box.delete(b)
             array.remove(liqBox, i)
             array.remove(liqTop, i)
             array.remove(liqBottom, i)
             array.remove(liqBuySide, i)
             array.remove(liqState, i)
+            array.remove(liqConfBucket, i)
         else if swept and st == 0
             array.set(liqState, i, 1)
             color c = buyS ? zoneBearColor : zoneBullColor
             box.set_bgcolor(b, color.new(c, math.min(95, zoneOpacity + zoneFadeExtra + 10)))
             box.set_border_color(b, color.new(c, math.min(95, zoneOpacity + zoneFadeExtra)))
+            box.set_text(b, (buyS ? "Buy-side Liquidity" : "Sell-side Liquidity") + " (swept)")
         else if st == 0
             box.set_right(b, bar_index + effLiqExtend)
 
@@ -1313,7 +1450,7 @@ bgcolor(tintBias and bias == -1 ? color.new(colCHoCH, 94) : na, title = "Bearish
 barcolor(colorCandles ? (bias == 1 ? colBOS : bias == -1 ? colCHoCH : na) : na)
 
 // ---------------------------- Status table -----------------------------------
-var table st = table.new(position.top_right, 2, 8,
+var table st = table.new(position.top_right, 2, 10,
      border_width = 1, border_color = color.new(color.gray, 70), frame_width = 0)
 
 // Remember the most recent score so the table can show it between breaks.
@@ -1359,6 +1496,14 @@ if showTable and barstate.islast
                      pendDir == -1 ? "Down (" + str.tostring(bar_index - pendBar) + "/" + str.tostring(confirmBars) + ")" : "—"
     color pendTxtCol = pendDir == 1 ? colBOS : pendDir == -1 ? colCHoCH : color.gray
     table.cell(st, 1, 7, pendTxt, text_color = pendTxtCol, text_size = size.tiny, bgcolor = cellBg)
+
+    table.cell(st, 0, 8, "Resistance", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
+    string resCellTxt = na(resConfluence) ? "—" : str.tostring(int(resConfluence)) + " conf" + (na(resHitRate) ? "" : " · " + str.tostring(resHitRate, "#") + "% (n=" + str.tostring(resHitN) + ")")
+    table.cell(st, 1, 8, resCellTxt, text_color = colCHoCH, text_size = size.tiny, bgcolor = cellBg)
+
+    table.cell(st, 0, 9, "Support", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
+    string supCellTxt = na(supConfluence) ? "—" : str.tostring(int(supConfluence)) + " conf" + (na(supHitRate) ? "" : " · " + str.tostring(supHitRate, "#") + "% (n=" + str.tostring(supHitN) + ")")
+    table.cell(st, 1, 9, supCellTxt, text_color = colBOS, text_size = size.tiny, bgcolor = cellBg)
 
 // =============================================================================
 // ALERTS

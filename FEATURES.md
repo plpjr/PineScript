@@ -1,10 +1,13 @@
-# BOS / CHoCH Structure v5.2 — Feature Guide
+# BOS / CHoCH Structure v6.0 — Feature Guide
 
-This indicator does two jobs: it labels **structure breaks** (BOS/CHoCH) with a
-confidence score, and it shades the **zones** — swing areas, order blocks, fair
-value gaps, liquidity pools — that those breaks originate from and react to.
-This doc walks through every feature, what it draws, and what it's telling you
-when you look at it.
+This indicator does one job: tell you the nearest support/resistance zones
+worth watching, and why. It labels **structure breaks** (BOS/CHoCH) with a
+confidence score, shades the **zones** — swing areas, order blocks, fair value
+gaps, liquidity pools — that those breaks originate from and react to, and now
+scores how many of those zones **agree** with each other (confluence), plus
+how often zones with that much agreement have actually gotten hit before
+(historical hit-rate). This doc walks through every feature, what it draws,
+and what it's telling you when you look at it.
 
 ---
 
@@ -280,7 +283,46 @@ Upgrades the "live level" concept into a visible **area**, not just a price.
 
 ---
 
-## 14. Alerts
+## 14. Confluence + historical hit-rate (`⑪ Zones — shared style` → "Show confluence + historical hit-rate")
+
+Every zone box now carries a text label naming its type ("Bull OB", "Bear
+FVG", "Buy-side Liquidity", etc.) instead of being unlabelled. On top of that,
+this toggle adds a second layer that ties all four zone types into one
+answer: **is the nearest zone worth watching, and how do we know?**
+
+- **Confluence**: whenever the swing-high or swing-low zone is the nearest one
+  above/below price, it's checked against every currently active order block,
+  FVG, and liquidity pool *that shares its directional bias* (a resistance
+  zone only checks bearish-biased boxes; a support zone only checks bullish
+  ones). Each type that overlaps adds 1 to a confluence count (0–3), shown
+  right on the zone's label and in the status table's new **Resistance** /
+  **Support** rows. Tells you: how many independent detectors agree this
+  price area matters, at a glance.
+- **Historical hit-rate**: every order block, FVG, and liquidity pool is
+  tagged at the moment it's created with how many of the *other two* detector
+  types already overlapped it (0, 1, or "2+"). When that zone later resolves —
+  either touched before failing, or expired/invalidated untouched — the
+  outcome is filed into a running tally for that confluence level. The
+  nearest swing zone then displays that bucket's hit rate with its sample
+  size, e.g. `Resistance · 2 conf · 74% (n=31)`.
+- **Read this as a frequency count, not a prediction.** It's built entirely
+  from this chart's own history — this instrument, this timeframe, whatever
+  has actually happened here. The `n=` is shown on purpose: treat anything
+  under roughly 20 samples as noise, exactly like the confidence-score
+  section's advice about the minimum-score gate. Early in a chart's history,
+  or right after changing a filter setting, expect the number to jump around
+  before it settles.
+- **Box lifecycle labels update too**: an order block or FVG appends
+  "(tested)" to its label the first time price wicks back into it; a
+  liquidity pool appends "(swept)". No new lifecycle rules — same
+  fade-on-touch, delete-on-invalidation behavior as before, just now visible
+  in the text.
+- Turning this OFF leaves every box still labelled with its type — it just
+  removes the confluence count and hit-rate layer on top.
+
+---
+
+## 15. Alerts
 
 - **CHoCH Bullish / Bearish**, **BOS Bullish / Bearish** — fire the instant a
   break confirms, split by type so you can wire different notification
