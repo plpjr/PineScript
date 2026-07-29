@@ -1165,9 +1165,12 @@ if useFVG and array.size(fvgBox) > 0
 if useLiquidity and not na(ph)
     array.push(pivHighVals, ph)
     array.push(pivHighBars, bar_index - swingLen)
-    while array.size(pivHighBars) > 0 and bar_index - array.get(pivHighBars, 0) > liqLookback
-        array.shift(pivHighVals)
-        array.shift(pivHighBars)
+    while array.size(pivHighBars) > 0
+        if bar_index - array.get(pivHighBars, 0) > liqLookback
+            array.shift(pivHighVals)
+            array.shift(pivHighBars)
+        else
+            break
     if atrVal > 0 and array.size(pivHighVals) > 1
         for j = array.size(pivHighVals) - 2 to 0
             float v = array.get(pivHighVals, j)
@@ -1193,9 +1196,12 @@ if useLiquidity and not na(ph)
 if useLiquidity and not na(pl)
     array.push(pivLowVals, pl)
     array.push(pivLowBars, bar_index - swingLen)
-    while array.size(pivLowBars) > 0 and bar_index - array.get(pivLowBars, 0) > liqLookback
-        array.shift(pivLowVals)
-        array.shift(pivLowBars)
+    while array.size(pivLowBars) > 0
+        if bar_index - array.get(pivLowBars, 0) > liqLookback
+            array.shift(pivLowVals)
+            array.shift(pivLowBars)
+        else
+            break
     if atrVal > 0 and array.size(pivLowVals) > 1
         for j = array.size(pivLowVals) - 2 to 0
             float v = array.get(pivLowVals, j)
@@ -1341,12 +1347,19 @@ if fireDown and not na(fireLevel)
 // Drop levels older than the retest window. A `while` here, not an `if`: the
 // original single shift per bar could not keep up with bursts of breaks, so the
 // arrays grew without bound on long histories.
-while array.size(retestBars) > 0 and bar_index - array.get(retestBars, 0) > 100
-    array.shift(retestLevels)
-    array.shift(retestBars)
-    array.shift(retestIsHigh)
-    array.shift(retestScores)
-    array.shift(retestUsed)
+// Size check and the age check are split across `while`/`if` rather than joined
+// with `and` on one line: Pine's `and` evaluates both sides unconditionally, so
+// array.get(retestBars, 0) would still run (and error) on an empty array even
+// with array.size(retestBars) > 0 false on the same line.
+while array.size(retestBars) > 0
+    if bar_index - array.get(retestBars, 0) > 100
+        array.shift(retestLevels)
+        array.shift(retestBars)
+        array.shift(retestIsHigh)
+        array.shift(retestScores)
+        array.shift(retestUsed)
+    else
+        break
 
 bool retestUp = false
 bool retestDown = false
