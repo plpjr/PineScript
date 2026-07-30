@@ -1,5 +1,15 @@
 // =============================================================================
-// BOS / CHoCH Market Structure  —  v6.1
+// BOS / CHoCH Market Structure  —  v6.2
+//
+// NEW IN v6.2 — CONFLUENCE ACCURACY TUNING:
+//   * Overlap is no longer boolean. Two zones must now share at least
+//     "Min overlap to count as confluence" (⑪ Zones — shared style, default
+//     30%) of the SMALLER zone's own range to count — a one-tick edge touch
+//     no longer counts the same as one zone sitting fully inside another.
+//   * Hit/hold rates are hidden until a zone type's bucket has at least
+//     "Min sample size before showing a rate" (default 20) resolved zones,
+//     showing "(building)" with the running count in the meantime instead of
+//     a rate built from 1-2 samples.
 //
 // NEW IN v6.1 — HIT-RATE CORRECTNESS FIXES:
 //   * Hit-rate stats are now tracked SEPARATELY per zone type (order block /
@@ -111,7 +121,7 @@
 //   * Optional internal structure (faster swing length, thinner lines).
 // =============================================================================
 //@version=5
-indicator("BOS / CHoCH Structure v6.1", overlay = true, max_bars_back = 100, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500)
+indicator("BOS / CHoCH Structure v6.2", overlay = true, max_bars_back = 100, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500)
 
 // =============================================================================
 // SENSITIVITY MASTER CONTROLS
@@ -486,6 +496,12 @@ useConfluence = input.bool(true, "Show confluence + historical hit-rate", group 
 holdMargin = input.float(0.5, "  Hold confirmation margin (× ATR)", minval = 0.0, step = 0.1, group = grpZ,
      tooltip = "How far price must close back AWAY from a zone, beyond its near edge, to count as a confirmed 'hold' rather than just a touch.\n\nA zone can be touched without holding — price can wick in and then plow straight through moments later. Touch rate alone can't tell those apart; this margin is what does.\n\nHigher = stricter, fewer touches qualify as a genuine hold. Lower (0) = almost any close back outside the zone counts.")
 
+minOverlapFrac = input.float(0.3, "  Min overlap to count as confluence", minval = 0.0, maxval = 1.0, step = 0.05, group = grpZ,
+     tooltip = "How much two zones must overlap — as a fraction of the SMALLER zone's own range — to count as confluence, instead of any touch at all.\n\n0.0 = any overlap counts, even a single tick brushing the edge.\n0.3 = the zones must share at least 30% of the smaller one's range. Filters out barely-touching zones that don't really occupy the same area.\n1.0 = the smaller zone must sit almost entirely inside the larger one.")
+
+minConfSample = input.int(20, "  Min sample size before showing a rate", minval = 1, group = grpZ,
+     tooltip = "Hides the hit-rate/hold-rate percentage until at least this many zones at that confluence level have resolved — shows '(building)' with the current count instead.\n\nA rate built from 1-2 samples is noise dressed up as a number. Raise this if you want more confirmation before trusting a rate; lower it to see numbers sooner at the cost of reliability.")
+
 // =============================================================================
 // SWING ZONES
 // =============================================================================
@@ -704,9 +720,11 @@ var array<int> liqConfTotal = array.new_int(3, 0)
 var array<int> liqConfHit   = array.new_int(3, 0)
 var array<int> liqConfHeld  = array.new_int(3, 0)
 
-// Counts active zones in the given parallel top/bottom arrays whose price
-// range overlaps [top, bot] AND whose bias flag equals matchBias — so callers
-// can restrict the count to same-directional-bias boxes only.
+// Counts active zones in the given parallel top/bottom arrays whose bias flag
+// equals matchBias AND whose price range overlaps [top, bot] by at least
+// minOverlapFrac of the SMALLER zone's own range — not just any edge touch,
+// so a sliver overlap doesn't count the same as one zone sitting fully inside
+// another.
 overlapCount(float top, float bot, array<float> tops, array<float> bots, array<bool> biasArr, bool matchBias) =>
     int n = 0
     if array.size(tops) > 0
@@ -714,8 +732,12 @@ overlapCount(float top, float bot, array<float> tops, array<float> bots, array<b
             if array.get(biasArr, k) == matchBias
                 float t = array.get(tops, k)
                 float b = array.get(bots, k)
-                if b <= top and bot <= t
-                    n += 1
+                float overlapDepth = math.min(top, t) - math.max(bot, b)
+                if overlapDepth > 0
+                    float smallerRange = math.min(top - bot, t - b)
+                    float frac = smallerRange > 0 ? overlapDepth / smallerRange : 0.0
+                    if frac >= minOverlapFrac
+                        n += 1
     n
 
 // Files one resolved zone's hit/miss outcome into its birth-confluence bucket.
@@ -1484,16 +1506,10 @@ if useLiquidity and array.size(liqBox) > 0
 // whichever overlapping type has the LARGEST historical sample size at this
 // confluence level and show its numbers, labelled by type — an order block's
 // and a liquidity pool's history aren't pooled together.
-float resConfluence = na
-float resHitRate     = na
-float resHeldRate     = na
-int   resHitN         = 0
-string resRepType     = ""
-float supConfluence  = na
-float supHitRate      = na
-float supHeldRate      = na
-int   supHitN          = 0
-string supRepType      = ""
+float  resConfluence = na
+string resRateTxt    = ""
+float  supConfluence = na
+string supRateTxt    = ""
 
 pickRep(int obN, int obTot, int obHit, int obHeld, int fvgN, int fvgTot, int fvgHit, int fvgHeld, int liqN, int liqTot, int liqHit, int liqHeld) =>
     int    tot    = 0
@@ -1517,6 +1533,19 @@ pickRep(int obN, int obTot, int obHit, int obHeld, int fvgN, int fvgTot, int fvg
         repTag := "Liq"
     [tot, hit, held, repTag]
 
+// Builds the "· OB hit 74%/held 41% (n=31)" suffix, gated on minConfSample so
+// a rate built from a couple of samples shows "(building)" instead of a
+// number dressed up as something trustworthy.
+rateText(int tot, int hit, int held, string repTag) =>
+    string txt = ""
+    if tot >= minConfSample
+        float hitRate  = 100.0 * hit / tot
+        float heldRate = 100.0 * held / tot
+        txt := repTag + " hit " + str.tostring(hitRate, "#") + "%/held " + str.tostring(heldRate, "#") + "% (n=" + str.tostring(tot) + ")"
+    else if tot > 0
+        txt := repTag + " n=" + str.tostring(tot) + " (building)"
+    txt
+
 if useConfluence and barstate.islast
     if showSwingZones and not na(watchHigh) and not na(watchHighBody) and not na(liveHiZone)
         float resTop = watchHigh
@@ -1530,14 +1559,8 @@ if useConfluence and barstate.islast
              obOverlap,  array.get(obConfTotal,  bucket), array.get(obConfHit,  bucket), array.get(obConfHeld,  bucket),
              fvgOverlap, array.get(fvgConfTotal, bucket), array.get(fvgConfHit, bucket), array.get(fvgConfHeld, bucket),
              liqOverlap, array.get(liqConfTotal, bucket), array.get(liqConfHit, bucket), array.get(liqConfHeld, bucket))
-        resHitN := tot
-        resRepType := repTag
-        string resTxt = "Resistance · " + str.tostring(int(resConfluence)) + " conf"
-        if tot > 0
-            resHitRate := 100.0 * hit / tot
-            resHeldRate := 100.0 * held / tot
-            resTxt := resTxt + " · " + repTag + " " + str.tostring(resHitRate, "#") + "%/" + str.tostring(resHeldRate, "#") + "% (n=" + str.tostring(tot) + ")"
-        box.set_text(liveHiZone, resTxt)
+        resRateTxt := rateText(tot, hit, held, repTag)
+        box.set_text(liveHiZone, "Resistance · " + str.tostring(int(resConfluence)) + " conf" + (resRateTxt == "" ? "" : " · " + resRateTxt))
     if showSwingZones and not na(watchLow) and not na(watchLowBody) and not na(liveLoZone)
         float supTop = math.max(watchLowBody, watchLow)
         float supBot = watchLow
@@ -1550,14 +1573,8 @@ if useConfluence and barstate.islast
              obOverlap,  array.get(obConfTotal,  bucket), array.get(obConfHit,  bucket), array.get(obConfHeld,  bucket),
              fvgOverlap, array.get(fvgConfTotal, bucket), array.get(fvgConfHit, bucket), array.get(fvgConfHeld, bucket),
              liqOverlap, array.get(liqConfTotal, bucket), array.get(liqConfHit, bucket), array.get(liqConfHeld, bucket))
-        supHitN := tot
-        supRepType := repTag
-        string supTxt = "Support · " + str.tostring(int(supConfluence)) + " conf"
-        if tot > 0
-            supHitRate := 100.0 * hit / tot
-            supHeldRate := 100.0 * held / tot
-            supTxt := supTxt + " · " + repTag + " " + str.tostring(supHitRate, "#") + "%/" + str.tostring(supHeldRate, "#") + "% (n=" + str.tostring(tot) + ")"
-        box.set_text(liveLoZone, supTxt)
+        supRateTxt := rateText(tot, hit, held, repTag)
+        box.set_text(liveLoZone, "Support · " + str.tostring(int(supConfluence)) + " conf" + (supRateTxt == "" ? "" : " · " + supRateTxt))
 
 // ---------------------------- Pivot markers ----------------------------------
 plotshape(showPivots and not na(ph), title = "Swing High", location = location.abovebar,
@@ -1620,11 +1637,11 @@ if showTable and barstate.islast
     table.cell(st, 1, 7, pendTxt, text_color = pendTxtCol, text_size = size.tiny, bgcolor = cellBg)
 
     table.cell(st, 0, 8, "Resistance", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
-    string resCellTxt = na(resConfluence) ? "—" : str.tostring(int(resConfluence)) + " conf" + (na(resHitRate) ? "" : " · " + resRepType + " hit " + str.tostring(resHitRate, "#") + "% / held " + str.tostring(resHeldRate, "#") + "% (n=" + str.tostring(resHitN) + ")")
+    string resCellTxt = na(resConfluence) ? "—" : str.tostring(int(resConfluence)) + " conf" + (resRateTxt == "" ? "" : " · " + resRateTxt)
     table.cell(st, 1, 8, resCellTxt, text_color = colCHoCH, text_size = size.tiny, bgcolor = cellBg)
 
     table.cell(st, 0, 9, "Support", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
-    string supCellTxt = na(supConfluence) ? "—" : str.tostring(int(supConfluence)) + " conf" + (na(supHitRate) ? "" : " · " + supRepType + " hit " + str.tostring(supHitRate, "#") + "% / held " + str.tostring(supHeldRate, "#") + "% (n=" + str.tostring(supHitN) + ")")
+    string supCellTxt = na(supConfluence) ? "—" : str.tostring(int(supConfluence)) + " conf" + (supRateTxt == "" ? "" : " · " + supRateTxt)
     table.cell(st, 1, 9, supCellTxt, text_color = colBOS, text_size = size.tiny, bgcolor = cellBg)
 
 // =============================================================================

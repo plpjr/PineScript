@@ -1,4 +1,4 @@
-# BOS / CHoCH Structure v6.1 — Feature Guide
+# BOS / CHoCH Structure v6.2 — Feature Guide
 
 This indicator does one job: tell you the nearest support/resistance zones
 worth watching, and why. It labels **structure breaks** (BOS/CHoCH) with a
@@ -298,6 +298,11 @@ answer: **is the nearest zone worth watching, and how do we know?**
   right on the zone's label and in the status table's new **Resistance** /
   **Support** rows. Tells you: how many independent detectors agree this
   price area matters, at a glance.
+- **Overlap has to be real, not a graze**: two zones only count as confluent
+  once they share at least `Min overlap to count as confluence` (default 30%)
+  of the SMALLER zone's own range. A one-tick edge touch no longer counts the
+  same as one zone sitting fully inside another — raise this for stricter
+  confluence, lower it (down to 0) to count any overlap at all.
 - **Historical hit-rate, tracked separately per zone type**: every order
   block, FVG, and liquidity pool is tagged at the moment it's created with how
   many of the *other two* detector types already overlapped it (0, 1, or
@@ -316,15 +321,18 @@ answer: **is the nearest zone worth watching, and how do we know?**
   confluence level, labelled so you know which one it is — e.g.
   `Resistance · 2 conf · OB hit 74%/held 41% (n=31)`. This avoids quietly
   averaging different zone types into one misleading number.
+- **Rates are hidden until there's enough data to trust them.** Below `Min
+  sample size before showing a rate` (default 20) resolved zones at that
+  confluence level, the label shows `(building)` with the running count
+  instead of a percentage — a rate from 1-2 samples is noise dressed up as a
+  number, so the script won't show you one.
 - **Read this as a frequency count, not a prediction.** It's built entirely
   from this chart's own history — this instrument, this timeframe, whatever
-  has actually happened here. The `n=` is shown on purpose: treat anything
-  under roughly 20 samples as noise, exactly like the confidence-score
-  section's advice about the minimum-score gate. Early in a chart's history,
-  or right after changing a filter setting, expect the number to jump around
-  before it settles — and note that changing ANY input restarts the sample
-  size from zero, since TradingView recalculates the whole script from bar 1
-  when an input changes.
+  has actually happened here. Early in a chart's history, or right after
+  changing a filter setting, expect the sample count to take a while to
+  climb back past the minimum — and note that changing ANY input restarts it
+  from zero, since TradingView recalculates the whole script from bar 1 when
+  an input changes.
 - Turning this OFF leaves every box still labelled with its type — it just
   removes the confluence count and hit-rate layer on top.
 
