@@ -1,13 +1,15 @@
-# BOS / CHoCH Structure v6.2 — Feature Guide
+# BOS / CHoCH Structure v7.0 — Feature Guide
 
-This indicator does one job: tell you the nearest support/resistance zones
-worth watching, and why. It labels **structure breaks** (BOS/CHoCH) with a
-confidence score, shades the **zones** — swing areas, order blocks, fair value
-gaps, liquidity pools — that those breaks originate from and react to, and now
-scores how many of those zones **agree** with each other (confluence), plus
-how often zones with that much agreement have actually gotten hit before
-(historical hit-rate). This doc walks through every feature, what it draws,
-and what it's telling you when you look at it.
+This indicator does one job: grade individual structure **break events**. It
+labels BOS (Break of Structure) and CHoCH (Change of Character) with a
+0–100 confidence score, so you can tell a marginal break from an emphatic one
+at a glance.
+
+> Looking for the zone/support-resistance/confluence side of things? That
+> lives in the companion script, **Support/Resistance Zones** — see
+> `FEATURES_ZONES.md`. The two used to be one combined indicator; they were
+> split so each stays focused on one job and fits in one TradingView
+> indicator slot on its own.
 
 ---
 
@@ -39,8 +41,7 @@ you can tell them apart at a glance without reading text.
   presets. 5 = preset as-is; above 5 loosens, below 5 tightens. Ignored on
   Custom. Use this instead of jumping presets when one is "almost right."
 - **Auto-adapt to timeframe** — rescales every *extend-right* and *lookback*
-  window (BOS/CHoCH line length, all four zone box widths, order-block search
-  depth, liquidity pivot memory, retest window) so each spans the same real
+  window (BOS/CHoCH line length, retest window) so each spans the same real
   amount of time on every chart, instead of a fixed bar count. Tells you: a
   50-bar setting is 50 minutes on a 1-minute chart and over a week on a
   4-hour chart if left unscaled — this keeps it meaning the same thing when
@@ -60,9 +61,9 @@ you can tell them apart at a glance without reading text.
   it to count as a swing high/low. THE most important setting: it sets your
   confirmation lag (a length-5 swing can't be confirmed until 5 bars later).
   Lower = more, smaller, faster swings. Higher = fewer, major, slower swings.
-- **ATR length** — lookback for the ATR used by every size-based filter and
-  every zone threshold in the indicator. Shorter reacts faster to volatility
-  changes; longer is smoother and more stable.
+- **ATR length** — lookback for the ATR used by every size-based filter in the
+  indicator. Shorter reacts faster to volatility changes; longer is smoother
+  and more stable.
 - **Filter minor swings by size / Min swing size (× ATR)** — a pivot only
   counts as real structure if it moved far enough (in ATR) from the last
   opposite swing. Tells you: whether a wiggle is genuine structure or just
@@ -123,10 +124,10 @@ Each of these answers one question: *is this break real, or a fakeout?*
 
 Mostly cosmetic, but a few items are informational:
 
-- **Live (unbroken) levels** — dotted lines (paired with the swing zone boxes,
-  see §8) showing the levels price is *currently* working against. Tells you:
-  what needs to break for the next signal, before it happens — the most
-  useful setting for planning a trade live.
+- **Live (unbroken) levels** — dotted lines showing the levels price is
+  *currently* working against. Tells you: what needs to break for the next
+  signal, before it happens — the most useful setting for planning a trade
+  live.
 - **Raw pivot markers** — shows every detected swing, including ones the
   filters rejected. Tells you (diagnostically): whether a swing you'd mark by
   hand was detected-but-filtered, or never detected at all.
@@ -185,160 +186,7 @@ below 40 marginal.**
 
 ---
 
-## 9. Smart Money Zones — shared style (`⑪ Zones — shared style`)
-
-One place controls the look of every zone type below:
-
-- **Bullish zone colour** — used for anything that favors longs: swing low
-  zones, bullish order blocks, bullish FVGs, sell-side liquidity pools.
-- **Bearish zone colour** — used for anything that favors shorts: swing high
-  zones, bearish order blocks, bearish FVGs, buy-side liquidity pools.
-- **Active zone opacity** — how solid a live, untested zone looks.
-- **Extra fade once tested/mitigated** — how much fainter a zone gets once
-  price has interacted with it. Tells you at a glance: solid = still live and
-  untested; faint = already been tapped once, treat with more caution.
-- **Max active zones per type** — caps how many of each zone type stay on
-  chart at once (oldest auto-deletes), independent per type.
-
----
-
-## 10. Swing zones (`⑫ Swing zones`)
-
-Upgrades the "live level" concept into a visible **area**, not just a price.
-
-- **What it draws**: a box from the swing candle's wick (the exact extreme)
-  to its body edge (where real conviction started), for both the current
-  watched high and watched low.
-- **Tells you**: the *whole* area price likely needs to work through to
-  break structure — not one exact tick, but a zone of reaction. The wick edge
-  is the hard extreme; the body edge is where the market actually accepted
-  price. A touch that only reaches the wick edge is a weaker test than a close
-  through the body edge.
-- Only ever shows the *current* watched high/low (matches the existing "live
-  level" design) — it's a planning tool for what's coming, not a history log.
-
----
-
-## 11. Order blocks (`⑬ Order blocks`)
-
-- **What it is**: the last opposite-colored candle before an impulsive break —
-  the candle where the move that broke structure likely originated. A
-  bullish OB is the last down-close candle before a break up; a bearish OB is
-  the last up-close candle before a break down.
-- **Tells you**: a high-probability reaction zone. Price often returns to
-  retest an order block before continuing in the breakout direction — this is
-  the "institutional footprint" traders watch for entries.
-- **Box lifecycle** (this is the important part to read on the chart):
-  - **Solid, growing** = still untested. Nobody has returned to it yet.
-  - **Faded** = price has wicked back into it once (a retest happened).
-  - **Gone** = price *closed* all the way through the far side — the block
-    failed and is no longer valid support/resistance.
-- **Search back this many bars** — how far behind the break candle to look
-  for the origin candle. Note: with `Confirmation bars` > 0 the search starts
-  from the confirmation bar, not the original impulse bar, so the found
-  candle can be slightly off from the "textbook" one at higher confirmation
-  settings.
-
----
-
-## 12. Fair value gaps (`⑭ Fair value gaps`)
-
-- **What it is**: a classic 3-candle imbalance — candle 1's wick doesn't
-  overlap candle 3's wick, leaving a gap the market moved through without
-  trading. Bullish FVG = gap left behind an up move; bearish = behind a down
-  move.
-- **Tells you**: a zone price statistically tends to return to and "fill"
-  before continuing — because the market skipped trading there the first
-  time, there's unfinished business.
-- **Box lifecycle**: same solid → faded → gone pattern as order blocks, but
-  keyed to fill instead of touch — faded once price partially fills the gap,
-  gone once price closes all the way through it (fully filled).
-- **Min gap size (× ATR)** — filters out one-tick noise gaps so only
-  meaningful imbalances draw.
-- **50% midline (CE)** — optional dotted line at the gap's midpoint. Some
-  traders treat this "consequent encroachment" level as the real reaction
-  point rather than the whole gap.
-
----
-
-## 13. Liquidity zones (`⑮ Liquidity zones`)
-
-- **What it is**: equal (or near-equal) highs/lows within an ATR tolerance —
-  clusters of resting stop-losses and breakout orders.
-  - **Buy-side liquidity** = equal highs, sitting *above* price.
-  - **Sell-side liquidity** = equal lows, sitting *below* price.
-- **Tells you**: where price is statistically drawn toward before reversing —
-  these levels act as magnets because there's real, resting order flow there.
-  A move toward one of these zones followed by a sharp reversal is a classic
-  "liquidity sweep."
-- **Box lifecycle**:
-  - **Solid** = untouched pool, still resting.
-  - **Faded** = price has wicked through it (a sweep attempt) but hasn't
-    closed beyond it yet.
-  - **Gone** = price *closed* beyond the level — the resting liquidity has
-    been consumed, whether or not price reversed afterward.
-- **Equal-level tolerance (× ATR)** — how close two swings must be to count
-  as "equal." Smaller = only near-identical levels cluster.
-- **Pivot lookback (bars)** — how far back a matching prior pivot can be found.
-
----
-
-## 14. Confluence + historical hit-rate (`⑪ Zones — shared style` → "Show confluence + historical hit-rate")
-
-Every zone box now carries a text label naming its type ("Bull OB", "Bear
-FVG", "Buy-side Liquidity", etc.) instead of being unlabelled. On top of that,
-this toggle adds a second layer that ties all four zone types into one
-answer: **is the nearest zone worth watching, and how do we know?**
-
-- **Confluence**: whenever the swing-high or swing-low zone is the nearest one
-  above/below price, it's checked against every currently active order block,
-  FVG, and liquidity pool *that shares its directional bias* (a resistance
-  zone only checks bearish-biased boxes; a support zone only checks bullish
-  ones). Each type that overlaps adds 1 to a confluence count (0–3), shown
-  right on the zone's label and in the status table's new **Resistance** /
-  **Support** rows. Tells you: how many independent detectors agree this
-  price area matters, at a glance.
-- **Overlap has to be real, not a graze**: two zones only count as confluent
-  once they share at least `Min overlap to count as confluence` (default 30%)
-  of the SMALLER zone's own range. A one-tick edge touch no longer counts the
-  same as one zone sitting fully inside another — raise this for stricter
-  confluence, lower it (down to 0) to count any overlap at all.
-- **Historical hit-rate, tracked separately per zone type**: every order
-  block, FVG, and liquidity pool is tagged at the moment it's created with how
-  many of the *other two* detector types already overlapped it (0, 1, or
-  "2+"). Order blocks, FVGs, and liquidity pools each keep their OWN set of
-  buckets — an order block's history and a liquidity pool's are never blended
-  together, since there's no reason to assume they behave the same way.
-- **Touched vs. held**: a zone can be touched without being respected — price
-  wicks in and keeps going. "Held" requires price to close back AWAY from the
-  zone by a confirmation margin (`Hold confirmation margin (× ATR)`) instead
-  of just tagging along the near edge. Box labels reflect this directly: a
-  zone appends "(tested)" the first time it's touched, and "(held)" if price
-  later confirms the rejection.
-- **Display picks the most-sampled type, and names it**: the nearest swing
-  zone shows the hit rate / hold rate of whichever overlapping type
-  (order block, FVG, or liquidity) has the largest sample size at that
-  confluence level, labelled so you know which one it is — e.g.
-  `Resistance · 2 conf · OB hit 74%/held 41% (n=31)`. This avoids quietly
-  averaging different zone types into one misleading number.
-- **Rates are hidden until there's enough data to trust them.** Below `Min
-  sample size before showing a rate` (default 20) resolved zones at that
-  confluence level, the label shows `(building)` with the running count
-  instead of a percentage — a rate from 1-2 samples is noise dressed up as a
-  number, so the script won't show you one.
-- **Read this as a frequency count, not a prediction.** It's built entirely
-  from this chart's own history — this instrument, this timeframe, whatever
-  has actually happened here. Early in a chart's history, or right after
-  changing a filter setting, expect the sample count to take a while to
-  climb back past the minimum — and note that changing ANY input restarts it
-  from zero, since TradingView recalculates the whole script from bar 1 when
-  an input changes.
-- Turning this OFF leaves every box still labelled with its type — it just
-  removes the confluence count and hit-rate layer on top.
-
----
-
-## 15. Alerts
+## 9. Alerts
 
 - **CHoCH Bullish / Bearish**, **BOS Bullish / Bearish** — fire the instant a
   break confirms, split by type so you can wire different notification
@@ -353,16 +201,11 @@ answer: **is the nearest zone worth watching, and how do we know?**
 
 ## Reading the chart at a glance
 
-Once everything is on, here's the mental model:
-
-1. **Boxes** (swing zones, order blocks, FVGs, liquidity pools) = *where* to
-   look for reactions. Solid = untested and worth watching closely. Faded =
-   already used once, lower priority. Gone = no longer relevant.
-2. **Lines with labels** (BOS/CHoCH) = *confirmation* that structure actually
+1. **Lines with labels** (BOS/CHoCH) = confirmation that structure actually
    broke, with a 0–100 score telling you how convincingly.
-3. **The table** = your at-a-glance status: current bias, exact levels to
+2. **The table** = your at-a-glance status: current bias, exact levels to
    watch, and how strong the last break was.
 
-The general workflow: watch the live swing zone / order block / FVG / liquidity
-boxes for price approaching a zone, then use the BOS/CHoCH label + score to
-confirm whether structure actually broke there or held.
+If you also run the **Support/Resistance Zones** companion script on the same
+chart, that's where the "which level is worth watching, and why" question
+lives — this script answers "did structure actually break, and how well."

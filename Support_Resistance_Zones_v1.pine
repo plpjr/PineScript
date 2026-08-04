@@ -1,0 +1,731 @@
+// =============================================================================
+// Support / Resistance Zones  —  v1.0
+//
+// Companion script to "BOS / CHoCH Structure." One job: show the nearest
+// support/resistance zones above and below price, backed by however many
+// independent detectors (order blocks, fair value gaps, liquidity pools)
+// agree on them, and how often zones with that much agreement have actually
+// gotten hit before on THIS chart's own history.
+//
+// This is the zones/confluence half of what used to be one combined script,
+// split out because the two halves do genuinely different jobs: BOS/CHoCH
+// grades individual BREAK EVENTS; this grades ZONES worth watching. Splitting
+// keeps each script focused, faster to reason about, and usable on its own
+// TradingView indicator slot without paying for the other half's settings.
+//
+// WHAT'S DIFFERENT FROM THE COMBINED SCRIPT:
+//   * No break-quality filters, presets, or confirmation delay. Structure
+//     "moves on" to the next swing the moment price closes through the
+//     current one — a RAW break, not a filtered/graded one. That's a
+//     deliberate simplification: this script doesn't grade break events, so
+//     gating when a zone gets replaced behind fakeout filters designed for
+//     scoring signals doesn't apply here. This means the exact "watch
+//     high/low" shown here can differ slightly from the companion script's,
+//     which waits for a higher-quality break before moving on.
+//   * No BOS/CHoCH lines, labels, confidence score, or alerts — that's the
+//     other script's job.
+//   * Order blocks, fair value gaps, liquidity pools, confluence scoring, and
+//     the historical hit-rate system are carried over unchanged.
+// =============================================================================
+//@version=5
+indicator("Support/Resistance Zones v1.0", overlay = true, max_bars_back = 100, max_lines_count = 500, max_boxes_count = 500)
+
+// =============================================================================
+// SWING DETECTION
+// =============================================================================
+grpS = "① Swing detection"
+
+swingLen = input.int(5, "Swing pivot length", minval = 1, group = grpS,
+     tooltip = "How many bars must sit on each side of a candle for it to count as a swing high/low.\n\nLOWER (2–4) = more, smaller, faster-forming zones. HIGHER (7–12) = fewer, major zones, more lag (a swing can't confirm until this many bars after it forms).")
+
+atrLen = input.int(14, "ATR length", minval = 1, group = grpS,
+     tooltip = "Lookback for the ATR used by every size/overlap threshold in this script (swing filter, zone lifecycle margins, confluence overlap). 14 is standard for intraday.")
+
+useAtrFilter = input.bool(true, "Filter minor swings by size", group = grpS,
+     tooltip = "ON = a pivot only counts as a zone if it moved far enough (in ATR) from the last opposite swing, filtering tiny wiggles inside consolidation. Recommend leaving ON.")
+
+atrMult = input.float(0.5, "  Min swing size (× ATR)", minval = 0.0, step = 0.05, group = grpS,
+     tooltip = "How far a pivot must be from the previous opposite swing to count as a real zone, in ATR.\n\n0.0–0.2 = very sensitive. 0.4–0.6 = balanced. 1.0+ = only large structural swings.")
+
+useAutoTF = input.bool(true, "Auto-adapt to timeframe", group = grpS,
+     tooltip = "Scales every 'extend right' and 'lookback' window (zone box widths, order-block search depth, liquidity pivot memory) so it represents the SAME slice of real time on every chart, instead of a fixed bar count that means 50 minutes on a 1-minute chart and over a week on a 4-hour chart.\n\nEach scaled value is capped at that setting's own manual maximum, so auto-adapt can never reach a value you couldn't have picked by hand.\n\nOFF = every bar-count setting below means exactly what you typed, unscaled.")
+
+// =============================================================================
+// ZONES — SHARED STYLE
+// =============================================================================
+grpZ = "② Zones — shared style"
+
+zoneBullColor = input.color(#22C55E, "Bullish zone colour", group = grpZ,
+     tooltip = "Base colour for every zone that favours longs: swing low zones, bullish order blocks, bullish FVGs, and sell-side liquidity pools.")
+
+zoneBearColor = input.color(#EF4444, "Bearish zone colour", group = grpZ,
+     tooltip = "Base colour for every zone that favours shorts: swing high zones, bearish order blocks, bearish FVGs, and buy-side liquidity pools.")
+
+zoneOpacity = input.int(82, "Active zone opacity", minval = 0, maxval = 95, group = grpZ,
+     tooltip = "Fill/border transparency for a live, untested zone. Higher = more see-through.")
+
+zoneFadeExtra = input.int(12, "Extra fade once tested/mitigated", minval = 0, maxval = 40, group = grpZ,
+     tooltip = "Added transparency once a zone has been touched or filled, so used zones visually recede and only live, untouched zones jump out at you.")
+
+zoneMaxPerType = input.int(20, "Max active zones per type", minval = 1, maxval = 100, group = grpZ,
+     tooltip = "Oldest zone of each type (order block / FVG / liquidity pool) auto-deletes once this many are on the chart. Keeps you under TradingView's object caps and the chart readable.")
+
+useConfluence = input.bool(true, "Show confluence + historical hit-rate", group = grpZ,
+     tooltip = "Checks whether an order block, FVG, and/or liquidity pool overlap the nearest swing zone, and remembers — from THIS chart's own history — how often zones with that much agreement actually got touched before failing.\n\nShown on the swing zone label and as Resistance/Support rows in the status table.\n\nThis is an empirical frequency count, not a prediction model.\n\nOFF = zone boxes still draw and label their own type, just without the confluence/hit-rate layer.")
+
+holdMargin = input.float(0.5, "  Hold confirmation margin (× ATR)", minval = 0.0, step = 0.1, group = grpZ,
+     tooltip = "How far price must close back AWAY from a zone, beyond its near edge, to count as a confirmed 'hold' rather than just a touch.\n\nA zone can be touched without holding — price can wick in and plow straight through. Higher = stricter, fewer touches qualify as a genuine hold.")
+
+minOverlapFrac = input.float(0.3, "  Min overlap to count as confluence", minval = 0.0, maxval = 1.0, step = 0.05, group = grpZ,
+     tooltip = "How much two zones must overlap — as a fraction of the SMALLER zone's own range — to count as confluence, instead of any touch at all.\n\n0.0 = any overlap counts. 0.3 = must share at least 30% of the smaller zone's range. 1.0 = the smaller zone must sit almost entirely inside the larger one.")
+
+minConfSample = input.int(20, "  Min sample size before showing a rate", minval = 1, group = grpZ,
+     tooltip = "Hides the hit-rate/hold-rate percentage until at least this many zones at that confluence level have resolved — shows '(building)' with the current count instead. A rate from 1-2 samples is noise dressed up as a number.")
+
+// =============================================================================
+// SWING ZONES
+// =============================================================================
+grpZS = "③ Swing zones"
+
+showSwingZones = input.bool(true, "Shade swing high/low zones", group = grpZS,
+     tooltip = "Draws the CURRENT nearest swing high and swing low as a shaded box — the whole area price needs to clear, not just an exact tick. The box spans wick-to-body of the pivot candle: the wick is the exact extreme, the body edge is where real conviction started.")
+
+swingZoneExtend = input.int(20, "  Extend zone right (bars)", minval = 0, maxval = 200, group = grpZS,
+     tooltip = "How far the swing zone box is drawn forward from the current bar. Purely visual.")
+
+// =============================================================================
+// ORDER BLOCKS
+// =============================================================================
+grpZO = "④ Order blocks"
+
+useOB = input.bool(true, "Show order blocks", group = grpZO,
+     tooltip = "An order block is the LAST opposite-coloured candle before an impulsive break of the current swing zone — the candle where the move likely originated. Bullish OB = last down-close candle before a break up. Bearish OB = last up-close candle before a break down.\n\nLifecycle: grows while untested, fades the first time price wicks back into it, deletes once price CLOSES all the way through the far side (invalidated).")
+
+obLookback = input.int(15, "  Search back this many bars", minval = 1, maxval = 50, group = grpZO,
+     tooltip = "How far back from the break candle to search for the origin candle.")
+
+obExtendBars = input.int(30, "  Extend box right (bars)", minval = 0, maxval = 300, group = grpZO,
+     tooltip = "How far an ACTIVE (untested) order block box is drawn forward while price hasn't returned to it yet.")
+
+// =============================================================================
+// FAIR VALUE GAPS
+// =============================================================================
+grpZF = "⑤ Fair value gaps"
+
+useFVG = input.bool(true, "Show fair value gaps", group = grpZF,
+     tooltip = "A fair value gap (FVG) is a 3-candle imbalance: the wick of candle 1 doesn't overlap the wick of candle 3, leaving a gap the market moved through without trading. Price often returns to 'fill' this gap.\n\nLifecycle: fades on first partial fill, deletes once fully filled.")
+
+fvgMinSize = input.float(0.05, "  Min gap size (× ATR)", minval = 0.0, step = 0.05, group = grpZF,
+     tooltip = "Filters out tiny, insignificant gaps.")
+
+fvgExtendBars = input.int(30, "  Extend box right (bars)", minval = 0, maxval = 300, group = grpZF,
+     tooltip = "How far an unfilled FVG box is drawn forward while price hasn't returned to fill it.")
+
+fvgShowMidline = input.bool(false, "  Show 50% midline (CE)", group = grpZF,
+     tooltip = "Draws a thin dotted line through the middle of the gap — the 'consequent encroachment' level some traders treat as the real reaction point.")
+
+// =============================================================================
+// LIQUIDITY ZONES
+// =============================================================================
+grpZL = "⑥ Liquidity zones"
+
+useLiquidity = input.bool(true, "Show liquidity zones", group = grpZL,
+     tooltip = "Marks equal (or near-equal) highs and lows as resting liquidity pools. Buy-side liquidity = equal highs (above price). Sell-side liquidity = equal lows (below price).\n\nLifecycle: fades the moment price wicks through (a sweep attempt), deletes once a CLOSE confirms the level is consumed.")
+
+liqTol = input.float(0.12, "  Equal-level tolerance (× ATR)", minval = 0.01, step = 0.01, group = grpZL,
+     tooltip = "How close two swing points must be, in ATR, to count as 'equal' and form a pool.")
+
+liqLookback = input.int(150, "  Pivot lookback (bars)", minval = 20, maxval = 500, group = grpZL,
+     tooltip = "How far back to look for a matching prior pivot when deciding whether a new pivot forms a liquidity pool.")
+
+liqExtendBars = input.int(40, "  Extend zone right (bars)", minval = 0, maxval = 300, group = grpZL,
+     tooltip = "How far an unswept liquidity zone is drawn forward.")
+
+// =============================================================================
+// DISPLAY
+// =============================================================================
+grpD = "⑦ Display"
+
+showTable = input.bool(true, "Status table", group = grpD,
+     tooltip = "Corner panel showing the current watched levels and the nearest Resistance/Support confluence + hit-rate.")
+
+showPivots = input.bool(false, "Raw pivot markers", group = grpD,
+     tooltip = "Small triangles on every detected swing high/low, including ones the ATR filter rejected. Useful for diagnosing why a zone isn't showing up where you'd expect one.")
+
+// =============================================================================
+// TIMEFRAME ADAPTATION
+// =============================================================================
+// Same mechanism as the companion script: rescales bar counts against a
+// 15-minute baseline so they span the same real time on every chart.
+float tfSeconds = timeframe.in_seconds(timeframe.period)
+float tfScale   = tfSeconds > 0 ? (tfSeconds / 60.0) / 15.0 : 1.0
+
+scaleBars(int bars, int minBars, int maxBars) =>
+    useAutoTF ? int(math.max(minBars, math.min(maxBars, math.round(bars / tfScale)))) : bars
+
+int effSwingExtend = scaleBars(swingZoneExtend, 0, 200)
+int effObLookback   = scaleBars(obLookback, 1, 50)
+int effObExtend     = scaleBars(obExtendBars, 0, 300)
+int effFvgExtend    = scaleBars(fvgExtendBars, 0, 300)
+int effLiqLookback  = scaleBars(liqLookback, 20, 500)
+int effLiqExtend    = scaleBars(liqExtendBars, 0, 300)
+
+// =============================================================================
+// CORE CALCULATIONS
+// =============================================================================
+atrVal = ta.atr(atrLen)
+
+float ph = ta.pivothigh(high, swingLen, swingLen)
+float pl = ta.pivotlow(low, swingLen, swingLen)
+
+var float watchHigh     = na
+var int   watchHighBar  = na
+var float watchLow      = na
+var int   watchLowBar   = na
+var float watchHighBody = na
+var float watchLowBody  = na
+var float refHigh       = na
+var float refLow        = na
+
+// =============================================================================
+// ZONE ARRAYS + HELPERS
+// =============================================================================
+var array<box>   obBox    = array.new_box(0)
+var array<float> obTop    = array.new_float(0)
+var array<float> obBottom = array.new_float(0)
+var array<bool>  obIsBull = array.new_bool(0)
+var array<int>   obState  = array.new_int(0)   // 0 = active/growing, 1 = touched, 2 = held
+
+var array<box>   fvgBox    = array.new_box(0)
+var array<float> fvgTop    = array.new_float(0)
+var array<float> fvgBottom = array.new_float(0)
+var array<bool>  fvgIsBull = array.new_bool(0)
+var array<int>   fvgState  = array.new_int(0)
+
+var array<float> pivHighVals = array.new_float(0)
+var array<int>   pivHighBars = array.new_int(0)
+var array<float> pivLowVals  = array.new_float(0)
+var array<int>   pivLowBars  = array.new_int(0)
+
+var array<box>   liqBox     = array.new_box(0)
+var array<float> liqTop     = array.new_float(0)
+var array<float> liqBottom  = array.new_float(0)
+var array<bool>  liqBuySide = array.new_bool(0)
+var array<int>   liqState   = array.new_int(0)
+
+var array<int> obConfBucket  = array.new_int(0)
+var array<int> fvgConfBucket = array.new_int(0)
+var array<int> liqConfBucket = array.new_int(0)
+
+var array<int> obConfTotal  = array.new_int(3, 0)
+var array<int> obConfHit    = array.new_int(3, 0)
+var array<int> obConfHeld   = array.new_int(3, 0)
+
+var array<int> fvgConfTotal = array.new_int(3, 0)
+var array<int> fvgConfHit   = array.new_int(3, 0)
+var array<int> fvgConfHeld  = array.new_int(3, 0)
+
+var array<int> liqConfTotal = array.new_int(3, 0)
+var array<int> liqConfHit   = array.new_int(3, 0)
+var array<int> liqConfHeld  = array.new_int(3, 0)
+
+// Counts active zones in the given parallel top/bottom arrays whose bias flag
+// equals matchBias AND whose price range overlaps [top, bot] by at least
+// minOverlapFrac of the SMALLER zone's own range.
+overlapCount(float top, float bot, array<float> tops, array<float> bots, array<bool> biasArr, bool matchBias) =>
+    int n = 0
+    if array.size(tops) > 0
+        for k = 0 to array.size(tops) - 1
+            if array.get(biasArr, k) == matchBias
+                float t = array.get(tops, k)
+                float b = array.get(bots, k)
+                float overlapDepth = math.min(top, t) - math.max(bot, b)
+                if overlapDepth > 0
+                    float smallerRange = math.min(top - bot, t - b)
+                    float frac = smallerRange > 0 ? overlapDepth / smallerRange : 0.0
+                    if frac >= minOverlapFrac
+                        n += 1
+    n
+
+logOutcome(array<int> totalArr, array<int> hitArr, int bucket, bool hit) =>
+    array.set(totalArr, bucket, array.get(totalArr, bucket) + 1)
+    if hit
+        array.set(hitArr, bucket, array.get(hitArr, bucket) + 1)
+
+logHeld(array<int> heldArr, int bucket) =>
+    array.set(heldArr, bucket, array.get(heldArr, bucket) + 1)
+
+// =============================================================================
+// SWING DETECTION
+// =============================================================================
+if not na(ph)
+    bool bigEnough = not useAtrFilter or na(refLow) or (ph - refLow) >= atrMult * atrVal
+    if bigEnough
+        watchHigh     := ph
+        watchHighBar  := bar_index - swingLen
+        watchHighBody := math.max(open[swingLen], close[swingLen])
+        refHigh       := ph
+
+if not na(pl)
+    bool bigEnough = not useAtrFilter or na(refHigh) or (refHigh - pl) >= atrMult * atrVal
+    if bigEnough
+        watchLow     := pl
+        watchLowBar  := bar_index - swingLen
+        watchLowBody := math.min(open[swingLen], close[swingLen])
+        refLow       := pl
+
+// Anchor to true leg extreme
+if not na(watchHigh) and high > watchHigh and close <= watchHigh
+    watchHigh    := high
+    watchHighBar := bar_index
+if not na(watchLow) and low < watchLow and close >= watchLow
+    watchLow    := low
+    watchLowBar := bar_index
+
+// A RAW break — no quality filters, since this script doesn't grade break
+// events, just tracks which swing is currently the nearest unbroken one.
+// The moment price closes through it, structure has moved on: order blocks
+// get created from the impulse, and both watched levels reset so the next
+// pivot becomes the new nearest zone.
+bool rawBreakUp   = not na(watchHigh) and close > watchHigh
+bool rawBreakDown = not na(watchLow)  and close < watchLow
+
+// ---------------------------- Order blocks (creation) ------------------------
+if useOB and rawBreakUp
+    int   obOffset = na
+    float obTopVal = na
+    float obBotVal = na
+    for i = 1 to effObLookback
+        if close[i] < open[i]
+            obOffset := i
+            obTopVal := high[i]
+            obBotVal := low[i]
+            break
+    if not na(obOffset)
+        int obConf = useConfluence ? math.min(2, overlapCount(obTopVal, obBotVal, fvgTop, fvgBottom, fvgIsBull, true) + overlapCount(obTopVal, obBotVal, liqTop, liqBottom, liqBuySide, false)) : 0
+        string obTxt = "Bull OB" + (useConfluence ? " · " + str.tostring(obConf) + (obConf >= 2 ? "+ conf" : " conf") : "")
+        box ob = box.new(bar_index - obOffset, obTopVal, bar_index + effObExtend, obBotVal,
+             border_color = color.new(zoneBullColor, zoneOpacity), border_width = 1,
+             bgcolor = color.new(zoneBullColor, math.min(95, zoneOpacity + 8)),
+             text = obTxt, text_size = size.tiny, text_color = color.white)
+        array.push(obBox, ob)
+        array.push(obTop, obTopVal)
+        array.push(obBottom, obBotVal)
+        array.push(obIsBull, true)
+        array.push(obState, 0)
+        array.push(obConfBucket, obConf)
+        if array.size(obBox) > zoneMaxPerType
+            logOutcome(obConfTotal, obConfHit, array.get(obConfBucket, 0), array.get(obState, 0) >= 1)
+            box.delete(array.shift(obBox))
+            array.shift(obTop)
+            array.shift(obBottom)
+            array.shift(obIsBull)
+            array.shift(obState)
+            array.shift(obConfBucket)
+
+if useOB and rawBreakDown
+    int   obOffset = na
+    float obTopVal = na
+    float obBotVal = na
+    for i = 1 to effObLookback
+        if close[i] > open[i]
+            obOffset := i
+            obTopVal := high[i]
+            obBotVal := low[i]
+            break
+    if not na(obOffset)
+        int obConf = useConfluence ? math.min(2, overlapCount(obTopVal, obBotVal, fvgTop, fvgBottom, fvgIsBull, false) + overlapCount(obTopVal, obBotVal, liqTop, liqBottom, liqBuySide, true)) : 0
+        string obTxt = "Bear OB" + (useConfluence ? " · " + str.tostring(obConf) + (obConf >= 2 ? "+ conf" : " conf") : "")
+        box ob = box.new(bar_index - obOffset, obTopVal, bar_index + effObExtend, obBotVal,
+             border_color = color.new(zoneBearColor, zoneOpacity), border_width = 1,
+             bgcolor = color.new(zoneBearColor, math.min(95, zoneOpacity + 8)),
+             text = obTxt, text_size = size.tiny, text_color = color.white)
+        array.push(obBox, ob)
+        array.push(obTop, obTopVal)
+        array.push(obBottom, obBotVal)
+        array.push(obIsBull, false)
+        array.push(obState, 0)
+        array.push(obConfBucket, obConf)
+        if array.size(obBox) > zoneMaxPerType
+            logOutcome(obConfTotal, obConfHit, array.get(obConfBucket, 0), array.get(obState, 0) >= 1)
+            box.delete(array.shift(obBox))
+            array.shift(obTop)
+            array.shift(obBottom)
+            array.shift(obIsBull)
+            array.shift(obState)
+            array.shift(obConfBucket)
+
+// Advance to the next swing after ANY raw break, regardless of useOB.
+if rawBreakUp or rawBreakDown
+    watchHigh    := na
+    watchHighBar := na
+    watchLow     := na
+    watchLowBar  := na
+    refHigh      := na
+    refLow       := na
+
+// ---------------------------- Order blocks (mitigation) ----------------------
+if useOB and array.size(obBox) > 0
+    for i = array.size(obBox) - 1 to 0
+        box   b    = array.get(obBox, i)
+        float top  = array.get(obTop, i)
+        float bot  = array.get(obBottom, i)
+        bool  bull = array.get(obIsBull, i)
+        int   st   = array.get(obState, i)
+
+        bool invalidated = bull ? close < bot : close > top
+        bool touched     = bull ? low <= top : high >= bot
+        bool heldNow     = bull ? close >= top + holdMargin * atrVal : close <= bot - holdMargin * atrVal
+
+        if invalidated
+            if useConfluence
+                logOutcome(obConfTotal, obConfHit, array.get(obConfBucket, i), touched or st >= 1)
+            box.delete(b)
+            array.remove(obBox, i)
+            array.remove(obTop, i)
+            array.remove(obBottom, i)
+            array.remove(obIsBull, i)
+            array.remove(obState, i)
+            array.remove(obConfBucket, i)
+        else if st == 1 and heldNow
+            array.set(obState, i, 2)
+            if useConfluence
+                logHeld(obConfHeld, array.get(obConfBucket, i))
+            box.set_text(b, (bull ? "Bull OB" : "Bear OB") + " (held)")
+        else if touched and st == 0
+            array.set(obState, i, 1)
+            color c = bull ? zoneBullColor : zoneBearColor
+            box.set_bgcolor(b, color.new(c, math.min(95, zoneOpacity + zoneFadeExtra + 8)))
+            box.set_border_color(b, color.new(c, math.min(95, zoneOpacity + zoneFadeExtra)))
+            box.set_right(b, bar_index)
+            box.set_text(b, (bull ? "Bull OB" : "Bear OB") + " (tested)")
+        else if st == 0
+            box.set_right(b, bar_index + effObExtend)
+
+// ---------------------------- Fair value gaps ---------------------------------
+if useFVG and atrVal > 0
+    bool bullGap = low > high[2] and (low - high[2]) >= fvgMinSize * atrVal
+    bool bearGap = high < low[2] and (low[2] - high) >= fvgMinSize * atrVal
+
+    if bullGap
+        float gapTop = low
+        float gapBot = high[2]
+        int fvgConf = useConfluence ? math.min(2, overlapCount(gapTop, gapBot, obTop, obBottom, obIsBull, true) + overlapCount(gapTop, gapBot, liqTop, liqBottom, liqBuySide, false)) : 0
+        string fvgTxt = "Bull FVG" + (useConfluence ? " · " + str.tostring(fvgConf) + (fvgConf >= 2 ? "+ conf" : " conf") : "")
+        box g = box.new(bar_index - 2, gapTop, bar_index + effFvgExtend, gapBot,
+             border_color = color.new(zoneBullColor, zoneOpacity), border_width = 1, border_style = line.style_dotted,
+             bgcolor = color.new(zoneBullColor, math.min(95, zoneOpacity + 8)),
+             text = fvgTxt, text_size = size.tiny, text_color = color.white)
+        array.push(fvgBox, g)
+        array.push(fvgTop, gapTop)
+        array.push(fvgBottom, gapBot)
+        array.push(fvgIsBull, true)
+        array.push(fvgState, 0)
+        array.push(fvgConfBucket, fvgConf)
+        if fvgShowMidline
+            line.new(bar_index - 2, (gapTop + gapBot) / 2, bar_index + effFvgExtend, (gapTop + gapBot) / 2,
+                 color = color.new(zoneBullColor, math.max(0, zoneOpacity - 10)), style = line.style_dotted, width = 1)
+        if array.size(fvgBox) > zoneMaxPerType
+            logOutcome(fvgConfTotal, fvgConfHit, array.get(fvgConfBucket, 0), array.get(fvgState, 0) >= 1)
+            box.delete(array.shift(fvgBox))
+            array.shift(fvgTop)
+            array.shift(fvgBottom)
+            array.shift(fvgIsBull)
+            array.shift(fvgState)
+            array.shift(fvgConfBucket)
+
+    if bearGap
+        float gapTop = low[2]
+        float gapBot = high
+        int fvgConf = useConfluence ? math.min(2, overlapCount(gapTop, gapBot, obTop, obBottom, obIsBull, false) + overlapCount(gapTop, gapBot, liqTop, liqBottom, liqBuySide, true)) : 0
+        string fvgTxt = "Bear FVG" + (useConfluence ? " · " + str.tostring(fvgConf) + (fvgConf >= 2 ? "+ conf" : " conf") : "")
+        box g = box.new(bar_index - 2, gapTop, bar_index + effFvgExtend, gapBot,
+             border_color = color.new(zoneBearColor, zoneOpacity), border_width = 1, border_style = line.style_dotted,
+             bgcolor = color.new(zoneBearColor, math.min(95, zoneOpacity + 8)),
+             text = fvgTxt, text_size = size.tiny, text_color = color.white)
+        array.push(fvgBox, g)
+        array.push(fvgTop, gapTop)
+        array.push(fvgBottom, gapBot)
+        array.push(fvgIsBull, false)
+        array.push(fvgState, 0)
+        array.push(fvgConfBucket, fvgConf)
+        if fvgShowMidline
+            line.new(bar_index - 2, (gapTop + gapBot) / 2, bar_index + effFvgExtend, (gapTop + gapBot) / 2,
+                 color = color.new(zoneBearColor, math.max(0, zoneOpacity - 10)), style = line.style_dotted, width = 1)
+        if array.size(fvgBox) > zoneMaxPerType
+            logOutcome(fvgConfTotal, fvgConfHit, array.get(fvgConfBucket, 0), array.get(fvgState, 0) >= 1)
+            box.delete(array.shift(fvgBox))
+            array.shift(fvgTop)
+            array.shift(fvgBottom)
+            array.shift(fvgIsBull)
+            array.shift(fvgState)
+            array.shift(fvgConfBucket)
+
+if useFVG and array.size(fvgBox) > 0
+    for i = array.size(fvgBox) - 1 to 0
+        box   b    = array.get(fvgBox, i)
+        float top  = array.get(fvgTop, i)
+        float bot  = array.get(fvgBottom, i)
+        bool  bull = array.get(fvgIsBull, i)
+        int   st   = array.get(fvgState, i)
+
+        bool filled  = bull ? low <= bot : high >= top
+        bool touched = bull ? low <= top : high >= bot
+        bool heldNow = bull ? close >= top + holdMargin * atrVal : close <= bot - holdMargin * atrVal
+
+        if filled
+            if useConfluence
+                logOutcome(fvgConfTotal, fvgConfHit, array.get(fvgConfBucket, i), touched or st >= 1)
+            box.delete(b)
+            array.remove(fvgBox, i)
+            array.remove(fvgTop, i)
+            array.remove(fvgBottom, i)
+            array.remove(fvgIsBull, i)
+            array.remove(fvgState, i)
+            array.remove(fvgConfBucket, i)
+        else if st == 1 and heldNow
+            array.set(fvgState, i, 2)
+            if useConfluence
+                logHeld(fvgConfHeld, array.get(fvgConfBucket, i))
+            box.set_text(b, (bull ? "Bull FVG" : "Bear FVG") + " (held)")
+        else if touched and st == 0
+            array.set(fvgState, i, 1)
+            color c = bull ? zoneBullColor : zoneBearColor
+            box.set_bgcolor(b, color.new(c, math.min(95, zoneOpacity + zoneFadeExtra + 8)))
+            box.set_border_color(b, color.new(c, math.min(95, zoneOpacity + zoneFadeExtra)))
+            box.set_right(b, bar_index)
+            box.set_text(b, (bull ? "Bull FVG" : "Bear FVG") + " (tested)")
+        else if st == 0
+            box.set_right(b, bar_index + effFvgExtend)
+
+// ---------------------------- Liquidity zones ---------------------------------
+if useLiquidity and not na(ph)
+    array.push(pivHighVals, ph)
+    array.push(pivHighBars, bar_index - swingLen)
+    while array.size(pivHighBars) > 0
+        if bar_index - array.get(pivHighBars, 0) > effLiqLookback
+            array.shift(pivHighVals)
+            array.shift(pivHighBars)
+        else
+            break
+    if atrVal > 0 and array.size(pivHighVals) > 1
+        for j = array.size(pivHighVals) - 2 to 0
+            float v = array.get(pivHighVals, j)
+            if math.abs(ph - v) <= liqTol * atrVal
+                float lTop = math.max(ph, v)
+                float lBot = math.min(ph, v)
+                int liqConf = useConfluence ? math.min(2, overlapCount(lTop, lBot, obTop, obBottom, obIsBull, false) + overlapCount(lTop, lBot, fvgTop, fvgBottom, fvgIsBull, false)) : 0
+                string liqTxt = "Buy-side Liquidity" + (useConfluence ? " · " + str.tostring(liqConf) + (liqConf >= 2 ? "+ conf" : " conf") : "")
+                box lb = box.new(array.get(pivHighBars, j), lTop, bar_index + effLiqExtend, lBot,
+                     border_color = color.new(zoneBearColor, zoneOpacity), border_width = 1,
+                     bgcolor = color.new(zoneBearColor, math.min(95, zoneOpacity + 10)),
+                     text = liqTxt, text_size = size.tiny, text_color = color.white)
+                array.push(liqBox, lb)
+                array.push(liqTop, lTop)
+                array.push(liqBottom, lBot)
+                array.push(liqBuySide, true)
+                array.push(liqState, 0)
+                array.push(liqConfBucket, liqConf)
+                if array.size(liqBox) > zoneMaxPerType
+                    logOutcome(liqConfTotal, liqConfHit, array.get(liqConfBucket, 0), array.get(liqState, 0) >= 1)
+                    box.delete(array.shift(liqBox))
+                    array.shift(liqTop)
+                    array.shift(liqBottom)
+                    array.shift(liqBuySide)
+                    array.shift(liqState)
+                    array.shift(liqConfBucket)
+                break
+
+if useLiquidity and not na(pl)
+    array.push(pivLowVals, pl)
+    array.push(pivLowBars, bar_index - swingLen)
+    while array.size(pivLowBars) > 0
+        if bar_index - array.get(pivLowBars, 0) > effLiqLookback
+            array.shift(pivLowVals)
+            array.shift(pivLowBars)
+        else
+            break
+    if atrVal > 0 and array.size(pivLowVals) > 1
+        for j = array.size(pivLowVals) - 2 to 0
+            float v = array.get(pivLowVals, j)
+            if math.abs(pl - v) <= liqTol * atrVal
+                float lTop = math.max(pl, v)
+                float lBot = math.min(pl, v)
+                int liqConf = useConfluence ? math.min(2, overlapCount(lTop, lBot, obTop, obBottom, obIsBull, true) + overlapCount(lTop, lBot, fvgTop, fvgBottom, fvgIsBull, true)) : 0
+                string liqTxt = "Sell-side Liquidity" + (useConfluence ? " · " + str.tostring(liqConf) + (liqConf >= 2 ? "+ conf" : " conf") : "")
+                box lb = box.new(array.get(pivLowBars, j), lTop, bar_index + effLiqExtend, lBot,
+                     border_color = color.new(zoneBullColor, zoneOpacity), border_width = 1,
+                     bgcolor = color.new(zoneBullColor, math.min(95, zoneOpacity + 10)),
+                     text = liqTxt, text_size = size.tiny, text_color = color.white)
+                array.push(liqBox, lb)
+                array.push(liqTop, lTop)
+                array.push(liqBottom, lBot)
+                array.push(liqBuySide, false)
+                array.push(liqState, 0)
+                array.push(liqConfBucket, liqConf)
+                if array.size(liqBox) > zoneMaxPerType
+                    logOutcome(liqConfTotal, liqConfHit, array.get(liqConfBucket, 0), array.get(liqState, 0) >= 1)
+                    box.delete(array.shift(liqBox))
+                    array.shift(liqTop)
+                    array.shift(liqBottom)
+                    array.shift(liqBuySide)
+                    array.shift(liqState)
+                    array.shift(liqConfBucket)
+                break
+
+if useLiquidity and array.size(liqBox) > 0
+    for i = array.size(liqBox) - 1 to 0
+        box   b    = array.get(liqBox, i)
+        float top  = array.get(liqTop, i)
+        float bot  = array.get(liqBottom, i)
+        bool  buyS = array.get(liqBuySide, i)
+        int   st   = array.get(liqState, i)
+
+        bool swept    = buyS ? high >= top : low <= bot
+        bool consumed = buyS ? close > top : close < bot
+        bool heldNow  = buyS ? close <= bot - holdMargin * atrVal : close >= top + holdMargin * atrVal
+
+        if consumed
+            if useConfluence
+                logOutcome(liqConfTotal, liqConfHit, array.get(liqConfBucket, i), swept or st >= 1)
+            box.delete(b)
+            array.remove(liqBox, i)
+            array.remove(liqTop, i)
+            array.remove(liqBottom, i)
+            array.remove(liqBuySide, i)
+            array.remove(liqState, i)
+            array.remove(liqConfBucket, i)
+        else if st == 1 and heldNow
+            array.set(liqState, i, 2)
+            if useConfluence
+                logHeld(liqConfHeld, array.get(liqConfBucket, i))
+            box.set_text(b, (buyS ? "Buy-side Liquidity" : "Sell-side Liquidity") + " (held)")
+        else if swept and st == 0
+            array.set(liqState, i, 1)
+            color c = buyS ? zoneBearColor : zoneBullColor
+            box.set_bgcolor(b, color.new(c, math.min(95, zoneOpacity + zoneFadeExtra + 10)))
+            box.set_border_color(b, color.new(c, math.min(95, zoneOpacity + zoneFadeExtra)))
+            box.set_text(b, (buyS ? "Buy-side Liquidity" : "Sell-side Liquidity") + " (swept)")
+        else if st == 0
+            box.set_right(b, bar_index + effLiqExtend)
+
+// ---------------------------- Swing zone boxes --------------------------------
+var box liveHiZone = na
+var box liveLoZone = na
+
+if barstate.islast
+    box.delete(liveHiZone)
+    box.delete(liveLoZone)
+    if showSwingZones and not na(watchHigh) and not na(watchHighBody)
+        liveHiZone := box.new(watchHighBar, watchHigh, bar_index + effSwingExtend, math.min(watchHighBody, watchHigh),
+             border_color = color.new(zoneBearColor, zoneOpacity), border_width = 1, border_style = line.style_dashed,
+             bgcolor = color.new(zoneBearColor, math.min(95, zoneOpacity + 8)),
+             text = "Resistance", text_size = size.tiny, text_color = color.white)
+    if showSwingZones and not na(watchLow) and not na(watchLowBody)
+        liveLoZone := box.new(watchLowBar, math.max(watchLowBody, watchLow), bar_index + effSwingExtend, watchLow,
+             border_color = color.new(zoneBullColor, zoneOpacity), border_width = 1, border_style = line.style_dashed,
+             bgcolor = color.new(zoneBullColor, math.min(95, zoneOpacity + 8)),
+             text = "Support", text_size = size.tiny, text_color = color.white)
+
+// ---------------------------- Confluence refresh ------------------------------
+// Runs after order blocks, FVGs, AND liquidity pools have all updated for this
+// bar, so confluence reads same-bar-fresh data from all three.
+float  resConfluence = na
+string resRateTxt    = ""
+float  supConfluence = na
+string supRateTxt    = ""
+
+pickRep(int obN, int obTot, int obHit, int obHeld, int fvgN, int fvgTot, int fvgHit, int fvgHeld, int liqN, int liqTot, int liqHit, int liqHeld) =>
+    int    tot    = 0
+    int    hit    = 0
+    int    held   = 0
+    string repTag = ""
+    if obN > 0 and obTot >= fvgTot and obTot >= liqTot
+        tot := obTot
+        hit := obHit
+        held := obHeld
+        repTag := "OB"
+    else if fvgN > 0 and fvgTot >= liqTot
+        tot := fvgTot
+        hit := fvgHit
+        held := fvgHeld
+        repTag := "FVG"
+    else if liqN > 0
+        tot := liqTot
+        hit := liqHit
+        held := liqHeld
+        repTag := "Liq"
+    [tot, hit, held, repTag]
+
+rateText(int tot, int hit, int held, string repTag) =>
+    string txt = ""
+    if tot >= minConfSample
+        float hitRate  = 100.0 * hit / tot
+        float heldRate = 100.0 * held / tot
+        txt := repTag + " hit " + str.tostring(hitRate, "#") + "%/held " + str.tostring(heldRate, "#") + "% (n=" + str.tostring(tot) + ")"
+    else if tot > 0
+        txt := repTag + " n=" + str.tostring(tot) + " (building)"
+    txt
+
+if useConfluence and barstate.islast
+    if showSwingZones and not na(watchHigh) and not na(watchHighBody) and not na(liveHiZone)
+        float resTop = watchHigh
+        float resBot = math.min(watchHighBody, watchHigh)
+        int obOverlap  = overlapCount(resTop, resBot, obTop, obBottom, obIsBull, false)
+        int fvgOverlap = overlapCount(resTop, resBot, fvgTop, fvgBottom, fvgIsBull, false)
+        int liqOverlap = overlapCount(resTop, resBot, liqTop, liqBottom, liqBuySide, true)
+        resConfluence := obOverlap + fvgOverlap + liqOverlap
+        int bucket = int(math.min(2, resConfluence))
+        [tot, hit, held, repTag] = pickRep(
+             obOverlap,  array.get(obConfTotal,  bucket), array.get(obConfHit,  bucket), array.get(obConfHeld,  bucket),
+             fvgOverlap, array.get(fvgConfTotal, bucket), array.get(fvgConfHit, bucket), array.get(fvgConfHeld, bucket),
+             liqOverlap, array.get(liqConfTotal, bucket), array.get(liqConfHit, bucket), array.get(liqConfHeld, bucket))
+        resRateTxt := rateText(tot, hit, held, repTag)
+        box.set_text(liveHiZone, "Resistance · " + str.tostring(int(resConfluence)) + " conf" + (resRateTxt == "" ? "" : " · " + resRateTxt))
+    if showSwingZones and not na(watchLow) and not na(watchLowBody) and not na(liveLoZone)
+        float supTop = math.max(watchLowBody, watchLow)
+        float supBot = watchLow
+        int obOverlap  = overlapCount(supTop, supBot, obTop, obBottom, obIsBull, true)
+        int fvgOverlap = overlapCount(supTop, supBot, fvgTop, fvgBottom, fvgIsBull, true)
+        int liqOverlap = overlapCount(supTop, supBot, liqTop, liqBottom, liqBuySide, false)
+        supConfluence := obOverlap + fvgOverlap + liqOverlap
+        int bucket = int(math.min(2, supConfluence))
+        [tot, hit, held, repTag] = pickRep(
+             obOverlap,  array.get(obConfTotal,  bucket), array.get(obConfHit,  bucket), array.get(obConfHeld,  bucket),
+             fvgOverlap, array.get(fvgConfTotal, bucket), array.get(fvgConfHit, bucket), array.get(fvgConfHeld, bucket),
+             liqOverlap, array.get(liqConfTotal, bucket), array.get(liqConfHit, bucket), array.get(liqConfHeld, bucket))
+        supRateTxt := rateText(tot, hit, held, repTag)
+        box.set_text(liveLoZone, "Support · " + str.tostring(int(supConfluence)) + " conf" + (supRateTxt == "" ? "" : " · " + supRateTxt))
+
+// ---------------------------- Pivot markers ----------------------------------
+plotshape(showPivots and not na(ph), title = "Swing High", location = location.abovebar,
+     style = shape.triangledown, color = color.new(color.gray, 60), size = size.tiny, offset = -swingLen)
+plotshape(showPivots and not na(pl), title = "Swing Low", location = location.belowbar,
+     style = shape.triangleup, color = color.new(color.gray, 60), size = size.tiny, offset = -swingLen)
+
+// ---------------------------- Status table -----------------------------------
+var table st = table.new(position.top_right, 2, 5,
+     border_width = 1, border_color = color.new(color.gray, 70), frame_width = 0)
+
+if showTable and barstate.islast
+    color cellBg = color.new(color.black, 20)
+
+    table.cell(st, 0, 0, "Swing / ATR", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
+    table.cell(st, 1, 0, str.tostring(swingLen) + " · " + str.tostring(atrVal, format.mintick),
+         text_color = color.white, text_size = size.tiny, bgcolor = cellBg)
+
+    table.cell(st, 0, 1, "Watch high", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
+    table.cell(st, 1, 1, na(watchHigh) ? "—" : str.tostring(watchHigh, format.mintick),
+         text_color = zoneBearColor, text_size = size.tiny, bgcolor = cellBg)
+
+    table.cell(st, 0, 2, "Watch low", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
+    table.cell(st, 1, 2, na(watchLow) ? "—" : str.tostring(watchLow, format.mintick),
+         text_color = zoneBullColor, text_size = size.tiny, bgcolor = cellBg)
+
+    table.cell(st, 0, 3, "Resistance", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
+    string resCellTxt = na(resConfluence) ? "—" : str.tostring(int(resConfluence)) + " conf" + (resRateTxt == "" ? "" : " · " + resRateTxt)
+    table.cell(st, 1, 3, resCellTxt, text_color = zoneBearColor, text_size = size.tiny, bgcolor = cellBg)
+
+    table.cell(st, 0, 4, "Support", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
+    string supCellTxt = na(supConfluence) ? "—" : str.tostring(int(supConfluence)) + " conf" + (supRateTxt == "" ? "" : " · " + supRateTxt)
+    table.cell(st, 1, 4, supCellTxt, text_color = zoneBullColor, text_size = size.tiny, bgcolor = cellBg)
