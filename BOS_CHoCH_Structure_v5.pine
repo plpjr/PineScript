@@ -1,5 +1,11 @@
 // =============================================================================
-// BOS / CHoCH Market Structure  —  v7.0
+// BOS / CHoCH Market Structure  —  v7.1
+//
+// NEW IN v7.1 — FEATURE TOGGLES FULLY DISABLE THEIR FEATURE:
+//   * "Draw BOS lines" / "Draw CHoCH lines" now also hide that type's LABEL,
+//     not just its line. Previously, turning off BOS lines still left BOS
+//     labels printing with no line under them — turning a type off now
+//     fully removes it, matching what the toggles already said they'd do.
 //
 // NEW IN v7.0 — SPLIT INTO TWO SCRIPTS:
 //   * Zones (swing zones, order blocks, fair value gaps, liquidity pools,
@@ -82,7 +88,7 @@
 //   * Optional internal structure (faster swing length, thinner lines).
 // =============================================================================
 //@version=5
-indicator("BOS / CHoCH Structure v7.0", overlay = true, max_bars_back = 100, max_lines_count = 500, max_labels_count = 500)
+indicator("BOS / CHoCH Structure v7.1", overlay = true, max_bars_back = 100, max_lines_count = 500, max_labels_count = 500)
 
 // =============================================================================
 // SENSITIVITY MASTER CONTROLS
@@ -340,7 +346,7 @@ bosExtendBars = input.int(0, "Extend BOS lines right (bars)", minval = 0, maxval
 bosVertical  = input.bool(false, "Vertical marker on BOS bar", group = grpB,
      tooltip = "Draws a small vertical tick on the exact bar where the BOS was confirmed, making the timing unambiguous.")
 showBOSLines = input.bool(true, "Draw BOS lines", group = grpB,
-     tooltip = "Master switch for all BOS line drawing. Turn off if you only care about CHoCH reversals.")
+     tooltip = "Master switch for BOS — turns off the line AND the label, so BOS breaks are fully hidden, not just the line. Turn off if you only care about CHoCH reversals.")
 
 grpC = "⑧ CHoCH lines"
 colCHoCH       = input.color(#FB923C, "CHoCH colour", group = grpC,
@@ -354,7 +360,7 @@ chochExtendBars = input.int(50, "Extend CHoCH lines right (bars)", minval = 0, m
 chochVertical  = input.bool(true, "Vertical marker on CHoCH bar", group = grpC,
      tooltip = "ON (default) = marks the exact CHoCH bar. CHoCH signals are the easiest to misread in real time, so the precise bar is worth showing.")
 showCHoCHLines = input.bool(true, "Draw CHoCH lines", group = grpC,
-     tooltip = "Master switch for all CHoCH line drawing.")
+     tooltip = "Master switch for CHoCH — turns off the line AND the label, so CHoCH breaks are fully hidden, not just the line.")
 
 // =============================================================================
 // CONFIDENCE SCORE
@@ -775,7 +781,7 @@ else
 // ---------------------------- State machine ----------------------------------
 var int bias = 0
 
-drawBreak(bool isUp, float lvl, int lvlBar, float clr, float scr, string txt, color col, string lStyle, int lWidth, int lExtendBars, bool lVert, bool showLine) =>
+drawBreak(bool isUp, float lvl, int lvlBar, float clr, float scr, string txt, color col, string lStyle, int lWidth, int lExtendBars, bool lVert, bool enabled) =>
     deleteOldest()
     string labelText = txt
     if verboseLabels and atrVal > 0
@@ -787,12 +793,16 @@ drawBreak(bool isUp, float lvl, int lvlBar, float clr, float scr, string txt, co
     // drawn faint, 90 and above solid.
     int fade = useScore and scoreColors ? int(math.round(math.min(60.0, math.max(0.0, (90.0 - scr) * 1.2)))) : 0
     color drawCol = color.new(col, fade)
-    if showLabels
+    // `enabled` is the per-type master switch (Draw BOS lines / Draw CHoCH
+    // lines) — it gates the label too, not just the line, so turning off BOS
+    // actually hides BOS entirely rather than leaving an unexplained label
+    // with no line under it.
+    if showLabels and enabled
         label lbl = label.new(bar_index, isUp ? high + atrVal * 0.6 : low - atrVal * 0.6, labelText,
              style = isUp ? label.style_label_down : label.style_label_up,
              color = color.new(color.black, 15), textcolor = drawCol, size = lblSize)
         array.push(histLabels, lbl)
-    if showLine
+    if enabled
         int rightBar = lExtendBars > 0 ? bar_index + lExtendBars : bar_index
         line ln = line.new(lvlBar, lvl, rightBar, lvl,
              color = drawCol, style = styleOf(lStyle), width = lWidth)
