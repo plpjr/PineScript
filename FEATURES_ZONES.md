@@ -20,6 +20,11 @@ actually gotten hit before.
 
 ## 1. Swing detection (`① Swing detection`)
 
+> **Question:** what counts as a swing high/low, and which one is the
+> "current nearest" one right now?
+> **Helps with:** establishes the anchor point — the swing zone — that
+> every other zone type gets measured against for confluence.
+
 - **Swing pivot length** — how many bars must sit on each side of a candle
   for it to count as a swing high/low. Lower (2–4) detects more, smaller,
   faster-forming zones. Higher (7–12) keeps fewer, major zones, with more
@@ -57,6 +62,11 @@ moving on.
 ---
 
 ## 2. Zones — shared style (`② Zones — shared style`)
+
+> **Question:** how should every zone type look and behave, without
+> repeating the same settings four separate times?
+> **Helps with:** one place to control color, fade, border, and the entire
+> confluence/hit-rate mechanism for all zone types at once.
 
 One place controls the look and behavior of every zone type:
 
@@ -107,6 +117,11 @@ One place controls the look and behavior of every zone type:
 
 ## 3. Swing zones (`③ Swing zones`)
 
+> **Question:** where's the nearest support/resistance area right now, not
+> just the exact price?
+> **Helps with:** gives you the headline "where to watch" zone the whole
+> script is built around.
+
 The headline feature: the current nearest swing high/low, shown as a
 visible **area**, not just a price.
 
@@ -127,6 +142,11 @@ visible **area**, not just a price.
 
 ## 4. Order blocks (`④ Order blocks`)
 
+> **Question:** where did the move that broke this level actually
+> originate?
+> **Helps with:** flags high-probability re-entry zones on a retest — the
+> classic "institutional footprint" trade.
+
 - **Show order blocks** — the master toggle. An order block is the last
   opposite-coloured candle before an impulsive break of the current swing
   zone — the candle where the move likely originated. Bullish OB = last
@@ -146,6 +166,11 @@ visible **area**, not just a price.
 ---
 
 ## 5. Fair value gaps (`⑤ Fair value gaps`)
+
+> **Question:** where did price leave an imbalance behind that it's
+> statistically likely to come back and fill?
+> **Helps with:** marks zones price tends to revisit before continuing,
+> independent of any structure break.
 
 - **Show fair value gaps** — the master toggle. An FVG is a classic
   3-candle imbalance: the wick of candle 1 doesn't overlap the wick of
@@ -173,6 +198,11 @@ visible **area**, not just a price.
 
 ## 6. Liquidity zones (`⑥ Liquidity zones`)
 
+> **Question:** where are stop-losses and breakout orders resting that
+> price might get drawn toward?
+> **Helps with:** anticipates sweep/stop-hunt behavior, so a wick toward one
+> of these levels doesn't catch you off guard.
+
 - **Show liquidity zones** — the master toggle. Marks equal (or
   near-equal) highs and lows as resting liquidity pools — clusters of
   stop-losses and breakout orders that price is statistically drawn toward
@@ -198,6 +228,12 @@ visible **area**, not just a price.
 ---
 
 ## 7. Confluence + historical hit-rate
+
+> **Question:** how many independent signals agree on this zone, and has
+> that agreement actually mattered historically?
+> **Helps with:** separates a zone that's genuinely worth watching from one
+> that just happens to be nearby, using this chart's own track record
+> instead of a guess.
 
 This is what ties the four zone types into one answer: **is the nearest
 zone worth watching, and how do we know?** All controlled from `② Zones —
@@ -234,6 +270,11 @@ itself in full.
 ---
 
 ## 8. Display (`⑦ Display`)
+
+> **Question:** what status information is visible at a glance, without
+> hunting for boxes on the chart?
+> **Helps with:** surfaces the current watched levels and the
+> confluence/hit-rate read in one corner panel.
 
 - **Status table** — corner panel showing swing length + ATR, the current
   watch high/low, and the nearest Resistance/Support confluence + hit-rate

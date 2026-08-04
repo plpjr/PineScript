@@ -20,6 +20,10 @@ at a glance.
 
 ## 1. The core signals: BOS and CHoCH
 
+> **Question:** what is the indicator actually detecting in the first place?
+> **Helps with:** establishes the two events — continuation vs. reversal —
+> that every other section exists to filter, grade, or visually style.
+
 Everything else in the indicator exists to filter, grade, or contextualize
 these two events.
 
@@ -37,6 +41,12 @@ you can tell them apart at a glance without reading text.
 ---
 
 ## 2. Sensitivity presets (`① Sensitivity presets`)
+
+> **Question:** how strict should the whole indicator be, without
+> hand-tuning a dozen individual filters?
+> **Helps with:** gets you to a sensible starting configuration for your
+> timeframe and trading style in one control, plus a fine-tune dial for
+> small adjustments afterward.
 
 - **Preset** *(dropdown: Very Loose / Loose / Balanced / Strict / Very
   Strict / Custom)* — one control that sets every filter threshold in `③
@@ -80,6 +90,12 @@ you can tell them apart at a glance without reading text.
 
 ## 3. Core structure (`② Core structure`)
 
+> **Question:** what actually counts as a swing high or low in the first
+> place?
+> **Helps with:** defines the raw pivots everything downstream — breaks,
+> the score, alerts — is built on top of. Get this wrong and every other
+> section is working from the wrong foundation.
+
 - **Swing pivot length** — how many bars must sit on each side of a candle
   for it to count as a swing high/low. THE most important setting in the
   indicator: it directly sets your confirmation lag (a swing of length 5
@@ -112,8 +128,12 @@ you can tell them apart at a glance without reading text.
 
 ## 4. Break-quality filters (`③ Break quality filters`)
 
-Each of these answers one question: *is this break real, or a fakeout?* All
-are ignored unless Preset = Custom, except where noted.
+> **Question:** is this break real, or a fakeout?
+> **Helps with:** separates genuine structural breaks from noise before
+> they're ever labelled on your chart — this is where most of the
+> signal-quality work in the indicator actually happens.
+
+All of these are ignored unless Preset = Custom, except where noted.
 
 - **Require break strength** — requires price to close beyond the level by a
   meaningful amount, not just one tick past it. ON filters out marginal
@@ -200,6 +220,10 @@ are ignored unless Preset = Custom, except where noted.
 
 ## 5. Context filters (`④ Context filters`)
 
+> **Question:** does the broader context make this break worth acting on?
+> **Helps with:** filters breaks by trend alignment and trading session, so
+> you only see signals that fit how and when you actually trade.
+
 - **Only signal with EMA trend** — suppresses breaks that go against a
   longer-term EMA. ON: bullish breaks only print when price is above the
   EMA, bearish breaks only when below — aligns signals with the prevailing
@@ -223,6 +247,11 @@ are ignored unless Preset = Custom, except where noted.
 ---
 
 ## 6. Display & history (`⑤ Display & history`)
+
+> **Question:** what actually shows up on the chart, and how much of it
+> sticks around?
+> **Helps with:** controls visual presentation and clutter — none of this
+> changes detection, only what you see and how far back it's kept.
 
 - **BOS / CHoCH labels** — text labels on each break. Turn off for a cleaner
   chart if the coloured lines are enough.
@@ -272,6 +301,11 @@ are ignored unless Preset = Custom, except where noted.
 
 ## 7. Internal structure (`⑥ Internal structure`, optional)
 
+> **Question:** is there a faster, smaller-scale structure happening inside
+> the current leg?
+> **Helps with:** gives you a second, quicker read for entry timing within
+> a bias set by the main structure, without replacing it.
+
 Runs a second, faster swing-length pass alongside the main one.
 
 - **Show internal structure** — the master toggle for this whole feature.
@@ -294,6 +328,10 @@ Runs a second, faster swing-length pass alongside the main one.
 ---
 
 ## 8. BOS lines and CHoCH lines (`⑦ BOS lines`, `⑧ CHoCH lines`)
+
+> **Question:** how should a confirmed break actually look on the chart?
+> **Helps with:** lets continuation (BOS) and reversal (CHoCH) breaks be
+> visually distinct — or matched — entirely independently of each other.
 
 Two mirrored groups, one per break type, so BOS and CHoCH can look and
 behave completely differently on the chart if you want them to. Defaults:
@@ -329,6 +367,10 @@ users.
 
 ## 9. Confidence score (`⑨ Confidence score`)
 
+> **Question:** how good was this break, not just whether it happened?
+> **Helps with:** replaces a flat pass/fail with a 0–100 grade, so you can
+> tell a marginal break from an emphatic one at a glance.
+
 The filters above are pass/fail. The score tells you *how well* a break
 passed — a break that barely qualified and one that qualified emphatically
 both used to just say "BOS." Now they say "BOS 42" and "BOS 91."
@@ -356,6 +398,12 @@ both used to just say "BOS." Now they say "BOS 42" and "BOS 91."
 ---
 
 ## 10. Score tuning, advanced (`⑩ Score tuning (advanced)`)
+
+> **Question:** what should the score actually reward, and how much should
+> each factor count?
+> **Helps with:** lets you hand-tune the scoring formula's weights and
+> thresholds to match how your specific instrument actually breaks, instead
+> of trusting a one-size-fits-all default.
 
 Per-measure weight and "full marks" threshold, for when you want to
 hand-tune exactly what the score rewards. Weights are relative and
@@ -410,6 +458,12 @@ shifting every threshold you had tuned.
 ---
 
 ## 11. Alerts
+
+> **Question:** how do I find out about a signal without watching the
+> chart?
+> **Helps with:** wires specific, already-graded events (BOS/CHoCH,
+> retests) to TradingView's alert system so you don't have to stare at the
+> screen.
 
 - **CHoCH Bullish / Bearish**, **BOS Bullish / Bearish** — fire the instant a
   break confirms, split by type so you can wire different notification
