@@ -1,15 +1,17 @@
-# Structure Break Signals v7.4 — Feature Guide
+# Structure Break Signals v7.5 — Feature Guide
 
-*(Formerly "BOS / CHoCH Structure" — renamed, same script.)*
+*(Formerly "BOS / CHoCH Structure" — renamed, same script. As of v7.5, the
+BOS/CHoCH labels themselves are renamed to classic Dow Theory swing terms —
+HH, LL, LH, HL — see §1 below.)*
 
 **File:** `Structure_Break_Signals.pine` · **TradingView indicator name:**
-"Structure Break Signals v7.4" · **Companion:** `Key_Zone_Map.pine`
+"Structure Break Signals v7.5" · **Companion:** `Key_Zone_Map.pine`
 (`FEATURES_ZONES.md`)
 
 This indicator does one job: grade individual structure **break events**. It
-labels BOS (Break of Structure) and CHoCH (Change of Character) with a
-0–100 confidence score, so you can tell a marginal break from an emphatic one
-at a glance.
+labels continuation breaks (**HH** / **LL**) and reversal breaks (**LH** /
+**HL**) with a 0–100 confidence score, so you can tell a marginal break from
+an emphatic one at a glance.
 
 > Looking for the zone/support-resistance/confluence side of things? That
 > lives in the companion script, **Key Zone Map** — see `FEATURES_ZONES.md`.
@@ -18,25 +20,35 @@ at a glance.
 
 ---
 
-## 1. The core signals: BOS and CHoCH
+## 1. The core signals: HH, LL, LH, and HL
 
 > **Question:** what is the indicator actually detecting in the first place?
-> **Helps with:** establishes the two events — continuation vs. reversal —
-> that every other section exists to filter, grade, or visually style.
+> **Helps with:** establishes the four events — continuation vs. reversal, up
+> vs. down — that every other section exists to filter, grade, or visually
+> style.
 
 Everything else in the indicator exists to filter, grade, or contextualize
-these two events.
+these four events. They're built from the same two underlying break types
+BOS/CHoCH used to name — a **continuation** break (with the trend) or a
+**reversal** break (against the trend) — just labelled with the classic Dow
+Theory swing term for what actually just broke:
 
-- **BOS (Break of Structure)** — price closes beyond a swing level *with* the
-  current trend. Tells you: the existing trend just got confirmation:
-  continuation.
-- **CHoCH (Change of Character)** — price closes beyond a swing level
-  *against* the current trend. Tells you: the prevailing bias may be ending:
-  the first sign of a reversal.
+- **HH (Higher High)** — price closes above a swing high *while already in an
+  uptrend*: continuation. A new Higher High just printed.
+- **LL (Lower Low)** — price closes below a swing low *while already in a
+  downtrend*: continuation. A new Lower Low just printed.
+- **LH (Lower High)** — price closes above a swing high *while in a
+  downtrend*: reversal. The Lower High that was capping the downtrend just
+  broke — the first sign it may be turning up.
+- **HL (Higher Low)** — price closes below a swing low *while in an
+  uptrend*: reversal. The Higher Low that was supporting the uptrend just
+  broke — the first sign it may be turning down.
 
-Both draw a line at the broken level and (optionally) a label. Color and line
-style are separately configurable per type (`⑦ BOS lines`, `⑧ CHoCH lines`) so
-you can tell them apart at a glance without reading text.
+In other words: HH/LL are "the trend did it again," LH/HL are "the level that
+was defining the trend just gave way." Both draw a line at the broken level
+and (optionally) a label. Color and line style are separately configurable
+per type (`⑦ HH/LL lines (continuation)`, `⑧ LH/HL lines (reversal)`) so you
+can tell them apart at a glance without reading text.
 
 ---
 
@@ -73,7 +85,7 @@ you can tell them apart at a glance without reading text.
   too many signals, drop this to 3–4 rather than jumping to the next preset
   down.
 - **Auto-adapt to timeframe** — rescales every *extend-right* and *lookback*
-  window (BOS/CHoCH line length, retest window) so each spans the same real
+  window (HH/LL/LH/HL line length, retest window) so each spans the same real
   amount of time on every chart, instead of a fixed bar count. Tells you: a
   50-bar setting is 50 minutes on a 1-minute chart and over a week on a
   4-hour chart if left unscaled — this keeps it meaning the same thing when
@@ -228,7 +240,7 @@ All of these are ignored unless Preset = Custom, except where noted.
   longer-term EMA. ON: bullish breaks only print when price is above the
   EMA, bearish breaks only when below — aligns signals with the prevailing
   trend. OFF: all breaks print regardless of trend context. Important
-  tradeoff: this will suppress the very first CHoCH of a genuine reversal,
+  tradeoff: this will suppress the very first LH/HL of a genuine reversal,
   because that's precisely the signal that fires against the trend. If you
   trade reversals, leave this OFF.
 - **EMA length** — length of the trend EMA used by the filter above. Shorter
@@ -253,13 +265,13 @@ All of these are ignored unless Preset = Custom, except where noted.
 > **Helps with:** controls visual presentation and clutter — none of this
 > changes detection, only what you see and how far back it's kept.
 
-- **BOS / CHoCH labels** — text labels on each break. Turn off for a cleaner
+- **HH/LL/LH/HL labels** — text labels on each break. Turn off for a cleaner
   chart if the coloured lines are enough.
 - **Label size** *(Tiny / Small / Normal)* — text size for break labels. Use
   Tiny on dense lower-timeframe charts.
 - **Verbose labels (show ATR clearance)** — ON appends how many ATR the
-  break cleared beyond the level directly to the label (e.g. `BOS +0.3` or
-  `CHoCH -0.2`), useful for quickly judging break quality without opening
+  break cleared beyond the level directly to the label (e.g. `HH +0.3` or
+  `LH -0.2`), useful for quickly judging break quality without opening
   the table.
 - **Live (unbroken) high level / Live (unbroken) low level** — independent
   toggles, one per side. A dotted line showing the swing high (or low)
@@ -284,8 +296,8 @@ All of these are ignored unless Preset = Custom, except where noted.
   structure bias. Some find it useful for at-a-glance context; others find
   it distracting.
 - **Color candles by bias** — colours OHLC candles based on current
-  structure bias: bullish = BOS colour, bearish = CHoCH colour, neutral =
-  default. Independent of background tint.
+  structure bias: bullish = continuation (HH/LL) colour, bearish = reversal
+  (LH/HL) colour, neutral = default. Independent of background tint.
 - **Status table** — corner panel showing current bias, the exact watched
   levels, bars since the last break, ATR, active preset, last score, and
   pending state. The numeric levels are the useful part: copy them straight
@@ -295,7 +307,7 @@ All of these are ignored unless Preset = Custom, except where noted.
   another indicator's panel, the price scale, or the companion Key Zone
   Map script's own table.
 - **Max breaks to draw (0 = unlimited)** — limits how many historical
-  BOS/CHoCH lines and labels remain on chart; oldest auto-delete when
+  HH/LL/LH/HL lines and labels remain on chart; oldest auto-delete when
   exceeded. 0 means no limit (may hit TradingView's 500-object cap on busy
   charts). 50 keeps the chart clean on intraday timeframes. Live levels and
   pivot markers aren't counted against this.
@@ -307,8 +319,9 @@ All of these are ignored unless Preset = Custom, except where noted.
 - **Show retest-support marker / Show retest-resistance marker** —
   independent toggles, one per side. Draws a small triangle at the bar
   where that retest fires (price returns to a broken level and holds),
-  colored to match BOS/CHoCH (support = BOS colour, resistance = CHoCH
-  colour). The `Retest Support`/`Retest Resistance` alerts (`⑪ Alerts`)
+  colored to match the continuation/reversal palette (support = continuation
+  colour, resistance = reversal colour). The `Retest Support`/`Retest
+  Resistance` alerts (`⑪ Alerts`)
   already fire either way — this makes the event visible on the chart
   itself, not only in your alert log.
 - **Retest marker size** *(Tiny / Small / Normal)* — size of the retest
@@ -327,23 +340,23 @@ Runs a second, faster swing-length pass alongside the main one.
 
 - **Show internal structure** — the master toggle for this whole feature.
   ON tracks a second, faster swing length for minor structure inside the
-  current leg: **i-BOS** = a minor break *with* the higher-timeframe trend,
-  useful for entry timing; **i-CHoCH** = a minor break *against* the
-  higher-timeframe trend, an early small-scale warning the current leg may
-  be losing steam before the main-structure CHoCH would ever fire. Must be
-  ON for either event type below to be detected at all.
-- **Show internal BOS / Show internal CHoCH** — independent display
-  toggles, mirroring the main structure's `Draw BOS lines`/`Draw CHoCH
-  lines` split. Lets you show just one internal event type without the
-  other. Only apply when the master switch above is on.
+  current leg: **i-HH/i-LL** = a minor break *with* the higher-timeframe
+  trend, useful for entry timing; **i-LH/i-HL** = a minor break *against*
+  the higher-timeframe trend, an early small-scale warning the current leg
+  may be losing steam before the main-structure LH/HL would ever fire. Must
+  be ON for either event type below to be detected at all.
+- **Show internal HH/LL / Show internal LH/HL** — independent display
+  toggles, mirroring the main structure's `⑦ HH/LL lines (continuation)` /
+  `⑧ LH/HL lines (reversal)` split. Lets you show just one internal event
+  type without the other. Only apply when the master switch above is on.
 - **Internal swing length** — must be smaller than the main Swing pivot
   length. 2–3 is typical.
-- **Internal BOS colour / Internal CHoCH colour** — independently
-  configurable, no longer forced to match the main BOS/CHoCH colours (⑦/⑧)
-  — set them apart, or match them if you'd rather the two read as one
-  family.
+- **Internal HH/LL colour / Internal LH/HL colour** — independently
+  configurable, no longer forced to match the main continuation/reversal
+  colours (⑦/⑧) — set them apart, or match them if you'd rather the two
+  read as one family.
 - **Internal line style** *(Solid / Dashed / Dotted)* — style for internal
-  structure lines, shared between i-BOS and i-CHoCH.
+  structure lines, shared between i-HH/i-LL and i-LH/i-HL.
 - **Internal line width** — thickness of internal structure lines.
 - **Internal line transparency** — how faded internal lines/labels are.
   Drawn thin and semi-transparent by default so they don't compete visually
@@ -351,44 +364,46 @@ Runs a second, faster swing-length pass alongside the main one.
 
 ---
 
-## 8. BOS lines and CHoCH lines (`⑦ BOS lines`, `⑧ CHoCH lines`)
+## 8. HH/LL lines and LH/HL lines (`⑦ HH/LL lines (continuation)`, `⑧ LH/HL lines (reversal)`)
 
 > **Question:** how should a confirmed break actually look on the chart?
-> **Helps with:** lets continuation (BOS) and reversal (CHoCH) breaks be
+> **Helps with:** lets continuation (HH/LL) and reversal (LH/HL) breaks be
 > visually distinct — or matched — entirely independently of each other.
 
-Two mirrored groups, one per break type, so BOS and CHoCH can look and
-behave completely differently on the chart if you want them to. Defaults:
-BOS is solid sky-blue, CHoCH is dashed orange — deliberately different
-styles, not just colors, so they're distinguishable even for colorblind
-users.
+Two mirrored groups, one per break type, so continuation and reversal breaks
+can look and behave completely differently on the chart if you want them to.
+Defaults: continuation is solid sky-blue, reversal is dashed orange —
+deliberately different styles, not just colors, so they're distinguishable
+even for colorblind users.
 
-- **Colour** — BOS colour (default sky blue) marks a break *with* the
-  existing trend, confirming continuation. CHoCH colour (default orange)
-  marks a break *against* the existing trend, signalling a possible
-  reversal.
-- **Line style** *(Solid / Dashed / Dotted)* — BOS defaults to Solid, which
-  reads as more definitive, suiting continuation signals. CHoCH defaults to
-  Dashed, distinguishing it from BOS at a glance.
+- **Colour** — continuation colour (default sky blue, used for HH and LL)
+  marks a break *with* the existing trend, confirming continuation.
+  Reversal colour (default orange, used for LH and HL) marks a break
+  *against* the existing trend, signalling a possible reversal.
+- **Line style** *(Solid / Dashed / Dotted)* — continuation defaults to
+  Solid, which reads as more definitive, suiting continuation signals.
+  Reversal defaults to Dashed, distinguishing it from continuation at a
+  glance.
 - **Line width** — thickness of the line. Raise if you're on a large
   monitor or find them hard to see.
 - **Extend lines right (bars)** — how many bars to draw the line forward
-  from the break bar. BOS defaults to 0 (line stops at the break bar,
-  cleanest). CHoCH defaults to 50 (enough to see retests without clutter) —
-  CHoCH levels often act as ongoing support/resistance, so some extension is
-  useful, but "forever" clutters the chart. Adjust to your timeframe: lower
-  on 1M, higher on 1H+. Both scale with "Auto-adapt to timeframe."
+  from the break bar. Continuation defaults to 0 (line stops at the break
+  bar, cleanest). Reversal defaults to 50 (enough to see retests without
+  clutter) — LH/HL levels often act as ongoing support/resistance, so some
+  extension is useful, but "forever" clutters the chart. Adjust to your
+  timeframe: lower on 1M, higher on 1H+. Both scale with "Auto-adapt to
+  timeframe."
 - **Vertical marker on bar** — draws a small vertical tick on the exact bar
-  where the break was confirmed, making the timing unambiguous. BOS
-  defaults OFF; CHoCH defaults ON, since CHoCH signals are the easiest to
-  misread in real time and the precise bar is worth showing.
+  where the break was confirmed, making the timing unambiguous.
+  Continuation defaults OFF; reversal defaults ON, since LH/HL signals are
+  the easiest to misread in real time and the precise bar is worth showing.
 - **Vertical marker style / Vertical marker width** — style and thickness
   of the vertical tick, independently configurable per type. Only applies
   when the vertical marker above is on.
-- **Draw BOS lines / Draw CHoCH lines** — the master switch per type. Turns
-  off the line AND the label for that type, so turning off BOS fully hides
-  BOS (not just its line) if you only care about CHoCH reversals, or vice
-  versa.
+- **Draw HH/LL lines / Draw LH/HL lines** — the master switch per type.
+  Turns off the line AND the label for that type, so turning off HH/LL
+  fully hides continuation breaks (not just their line) if you only care
+  about LH/HL reversals, or vice versa.
 
 ---
 
@@ -400,7 +415,7 @@ users.
 
 The filters above are pass/fail. The score tells you *how well* a break
 passed — a break that barely qualified and one that qualified emphatically
-both used to just say "BOS." Now they say "BOS 42" and "BOS 91."
+both used to just say "HH." Now they say "HH 42" and "HH 91."
 
 - **Score every break 0-100** — the master toggle. Grades each break on how
   well it passed instead of a simple pass/fail. Built from five independent
@@ -416,7 +431,7 @@ both used to just say "BOS." Now they say "BOS 42" and "BOS 91."
   observed rather than guessing. Setting this blind is just a slower way of
   tightening the filters above — the point of the score is to let the chart
   tell you where your cutoff is.
-- **Show score on label** — appends the score to each label, e.g. "BOS 82."
+- **Show score on label** — appends the score to each label, e.g. "HH 82."
   Turn off for a cleaner chart once you've settled on a minimum score.
 - **Fade low-score breaks** — draws low-scoring breaks more transparently so
   high-confidence structure stands out at a glance without reading numbers.
@@ -488,13 +503,14 @@ shifting every threshold you had tuned.
 
 > **Question:** how do I find out about a signal without watching the
 > chart?
-> **Helps with:** wires specific, already-graded events (BOS/CHoCH,
+> **Helps with:** wires specific, already-graded events (HH/LL/LH/HL,
 > retests) to TradingView's alert system so you don't have to stare at the
 > screen.
 
-- **CHoCH Bullish / Bearish**, **BOS Bullish / Bearish** — fire the instant a
-  break confirms, split by type so you can wire different notification
-  channels to reversals vs. continuations.
+- **LH (Reversal Up) / HL (Reversal Down)**, **HH (Continuation) / LL
+  (Continuation)** — fire the instant a break confirms, split by type so
+  you can wire different notification channels to reversals vs.
+  continuations.
 - **Retest Support / Resistance** — fires when price returns to a *recently
   broken* level and holds it (closes back on the correct side). Tells you:
   this is generally a higher-confidence entry than the original break, since
@@ -522,13 +538,13 @@ instrument. Set the minimum to *that* number, not a guess — the whole point
 of the score is to let the chart tell you where your cutoff is, instead of
 you tightening filters blind.
 
-**3. Treat CHoCH and BOS as two different jobs, not one signal repeated
-twice.** CHoCH is a *reversal alert* — the trend may be turning, but it's the
-riskiest, earliest read. BOS is a *continuation confirmation* — the trend is
+**3. Treat LH/HL and HH/LL as two different jobs, not one signal repeated
+twice.** LH/HL is a *reversal alert* — the trend may be turning, but it's the
+riskiest, earliest read. HH/LL is a *continuation confirmation* — the trend is
 already established and just proved itself again. If you trade reversals,
-use CHoCH to get your attention, then look for a retest or a same-direction
-BOS before committing size. If you trade continuations, largely ignore CHoCH
-and lean on BOS + a high score.
+use LH/HL to get your attention, then look for a retest or a same-direction
+HH/LL before committing size. If you trade continuations, largely ignore
+LH/HL and lean on HH/LL + a high score.
 
 **4. Let the retest alert do the entry timing, not the raw break.** The docs
 already say it plainly: a level that gets retested and holds is
@@ -539,7 +555,7 @@ extra wait.
 
 **5. Turn off the EMA trend filter if you trade reversals — it will actively
 hide the setup you're looking for.** It's designed to suppress
-against-trend signals, but the first CHoCH of a real reversal is *by
+against-trend signals, but the first LH/HL of a real reversal is *by
 definition* against the trend. Only run it if you exclusively take
 with-trend continuation trades.
 
@@ -559,7 +575,7 @@ you could realistically act on.
 
 ## Reading the chart at a glance
 
-1. **Lines with labels** (BOS/CHoCH) = confirmation that structure actually
+1. **Lines with labels** (HH/LL/LH/HL) = confirmation that structure actually
    broke, with a 0–100 score telling you how convincingly.
 2. **The table** = your at-a-glance status: current bias, exact levels to
    watch, and how strong the last break was.

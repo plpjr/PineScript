@@ -43,7 +43,7 @@
 //     scoring signals doesn't apply here. This means the exact "watch
 //     high/low" shown here can differ slightly from the companion script's,
 //     which waits for a higher-quality break before moving on.
-//   * No BOS/CHoCH lines, labels, confidence score, or alerts — that's the
+//   * No HH/LL/LH/HL lines, labels, confidence score, or alerts — that's the
 //     other script's job.
 //   * Order blocks, fair value gaps, liquidity pools, confluence scoring, and
 //     the historical hit-rate system are carried over unchanged.

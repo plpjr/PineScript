@@ -12,7 +12,7 @@ support/resistance zones above and below price, why several independent
 detectors agree on them, and how often zones with that much agreement have
 actually gotten hit before.
 
-> Looking for BOS/CHoCH break labels, the confidence score, or alerts? Those
+> Looking for HH/LL/LH/HL break labels, the confidence score, or alerts? Those
 > live in the companion script, **Structure Break Signals** — see
 > `FEATURES_STRUCTURE.md`.
 
@@ -375,12 +375,12 @@ side on the same chart:
    zone as price approaches it — check its confluence count and, once
    there's enough sample size, its hit/held rate.
 2. **Structure Break Signals tells you WHETHER something real happened
-   there.** As price interacts with that zone, watch for a CHoCH or BOS
+   there.** As price interacts with that zone, watch for an LH/HL or HH/LL
    with a strong confidence score (55+, ideally 75+) at or near the same
    level.
 3. **Agreement between the two is the highest-confidence setup available.**
    A zone showing "(held)" in Key Zone Map at the same time Structure Break
-   Signals prints a high-score CHoCH in the rejecting direction is two
+   Signals prints a high-score LH/HL in the rejecting direction is two
    independent systems confirming the same read — meaningfully stronger
    than either alone.
 4. **Use the retest alert as the entry trigger once the zone shows
@@ -391,7 +391,7 @@ side on the same chart:
 5. **If you're trading a breakout THROUGH a zone instead of a bounce off
    it**, look for the inverse combination: the zone transitioning from
    "(tested)" to gone (invalidated) at the same time Structure Break
-   Signals fires a high-score BOS through it. Both systems agreeing the
+   Signals fires a high-score HH/LL through it. Both systems agreeing the
    level failed is stronger confirmation than a break with no zone context,
    or a failed zone with no structural confirmation.
 6. **Manage the trade using the opposite zone as your target.** If you
