@@ -1,4 +1,6 @@
-# BOS / CHoCH Structure v7.0 — Feature Guide
+# Structure Break Signals v7.2 — Feature Guide
+
+*(Formerly "BOS / CHoCH Structure" — renamed, same script.)*
 
 This indicator does one job: grade individual structure **break events**. It
 labels BOS (Break of Structure) and CHoCH (Change of Character) with a
@@ -6,10 +8,9 @@ labels BOS (Break of Structure) and CHoCH (Change of Character) with a
 at a glance.
 
 > Looking for the zone/support-resistance/confluence side of things? That
-> lives in the companion script, **Support/Resistance Zones** — see
-> `FEATURES_ZONES.md`. The two used to be one combined indicator; they were
-> split so each stays focused on one job and fits in one TradingView
-> indicator slot on its own.
+> lives in the companion script, **Key Zone Map** — see `FEATURES_ZONES.md`.
+> The two used to be one combined indicator; they were split so each stays
+> focused on one job and fits in one TradingView indicator slot on its own.
 
 ---
 
@@ -127,7 +128,9 @@ Mostly cosmetic, but a few items are informational:
 - **Live (unbroken) levels** — dotted lines showing the levels price is
   *currently* working against. Tells you: what needs to break for the next
   signal, before it happens — the most useful setting for planning a trade
-  live.
+  live. Width, style, and how far it extends right are all independently
+  configurable, and the extend length scales with "Auto-adapt to timeframe"
+  like every other extend setting.
 - **Raw pivot markers** — shows every detected swing, including ones the
   filters rejected. Tells you (diagnostically): whether a swing you'd mark by
   hand was detected-but-filtered, or never detected at all.
@@ -152,7 +155,9 @@ Runs a second, faster swing-length pass alongside the main one.
   before the main-structure CHoCH would ever fire.
 
 Drawn thin and semi-transparent so it doesn't compete visually with the main
-structure lines.
+structure lines. Internal BOS/CHoCH colors are independently configurable
+(no longer forced to match the main BOS/CHoCH colors), so you can make the
+two visually distinct or matching, your call.
 
 ---
 
@@ -206,6 +211,6 @@ below 40 marginal.**
 2. **The table** = your at-a-glance status: current bias, exact levels to
    watch, and how strong the last break was.
 
-If you also run the **Support/Resistance Zones** companion script on the same
-chart, that's where the "which level is worth watching, and why" question
-lives — this script answers "did structure actually break, and how well."
+If you also run the **Key Zone Map** companion script on the same chart,
+that's where the "which level is worth watching, and why" question lives —
+this script answers "did structure actually break, and how well."

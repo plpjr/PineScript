@@ -1,14 +1,17 @@
-# Support/Resistance Zones v1.0 — Feature Guide
+# Key Zone Map v1.1 — Feature Guide
 
-This is the zones half of what used to be one combined indicator with **BOS /
-CHoCH Structure** — split out because the two do genuinely different jobs.
-This script's one job: tell you the nearest support/resistance zones above
-and below price, why several independent detectors agree on them, and how
-often zones with that much agreement have actually gotten hit before.
+*(Formerly "Support/Resistance Zones" — renamed, same script.)*
+
+This is the zones half of what used to be one combined indicator with
+**Structure Break Signals** — split out because the two do genuinely
+different jobs. This script's one job: tell you the nearest
+support/resistance zones above and below price, why several independent
+detectors agree on them, and how often zones with that much agreement have
+actually gotten hit before.
 
 > Looking for BOS/CHoCH break labels, the confidence score, or alerts? Those
-> live in the companion script, **BOS / CHoCH Structure** — see
-> `FEATURES.md`.
+> live in the companion script, **Structure Break Signals** — see
+> `FEATURES_STRUCTURE.md`.
 
 ---
 
@@ -53,6 +56,8 @@ One place controls the look and behavior of every zone type:
   untested; faint = already been tapped once, treat with more caution.
 - **Max active zones per type** — caps how many of each zone type stay on
   chart at once (oldest auto-deletes).
+- **Zone border width** — thickness shared by every zone box's border (swing
+  zones, order blocks, FVGs, liquidity pools) — one control for all of them.
 - **Show confluence + historical hit-rate** — the master toggle for the
   scoring layer described in §7. OFF just leaves every box labelled with its
   type, no scoring.
@@ -118,9 +123,9 @@ The headline feature: the current nearest swing high/low, shown as a visible
   fill instead of touch — faded once price partially fills the gap, gone
   once fully filled.
 - **Min gap size (× ATR)** — filters out one-tick noise gaps.
-- **50% midline (CE)** — optional dotted line at the gap's midpoint, the
-  "consequent encroachment" level some traders treat as the real reaction
-  point.
+- **50% midline (CE)** — optional line at the gap's midpoint, the "consequent
+  encroachment" level some traders treat as the real reaction point. Width
+  and style (solid/dashed/dotted) are independently configurable.
 
 ---
 

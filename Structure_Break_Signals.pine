@@ -1,5 +1,14 @@
 // =============================================================================
-// BOS / CHoCH Market Structure  —  v7.1
+// Structure Break Signals  —  v7.2  (formerly "BOS / CHoCH Market Structure")
+//
+// NEW IN v7.2 — RENAMED, MORE LINE CONTROL:
+//   * Renamed from "BOS / CHoCH Structure" to "Structure Break Signals" — same
+//     script, clearer name for what it actually does.
+//   * Live (unbroken) level lines now have their own width/style/extend
+//     controls instead of being hardcoded — see ⑤ Display & history.
+//   * Internal structure (i-BOS/i-CHoCH) lines now have independent colors
+//     instead of being forced to reuse the main BOS/CHoCH colors — see
+//     ⑥ Internal structure.
 //
 // NEW IN v7.1 — FEATURE TOGGLES FULLY DISABLE THEIR FEATURE:
 //   * "Draw BOS lines" / "Draw CHoCH lines" now also hide that type's LABEL,
@@ -88,7 +97,7 @@
 //   * Optional internal structure (faster swing length, thinner lines).
 // =============================================================================
 //@version=5
-indicator("BOS / CHoCH Structure v7.1", overlay = true, max_bars_back = 100, max_lines_count = 500, max_labels_count = 500)
+indicator("Structure Break Signals v7.2", overlay = true, max_bars_back = 100, max_lines_count = 500, max_labels_count = 500)
 
 // =============================================================================
 // SENSITIVITY MASTER CONTROLS
@@ -305,6 +314,12 @@ verboseLabels = input.bool(false, "Verbose labels (show ATR clearance)", group =
      tooltip = "ON = labels show 'BOS +0.3' or 'CHoCH -0.2' indicating how many ATR the break cleared beyond the level. Useful for quickly judging break quality.")
 showLiveLv = input.bool(true, "Live (unbroken) levels", group = grpD,
      tooltip = "Dotted lines showing the levels price is CURRENTLY working against, before any break.\n\nThis is the most useful setting for live trading: it shows what needs to break for a signal to fire, so you can plan the trade before the label appears.")
+liveLineWidth = input.int(1, "  Live level line width", minval = 1, maxval = 4, group = grpD,
+     tooltip = "Thickness of the live (unbroken) level lines.")
+liveLineStyle = input.string("Dotted", "  Live level line style", options = ["Solid", "Dashed", "Dotted"], group = grpD,
+     tooltip = "Line style for the live level lines. Dotted by default so they read as 'not confirmed yet,' distinct from the solid/dashed BOS/CHoCH break lines.")
+liveExtendBars = input.int(20, "  Extend live level right (bars)", minval = 0, maxval = 200, group = grpD,
+     tooltip = "How far the live level line is drawn forward from the current bar. Scales with 'Auto-adapt to timeframe' like every other extend setting, so it means the same amount of real time on every chart.")
 showPivots = input.bool(false, "Raw pivot markers", group = grpD,
      tooltip = "Small triangles on every detected swing high/low, including ones the filters rejected.\n\nUseful for DIAGNOSIS: if the indicator is missing structure you'd mark by hand, turn this on to see whether the pivot was detected but filtered out, or never detected at all.")
 tintBias   = input.bool(false, "Tint background by bias", group = grpD,
@@ -328,6 +343,10 @@ useInternal = input.bool(false, "Show internal structure", group = grpI,
      tooltip = "Tracks a second, faster swing length for minor structure inside the current leg.\n\nInternal BOS = minor break WITH trend.\nInternal CHoCH = minor break AGAINST trend (early reversal warning).\n\nDrawn with thinner, semi-transparent lines. Useful for entry timing within a higher-timeframe bias.")
 intSwingLen = input.int(3, "Internal swing length", minval = 1, group = grpI,
      tooltip = "Must be smaller than main Swing Pivot Length. 2–3 is typical.")
+intColBOS = input.color(#38BDF8, "Internal BOS colour", group = grpI,
+     tooltip = "Colour for internal BOS lines/labels. Independent of the main BOS colour (⑦) — set them apart, or match them if you'd rather they read as one family.")
+intColCHoCH = input.color(#FB923C, "Internal CHoCH colour", group = grpI,
+     tooltip = "Colour for internal CHoCH lines/labels. Independent of the main CHoCH colour (⑧).")
 intLineWidth = input.int(1, "Internal line width", minval = 1, maxval = 3, group = grpI)
 intTransparency = input.int(65, "Internal line transparency", minval = 0, maxval = 90, group = grpI)
 
@@ -490,6 +509,7 @@ scaleBars(int bars, int minBars, int maxBars) =>
 
 int effBosExtend    = scaleBars(bosExtendBars, 0, 500)
 int effChochExtend  = scaleBars(chochExtendBars, 0, 500)
+int effLiveExtend   = scaleBars(liveExtendBars, 0, 200)
 int effIntExtend    = scaleBars(30, 3, 300)
 int effRetestWindow = scaleBars(100, 10, 500)
 int effRetestMinAge = scaleBars(3, 1, 20)
@@ -868,7 +888,7 @@ if fireDown and not na(fireLevel)
 if useInternal
     if iCandUp and not na(iWatchHigh)
         bool iIsChoch = bias <= 0
-        color iCol = iIsChoch ? colCHoCH : colBOS
+        color iCol = iIsChoch ? intColCHoCH : intColBOS
         string iTxt = iIsChoch ? "i-CHoCH" : "i-BOS"
         if showLabels
             label.new(bar_index, high + atrVal * 0.3, iTxt,
@@ -886,7 +906,7 @@ if useInternal
 
     if iCandDown and not na(iWatchLow)
         bool iIsChoch = bias >= 0
-        color iCol = iIsChoch ? colCHoCH : colBOS
+        color iCol = iIsChoch ? intColCHoCH : intColBOS
         string iTxt = iIsChoch ? "i-CHoCH" : "i-BOS"
         if showLabels
             label.new(bar_index, low - atrVal * 0.3, iTxt,
@@ -925,11 +945,11 @@ if barstate.islast
     line.delete(liveHiLine)
     line.delete(liveLoLine)
     if showLiveLv and not na(watchHigh)
-        liveHiLine := line.new(watchHighBar, watchHigh, bar_index + 20, watchHigh,
-             color = color.new(colBOS, 60), style = line.style_dotted, width = 1)
+        liveHiLine := line.new(watchHighBar, watchHigh, bar_index + effLiveExtend, watchHigh,
+             color = color.new(colBOS, 60), style = styleOf(liveLineStyle), width = liveLineWidth)
     if showLiveLv and not na(watchLow)
-        liveLoLine := line.new(watchLowBar, watchLow, bar_index + 20, watchLow,
-             color = color.new(colCHoCH, 60), style = line.style_dotted, width = 1)
+        liveLoLine := line.new(watchLowBar, watchLow, bar_index + effLiveExtend, watchLow,
+             color = color.new(colCHoCH, 60), style = styleOf(liveLineStyle), width = liveLineWidth)
 
 // ---------------------------- Pivot markers ----------------------------------
 plotshape(showPivots and not na(ph), title = "Swing High", location = location.abovebar,
