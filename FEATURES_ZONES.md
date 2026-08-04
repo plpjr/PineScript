@@ -21,19 +21,27 @@ actually gotten hit before.
 ## 1. Swing detection (`① Swing detection`)
 
 - **Swing pivot length** — how many bars must sit on each side of a candle
-  for it to count as a swing high/low. Lower = more, smaller, faster-forming
-  zones. Higher = fewer, major zones, more lag.
-- **ATR length** — lookback for the ATR used by every size/overlap threshold
-  in this script.
-- **Filter minor swings by size / Min swing size (× ATR)** — a pivot only
-  counts as a zone if it moved far enough from the last opposite swing,
-  filtering tiny wiggles inside consolidation.
-- **Auto-adapt to timeframe** — rescales every extend-right and lookback
-  window (zone box widths, order-block search depth, liquidity pivot memory)
-  so each spans the same real amount of time on every chart, instead of a
-  fixed bar count that means 50 minutes on a 1-minute chart and over a week
-  on a 4-hour chart. Each scaled value is capped at that setting's own manual
-  min/max.
+  for it to count as a swing high/low. Lower (2–4) detects more, smaller,
+  faster-forming zones. Higher (7–12) keeps fewer, major zones, with more
+  lag (a swing can't confirm until this many bars after it forms).
+- **ATR length** — lookback for the ATR used by every size/overlap
+  threshold in this script: the swing filter, zone lifecycle margins (hold
+  confirmation), and confluence overlap. 14 is standard for intraday.
+- **Filter minor swings by size** — ON means a pivot only counts as a zone
+  if it moved far enough (in ATR) from the last opposite swing, filtering
+  tiny wiggles inside consolidation. Recommend leaving ON.
+- **Min swing size (× ATR)** — how far a pivot must be from the previous
+  opposite swing to count as a real zone, in ATR, when the filter above is
+  on. 0.0–0.2 is very sensitive. 0.4–0.6 is balanced. 1.0+ keeps only large
+  structural swings.
+- **Auto-adapt to timeframe** — scales every "extend right" and "lookback"
+  window (zone box widths, order-block search depth, liquidity pivot
+  memory) so it represents the same slice of real time on every chart,
+  instead of a fixed bar count that means 50 minutes on a 1-minute chart and
+  over a week on a 4-hour chart. Each scaled value is capped at that
+  setting's own manual maximum, so it can never reach a value you couldn't
+  have picked by hand. OFF = every bar-count setting below means exactly
+  what you typed, unscaled.
 
 **How "the nearest zone" is decided here, and why it can differ from the
 companion script:** this script has no break-quality filters, presets, or
@@ -43,7 +51,7 @@ filtered/graded one. That's deliberate: this script isn't grading break
 events, so gating when a zone gets replaced behind fakeout filters designed
 for scoring signals doesn't apply here. The practical effect is that the
 "Watch high"/"Watch low" shown in this script's table can differ slightly
-from the BOS/CHoCH script's, which waits for a higher-quality break before
+from the companion script's, which waits for a higher-quality break before
 moving on.
 
 ---
@@ -52,127 +60,172 @@ moving on.
 
 One place controls the look and behavior of every zone type:
 
-- **Bullish / Bearish zone colour** — bullish = anything favoring longs
-  (swing low zones, bullish order blocks, bullish FVGs, sell-side liquidity).
-  Bearish = the mirror, favoring shorts.
-- **Active zone opacity / Extra fade once tested** — solid = still live and
-  untested; faint = already been tapped once, treat with more caution.
-- **Max active zones per type** — caps how many of each zone type stay on
-  chart at once (oldest auto-deletes).
-- **Zone border width** — thickness shared by every zone box's border (swing
-  zones, order blocks, FVGs, liquidity pools) — one control for all of them.
+- **Bullish zone colour** — base colour for every zone that favours longs:
+  swing low zones, bullish order blocks, bullish FVGs, and sell-side
+  liquidity pools.
+- **Bearish zone colour** — base colour for every zone that favours shorts:
+  swing high zones, bearish order blocks, bearish FVGs, and buy-side
+  liquidity pools.
+- **Active zone opacity** — fill/border transparency for a live, untested
+  zone. Higher = more see-through; lower this if zones feel too faint
+  against your chart background.
+- **Extra fade once tested/mitigated** — added transparency once a zone has
+  been touched or filled, so used zones visually recede and only live,
+  untouched zones jump out at you.
+- **Max active zones per type** — oldest zone of each type (order block /
+  FVG / liquidity pool) auto-deletes once this many are on the chart. Keeps
+  you under TradingView's object caps and the chart readable.
+- **Zone border width** — thickness of every zone box's border — swing
+  zones, order blocks, FVGs, and liquidity pools all share this one
+  control. Raise it if zones are hard to see against your chart background.
 - **Show confluence + historical hit-rate** — the master toggle for the
-  scoring layer described in §7. OFF just leaves every box labelled with its
-  type, no scoring.
+  scoring layer covered in full in §7. Checks whether an order block, FVG,
+  and/or liquidity pool overlap the nearest swing zone, and remembers (from
+  this chart's own history) how often zones with that much agreement
+  actually got touched before failing. OFF = zone boxes still draw and
+  label their own type, just without the confluence/hit-rate layer.
 - **Hold confirmation margin (× ATR)** — how far price must close back away
   from a zone, beyond its near edge, to count as a confirmed "hold" rather
-  than just a touch. A zone can be touched without being respected — price
-  can wick in and plow straight through.
-- **Min overlap to count as confluence** — how much two zones must overlap,
-  as a fraction of the smaller zone's own range, to count as confluence
-  instead of any edge touch at all.
-- **Min sample size before showing a rate** — hides hit-rate/hold-rate
-  percentages until a confluence bucket has enough resolved samples, showing
-  `(building)` with the running count instead. A rate from 1-2 samples is
-  noise dressed up as a number.
+  than just a touch. A zone can be touched without holding — price can wick
+  in and plow straight through moments later. Higher = stricter, fewer
+  touches qualify as a genuine hold; lower (0) means almost any close back
+  outside the zone counts.
+- **Min overlap to count as confluence** — how much two zones must overlap
+  — as a fraction of the SMALLER zone's own range — to count as confluence,
+  instead of any touch at all. 0.0 = any overlap counts, even a single tick
+  brushing the edge. 0.3 (default) = the zones must share at least 30% of
+  the smaller one's range. 1.0 = the smaller zone must sit almost entirely
+  inside the larger one.
+- **Min sample size before showing a rate** — hides the hit-rate/hold-rate
+  percentage until at least this many zones at that confluence level have
+  resolved, showing `(building)` with the current count instead. A rate
+  built from 1-2 samples is noise dressed up as a number. Raise this for
+  more confirmation before trusting a rate; lower it to see numbers sooner
+  at the cost of reliability.
 
 ---
 
 ## 3. Swing zones (`③ Swing zones`)
 
-The headline feature: the current nearest swing high/low, shown as a visible
-**area**, not just a price.
+The headline feature: the current nearest swing high/low, shown as a
+visible **area**, not just a price.
 
-- **What it draws**: a box from the swing candle's wick (the exact extreme)
-  to its body edge (where real conviction started), for both the current
-  watched high (labelled **Resistance**) and watched low (labelled
-  **Support**).
-- **Tells you**: the *whole* area price likely needs to work through — not
-  one exact tick. The wick edge is the hard extreme; the body edge is where
-  the market actually accepted price.
-- Only ever shows the *current* nearest zone on each side — a planning tool
-  for what's coming, not a history log.
+- **Shade swing high/low zones** — the master toggle. Draws the current
+  watched swing high and swing low as a shaded box instead of just a thin
+  line — the exact area price needs to break for a signal to fire, made
+  impossible to miss. The box spans wick-to-body of the pivot candle: the
+  wick is the exact extreme, the body edge is where real conviction
+  started, so the zone reflects the whole area price likely reacts from,
+  not just one tick. Watched high is labelled **Resistance**; watched low
+  is labelled **Support**. Only ever shows the *current* nearest zone on
+  each side — a planning tool for what's coming, not a history log.
+- **Extend zone right (bars)** — how far the swing zone box is drawn
+  forward from the current bar. Purely visual, doesn't affect detection.
+  Scales with Auto-adapt to timeframe.
 
 ---
 
 ## 4. Order blocks (`④ Order blocks`)
 
-- **What it is**: the last opposite-colored candle before an impulsive break
-  of the current swing zone — the candle where the move likely originated.
-  Bullish OB = last down-close candle before a break up. Bearish OB = last
-  up-close candle before a break down.
-- **Tells you**: a high-probability reaction zone. Price often returns to
-  retest an order block before continuing in the breakout direction.
-- **Box lifecycle**:
-  - **Solid, growing** = still untested.
-  - **Faded, "(tested)"** = price has wicked back into it once.
-  - **"(held)"** = price closed back away from it by the hold margin —
-    a confirmed rejection, not just a touch.
-  - **Gone** = price *closed* all the way through the far side (invalidated).
-- **Search back this many bars** — how far behind the break candle to look
-  for the origin candle.
+- **Show order blocks** — the master toggle. An order block is the last
+  opposite-coloured candle before an impulsive break of the current swing
+  zone — the candle where the move likely originated. Bullish OB = last
+  down-close candle before a break up. Bearish OB = last up-close candle
+  before a break down. Traders watch these as high-probability entry zones
+  on a retest. Lifecycle: the box grows while untested, fades ("(tested)")
+  the first time price wicks back into it, shows "(held)" if price then
+  closes back away by the hold margin (a confirmed rejection, not just a
+  touch), and deletes once price *closes* all the way through the far side
+  (invalidated).
+- **Search back this many bars** — how far back from the break candle to
+  search for the origin candle.
+- **Extend box right (bars)** — how far an ACTIVE (untested) order block
+  box is drawn forward while price hasn't returned to it yet. Scales with
+  Auto-adapt to timeframe.
 
 ---
 
 ## 5. Fair value gaps (`⑤ Fair value gaps`)
 
-- **What it is**: a classic 3-candle imbalance — candle 1's wick doesn't
-  overlap candle 3's wick, leaving a gap the market moved through without
-  trading. Bullish FVG = gap left behind an up move; bearish = behind a down
-  move.
-- **Tells you**: a zone price statistically tends to return to and "fill"
-  before continuing.
-- **Box lifecycle**: same tested/held/gone pattern as order blocks, keyed to
-  fill instead of touch — faded once price partially fills the gap, gone
-  once fully filled.
-- **Min gap size (× ATR)** — filters out one-tick noise gaps.
-- **50% midline (CE)** — optional line at the gap's midpoint, the "consequent
-  encroachment" level some traders treat as the real reaction point. Width
-  and style (solid/dashed/dotted) are independently configurable.
+- **Show fair value gaps** — the master toggle. An FVG is a classic
+  3-candle imbalance: the wick of candle 1 doesn't overlap the wick of
+  candle 3, leaving a gap the market moved through without trading. Price
+  often returns to "fill" this gap before continuing. Bullish FVG = gap
+  left behind an up move (support-ish). Bearish FVG = gap left behind a
+  down move (resistance-ish). Lifecycle: fades ("(tested)") on first
+  partial fill, shows "(held)" if price closes back away by the hold
+  margin, deletes once fully filled.
+- **Min gap size (× ATR)** — filters out tiny, insignificant gaps. 0.0
+  shows every gap, even one tick wide. 0.05–0.15 is balanced, hiding noise
+  on choppy instruments. 0.3+ keeps only large, obvious imbalances.
+- **Extend box right (bars)** — how far an unfilled FVG box is drawn
+  forward while price hasn't returned to fill it. Scales with Auto-adapt to
+  timeframe.
+- **Show 50% midline (CE)** — draws a line through the middle of the gap —
+  the "consequent encroachment" level some traders treat as the real
+  reaction point rather than the whole gap.
+- **Midline width** — thickness of the FVG midline. Only applies when the
+  midline is on.
+- **Midline style** *(Solid / Dashed / Dotted, default Dotted)* — line
+  style for the FVG midline.
 
 ---
 
 ## 6. Liquidity zones (`⑥ Liquidity zones`)
 
-- **What it is**: equal (or near-equal) highs/lows within an ATR tolerance —
-  clusters of resting stop-losses and breakout orders.
-  - **Buy-side liquidity** = equal highs, above price.
-  - **Sell-side liquidity** = equal lows, below price.
-- **Tells you**: where price is statistically drawn toward before reversing —
-  a move toward one of these zones followed by a sharp reversal is a classic
-  "liquidity sweep."
-- **Box lifecycle**:
-  - **Solid** = untouched pool.
-  - **"(swept)"** = price has wicked through it (a sweep attempt).
-  - **"(held)"** = price closed back away — the sweep failed to hold.
-  - **Gone** = price *closed* beyond the level — the resting liquidity has
-    been consumed either way.
-- **Equal-level tolerance (× ATR)** — how close two swings must be to count
-  as "equal."
-- **Pivot lookback (bars)** — how far back a matching prior pivot can be found.
+- **Show liquidity zones** — the master toggle. Marks equal (or
+  near-equal) highs and lows as resting liquidity pools — clusters of
+  stop-losses and breakout orders that price is statistically drawn toward
+  before reversing. **Buy-side liquidity** = equal highs, sitting above
+  price. **Sell-side liquidity** = equal lows, sitting below price. A move
+  toward one of these zones followed by a sharp reversal is a classic
+  "liquidity sweep." Lifecycle: fades ("(swept)") the moment price wicks
+  through (a sweep attempt), shows "(held)" if price closes back away by
+  the hold margin (the sweep failed to hold), and deletes once a *close*
+  confirms the level is consumed — whether or not price reversed, the
+  resting liquidity is gone either way.
+- **Equal-level tolerance (× ATR)** — how close two swing points must be,
+  in ATR, to count as "equal" and form a pool. Smaller = only near-identical
+  levels cluster. Larger = merges more distant swings into one pool, which
+  can overstate how "equal" they really were.
+- **Pivot lookback (bars)** — how far back to look for a matching prior
+  pivot when deciding whether a new pivot forms a liquidity pool. Longer
+  catches older equal highs/lows; shorter keeps only recent, more relevant
+  pools.
+- **Extend zone right (bars)** — how far an unswept liquidity zone is drawn
+  forward. Scales with Auto-adapt to timeframe.
 
 ---
 
 ## 7. Confluence + historical hit-rate
 
 This is what ties the four zone types into one answer: **is the nearest
-zone worth watching, and how do we know?**
+zone worth watching, and how do we know?** All controlled from `② Zones —
+shared style` (settings covered there); this section explains the mechanism
+itself in full.
 
 - **Confluence**: whenever the swing-high or swing-low zone is the nearest
-  one above/below price, it's checked against every active order block, FVG,
-  and liquidity pool *that shares its directional bias*. Each type that
-  overlaps by at least the minimum-overlap threshold (§2) adds 1 to a
-  confluence count (0–3), shown on the zone's label and in the status
-  table's Resistance/Support rows.
+  one above/below price, it's checked against every active order block,
+  FVG, and liquidity pool *that shares its directional bias* (a resistance
+  zone only checks bearish-biased boxes; a support zone only checks
+  bullish ones). Each type that overlaps by at least the minimum-overlap
+  threshold adds 1 to a confluence count (0–3), shown on the zone's label
+  and in the status table's Resistance/Support rows.
 - **Historical hit-rate, tracked separately per zone type**: every order
-  block, FVG, and liquidity pool is tagged at birth with how many of the
-  *other two* detector types already overlapped it (0, 1, or "2+"). Each
-  type keeps its own set of buckets — an order block's history and a
-  liquidity pool's are never blended together.
+  block, FVG, and liquidity pool is tagged at the moment it's created with
+  how many of the *other two* detector types already overlapped it (0, 1,
+  or "2+"). Each type keeps its own set of buckets — an order block's
+  history and a liquidity pool's are never blended together, since there's
+  no reason to assume they behave the same way.
+- **Held, tracked alongside hit**: for each bucket, the script also tracks
+  how many of the touched zones went on to be confirmed *held* (closed back
+  away by the hold margin) rather than just touched.
 - **Display picks the most-sampled type, and names it**: the nearest zone
   shows the hit rate / hold rate of whichever overlapping type has the
   largest sample size at that confluence level, labelled so you know which
-  one it is — e.g. `Resistance · 2 conf · OB hit 74%/held 41% (n=31)`.
+  one it is — e.g. `Resistance · 2 conf · OB hit 74%/held 41% (n=31)` —
+  rather than quietly averaging different zone types into one misleading
+  number.
 - **Read this as a frequency count, not a prediction.** It's built entirely
   from this chart's own history. Changing ANY input restarts the count from
   zero, since TradingView recalculates the whole script from bar 1 when an
@@ -182,11 +235,13 @@ zone worth watching, and how do we know?**
 
 ## 8. Display (`⑦ Display`)
 
-- **Status table** — corner panel: swing length + ATR, current watch
-  high/low, and the Resistance/Support confluence + hit-rate rows.
-- **Raw pivot markers** — every detected swing high/low, including ones the
-  ATR filter rejected. Useful for diagnosing why a zone isn't showing up
-  where you'd expect one.
+- **Status table** — corner panel showing swing length + ATR, the current
+  watch high/low, and the nearest Resistance/Support confluence + hit-rate
+  rows.
+- **Raw pivot markers** — small triangles on every detected swing high/low,
+  including ones the ATR filter rejected. Useful for diagnosing why a zone
+  isn't showing up where you'd expect one — turn this on to see whether the
+  pivot was detected but filtered out, or never detected at all.
 
 ---
 
