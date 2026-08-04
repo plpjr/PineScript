@@ -1,9 +1,9 @@
-# Structure Break Signals v7.2 — Feature Guide
+# Structure Break Signals v7.3 — Feature Guide
 
 *(Formerly "BOS / CHoCH Structure" — renamed, same script.)*
 
 **File:** `Structure_Break_Signals.pine` · **TradingView indicator name:**
-"Structure Break Signals v7.2" · **Companion:** `Key_Zone_Map.pine`
+"Structure Break Signals v7.3" · **Companion:** `Key_Zone_Map.pine`
 (`FEATURES_ZONES.md`)
 
 This indicator does one job: grade individual structure **break events**. It
@@ -288,6 +288,10 @@ All of these are ignored unless Preset = Custom, except where noted.
   levels, bars since the last break, ATR, active preset, last score, and
   pending state. The numeric levels are the useful part: copy them straight
   into your trade journal rather than reading them off the chart.
+- **Table position** *(Top Right / Top Left / Bottom Right / Bottom Left)* —
+  which corner the status table is anchored to. Move it if it overlaps
+  another indicator's panel, the price scale, or the companion Key Zone
+  Map script's own table.
 - **Max breaks to draw (0 = unlimited)** — limits how many historical
   BOS/CHoCH lines and labels remain on chart; oldest auto-delete when
   exceeded. 0 means no limit (may hit TradingView's 500-object cap on busy
@@ -296,6 +300,16 @@ All of these are ignored unless Preset = Custom, except where noted.
 - **Show unconfirmed break preview** — when Confirmation bars > 0, draws a
   faint ghost marker at the break level while waiting for confirmation, so
   you can see the break forming in real time rather than waiting blindly.
+- **Preview line style / Preview line width** — style and thickness of the
+  unconfirmed-preview line, independently configurable.
+- **Show retest marker on chart** — draws a small triangle at the bar where
+  a retest fires (price returns to a broken level and holds), colored to
+  match BOS/CHoCH (support retest = BOS colour, resistance retest = CHoCH
+  colour). The `Retest Support`/`Retest Resistance` alerts (`⑪ Alerts`)
+  already fire either way — this makes the event visible on the chart
+  itself, not only in your alert log.
+- **Retest marker size** *(Tiny / Small / Normal)* — size of the retest
+  marker triangle. Only applies when the marker above is on.
 
 ---
 
@@ -320,6 +334,8 @@ Runs a second, faster swing-length pass alongside the main one.
   configurable, no longer forced to match the main BOS/CHoCH colours (⑦/⑧)
   — set them apart, or match them if you'd rather the two read as one
   family.
+- **Internal line style** *(Solid / Dashed / Dotted)* — style for internal
+  structure lines, shared between i-BOS and i-CHoCH.
 - **Internal line width** — thickness of internal structure lines.
 - **Internal line transparency** — how faded internal lines/labels are.
   Drawn thin and semi-transparent by default so they don't compete visually
@@ -358,6 +374,9 @@ users.
   where the break was confirmed, making the timing unambiguous. BOS
   defaults OFF; CHoCH defaults ON, since CHoCH signals are the easiest to
   misread in real time and the precise bar is worth showing.
+- **Vertical marker style / Vertical marker width** — style and thickness
+  of the vertical tick, independently configurable per type. Only applies
+  when the vertical marker above is on.
 - **Draw BOS lines / Draw CHoCH lines** — the master switch per type. Turns
   off the line AND the label for that type, so turning off BOS fully hides
   BOS (not just its line) if you only care about CHoCH reversals, or vice
@@ -472,7 +491,10 @@ shifting every threshold you had tuned.
   broken* level and holds it (closes back on the correct side). Tells you:
   this is generally a higher-confidence entry than the original break, since
   the level has now been defended twice. De-duplicated so a level sitting on
-  the alert threshold doesn't spam you every bar.
+  the alert threshold doesn't spam you every bar. Also draws a small
+  triangle marker on the chart at the same bar (see `Show retest marker on
+  chart`, `⑤ Display & history`), so the event is visible without opening
+  your alert log.
 
 ---
 

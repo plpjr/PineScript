@@ -1,9 +1,9 @@
-# Key Zone Map v1.1 — Feature Guide
+# Key Zone Map v1.2 — Feature Guide
 
 *(Formerly "Support/Resistance Zones" — renamed, same script.)*
 
 **File:** `Key_Zone_Map.pine` · **TradingView indicator name:** "Key Zone Map
-v1.1" · **Companion:** `Structure_Break_Signals.pine` (`FEATURES_STRUCTURE.md`)
+v1.2" · **Companion:** `Structure_Break_Signals.pine` (`FEATURES_STRUCTURE.md`)
 
 This is the zones half of what used to be one combined indicator with
 **Structure Break Signals** — split out because the two do genuinely
@@ -88,6 +88,9 @@ One place controls the look and behavior of every zone type:
 - **Zone border width** — thickness of every zone box's border — swing
   zones, order blocks, FVGs, and liquidity pools all share this one
   control. Raise it if zones are hard to see against your chart background.
+  (Border *style* — Solid/Dashed/Dotted — is set independently per zone
+  type in each type's own section below, since that's what visually tells
+  the types apart.)
 - **Show confluence + historical hit-rate** — the master toggle for the
   scoring layer covered in full in §7. Checks whether an order block, FVG,
   and/or liquidity pool overlap the nearest swing zone, and remembers (from
@@ -137,6 +140,10 @@ visible **area**, not just a price.
 - **Extend zone right (bars)** — how far the swing zone box is drawn
   forward from the current bar. Purely visual, doesn't affect detection.
   Scales with Auto-adapt to timeframe.
+- **Border style** *(Solid / Dashed / Dotted, default Dashed)* — border
+  style for swing zone boxes, independent of the other three zone types.
+  Dashed by default so swing zones read as visually distinct from order
+  blocks (solid) and FVGs (dotted) at a glance.
 
 ---
 
@@ -162,6 +169,8 @@ visible **area**, not just a price.
 - **Extend box right (bars)** — how far an ACTIVE (untested) order block
   box is drawn forward while price hasn't returned to it yet. Scales with
   Auto-adapt to timeframe.
+- **Border style** *(Solid / Dashed / Dotted, default Solid)* — border
+  style for order block boxes, independent of the other three zone types.
 
 ---
 
@@ -186,6 +195,8 @@ visible **area**, not just a price.
 - **Extend box right (bars)** — how far an unfilled FVG box is drawn
   forward while price hasn't returned to fill it. Scales with Auto-adapt to
   timeframe.
+- **Border style** *(Solid / Dashed / Dotted, default Dotted)* — border
+  style for the FVG box itself, separate from the midline style below.
 - **Show 50% midline (CE)** — draws a line through the middle of the gap —
   the "consequent encroachment" level some traders treat as the real
   reaction point rather than the whole gap.
@@ -224,6 +235,9 @@ visible **area**, not just a price.
   pools.
 - **Extend zone right (bars)** — how far an unswept liquidity zone is drawn
   forward. Scales with Auto-adapt to timeframe.
+- **Border style** *(Solid / Dashed / Dotted, default Solid)* — border
+  style for liquidity zone boxes, independent of the other three zone
+  types.
 
 ---
 
@@ -279,6 +293,10 @@ itself in full.
 - **Status table** — corner panel showing swing length + ATR, the current
   watch high/low, and the nearest Resistance/Support confluence + hit-rate
   rows.
+- **Table position** *(Top Right / Top Left / Bottom Right / Bottom Left)* —
+  which corner the status table is anchored to. Move it if it overlaps
+  another indicator's panel, the price scale, or the companion Structure
+  Break Signals script's own table.
 - **Raw pivot markers** — small triangles on every detected swing high/low,
   including ones the ATR filter rejected. Useful for diagnosing why a zone
   isn't showing up where you'd expect one — turn this on to see whether the

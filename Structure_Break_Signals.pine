@@ -1,5 +1,15 @@
 // =============================================================================
-// Structure Break Signals  —  v7.2  (formerly "BOS / CHoCH Market Structure")
+// Structure Break Signals  —  v7.3
+//
+// NEW IN v7.3 — FULL LINE CUSTOMIZATION + RETEST MARKER:
+//   * Vertical marker (BOS/CHoCH), internal structure, and the unconfirmed
+//     preview line all now have independent style/width controls instead
+//     of being hardcoded dotted/1px.
+//   * NEW: retest events (price returning to a broken level and holding)
+//     now draw a small triangle marker on the chart, not just an alert —
+//     toggle in ⑤ Display & history ("Show retest marker on chart").
+//   * Status table position is now a dropdown (Top/Bottom, Left/Right)
+//     instead of locked to top-right.
 //
 // NEW IN v7.2 — RENAMED, MORE LINE CONTROL:
 //   * Renamed from "BOS / CHoCH Structure" to "Structure Break Signals" — same
@@ -97,7 +107,7 @@
 //   * Optional internal structure (faster swing length, thinner lines).
 // =============================================================================
 //@version=5
-indicator("Structure Break Signals v7.2", overlay = true, max_bars_back = 100, max_lines_count = 500, max_labels_count = 500)
+indicator("Structure Break Signals v7.3", overlay = true, max_bars_back = 100, max_lines_count = 500, max_labels_count = 500)
 
 // =============================================================================
 // SENSITIVITY MASTER CONTROLS
@@ -328,11 +338,22 @@ colorCandles = input.bool(false, "Color candles by bias", group = grpD,
      tooltip = "Colours OHLC candles based on current structure bias. Bullish = BOS colour, Bearish = CHoCH colour, Neutral = default. Independent of background tint.")
 showTable  = input.bool(true, "Status table", group = grpD,
      tooltip = "Corner panel showing current bias, the exact watched levels, bars since the last break, ATR, and active preset.\n\nThe numeric levels are the useful part: copy them straight into your trade journal rather than reading them off the chart.")
+tablePosition = input.string("Top Right", "  Table position", options = ["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group = grpD,
+     tooltip = "Corner of the chart the status table is anchored to. Move it if it overlaps another indicator's panel or the price scale.")
 maxHistory = input.int(50, "Max breaks to draw (0 = unlimited)", minval = 0, maxval = 200, group = grpD,
      tooltip = "Limits how many historical BOS/CHoCH lines and labels remain on chart. Oldest auto-delete when exceeded.\n\n0 = no limit (may hit TradingView's 500 cap on busy charts).\n50 = keeps chart clean on intraday timeframes.\n\nLive levels and pivot markers are not counted.")
 
 showUnconfirmed = input.bool(true, "Show unconfirmed break preview", group = grpD,
      tooltip = "When Confirmation Bars > 0, draws a faint ghost marker at the break level while waiting for confirmation. Lets you see the break forming in real time rather than waiting blindly.")
+pendLineStyle = input.string("Dotted", "  Preview line style", options = ["Solid", "Dashed", "Dotted"], group = grpD,
+     tooltip = "Line style for the unconfirmed break preview.")
+pendLineWidth = input.int(1, "  Preview line width", minval = 1, maxval = 4, group = grpD,
+     tooltip = "Thickness of the unconfirmed break preview line.")
+
+showRetestMarker = input.bool(true, "Show retest marker on chart", group = grpD,
+     tooltip = "Draws a small triangle at the bar where a retest fires (price returns to a broken level and holds), using the BOS/CHoCH colours.\n\nThe Retest Support/Resistance alerts already fire either way — this just makes the event visible on the chart too, not only in your alert log.")
+retestMarkerSize = input.string("Small", "  Retest marker size", options = ["Tiny", "Small", "Normal"], group = grpD,
+     tooltip = "Size of the retest marker triangle.")
 
 // =============================================================================
 // INTERNAL STRUCTURE (Optional)
@@ -347,6 +368,7 @@ intColBOS = input.color(#38BDF8, "Internal BOS colour", group = grpI,
      tooltip = "Colour for internal BOS lines/labels. Independent of the main BOS colour (⑦) — set them apart, or match them if you'd rather they read as one family.")
 intColCHoCH = input.color(#FB923C, "Internal CHoCH colour", group = grpI,
      tooltip = "Colour for internal CHoCH lines/labels. Independent of the main CHoCH colour (⑧).")
+intLineStyle = input.string("Dotted", "Internal line style", options = ["Solid", "Dashed", "Dotted"], group = grpI)
 intLineWidth = input.int(1, "Internal line width", minval = 1, maxval = 3, group = grpI)
 intTransparency = input.int(65, "Internal line transparency", minval = 0, maxval = 90, group = grpI)
 
@@ -364,6 +386,10 @@ bosExtendBars = input.int(0, "Extend BOS lines right (bars)", minval = 0, maxval
      tooltip = "How many bars to draw the BOS line forward from the break bar.\n\n0 = line stops at the break bar (cleanest).\n20 = extends 20 bars forward.\n100 = extends 100 bars forward.\n\nUnlike 'extend.right' which runs forever, this keeps your chart clean on the right edge while still showing relevant levels ahead.")
 bosVertical  = input.bool(false, "Vertical marker on BOS bar", group = grpB,
      tooltip = "Draws a small vertical tick on the exact bar where the BOS was confirmed, making the timing unambiguous.")
+bosVertStyle = input.string("Dotted", "  Vertical marker style", options = ["Solid", "Dashed", "Dotted"], group = grpB,
+     tooltip = "Line style for the BOS vertical marker tick. Only applies when the marker above is on.")
+bosVertWidth = input.int(1, "  Vertical marker width", minval = 1, maxval = 4, group = grpB,
+     tooltip = "Thickness of the BOS vertical marker tick.")
 showBOSLines = input.bool(true, "Draw BOS lines", group = grpB,
      tooltip = "Master switch for BOS — turns off the line AND the label, so BOS breaks are fully hidden, not just the line. Turn off if you only care about CHoCH reversals.")
 
@@ -378,6 +404,10 @@ chochExtendBars = input.int(50, "Extend CHoCH lines right (bars)", minval = 0, m
      tooltip = "How many bars to draw the CHoCH line forward from the break bar.\n\n0 = line stops at the break bar.\n50 = extends 50 bars forward (default — enough to see retests without clutter).\n200 = extends 200 bars.\n\nCHoCH levels often act as support/resistance, so some extension is useful. But 'forever' clutters the chart. Adjust to your timeframe: lower on 1M, higher on 1H+.")
 chochVertical  = input.bool(true, "Vertical marker on CHoCH bar", group = grpC,
      tooltip = "ON (default) = marks the exact CHoCH bar. CHoCH signals are the easiest to misread in real time, so the precise bar is worth showing.")
+chochVertStyle = input.string("Dotted", "  Vertical marker style", options = ["Solid", "Dashed", "Dotted"], group = grpC,
+     tooltip = "Line style for the CHoCH vertical marker tick. Only applies when the marker above is on.")
+chochVertWidth = input.int(1, "  Vertical marker width", minval = 1, maxval = 4, group = grpC,
+     tooltip = "Thickness of the CHoCH vertical marker tick.")
 showCHoCHLines = input.bool(true, "Draw CHoCH lines", group = grpC,
      tooltip = "Master switch for CHoCH — turns off the line AND the label, so CHoCH breaks are fully hidden, not just the line.")
 
@@ -463,6 +493,8 @@ float wSum  = wClear + wDisp + wBody + wVol + wLeg
 float wNorm = wSum > 0 ? 100.0 / wSum : 0.0
 
 lblSize = labelSize == "Tiny" ? size.tiny : labelSize == "Normal" ? size.normal : size.small
+retestMarkerSizeVal = retestMarkerSize == "Tiny" ? size.tiny : retestMarkerSize == "Normal" ? size.normal : size.small
+tablePos = tablePosition == "Top Left" ? position.top_left : tablePosition == "Bottom Right" ? position.bottom_right : tablePosition == "Bottom Left" ? position.bottom_left : position.top_right
 styleOf(s) => s == "Solid" ? line.style_solid : s == "Dashed" ? line.style_dashed : line.style_dotted
 
 // =============================================================================
@@ -801,7 +833,7 @@ else
 // ---------------------------- State machine ----------------------------------
 var int bias = 0
 
-drawBreak(bool isUp, float lvl, int lvlBar, float clr, float scr, string txt, color col, string lStyle, int lWidth, int lExtendBars, bool lVert, bool enabled) =>
+drawBreak(bool isUp, float lvl, int lvlBar, float clr, float scr, string txt, color col, string lStyle, int lWidth, int lExtendBars, bool lVert, string vStyle, int vWidth, bool enabled) =>
     deleteOldest()
     string labelText = txt
     if verboseLabels and atrVal > 0
@@ -829,7 +861,7 @@ drawBreak(bool isUp, float lvl, int lvlBar, float clr, float scr, string txt, co
         array.push(histLines, ln)
         if lVert
             line vln = line.new(bar_index, lvl, bar_index, isUp ? high + atrVal * 0.4 : low - atrVal * 0.4,
-                 color = color.new(col, math.min(90, fade + 45)), style = line.style_dotted, width = 1)
+                 color = color.new(col, math.min(90, fade + 45)), style = styleOf(vStyle), width = vWidth)
             array.push(histVertLines, vln)
 
 if fireUp and not na(fireLevel)
@@ -843,6 +875,8 @@ if fireUp and not na(fireLevel)
          isChoch ? chochLineWidth : bosLineWidth,
          isChoch ? effChochExtend : effBosExtend,
          isChoch ? chochVertical : bosVertical,
+         isChoch ? chochVertStyle : bosVertStyle,
+         isChoch ? chochVertWidth : bosVertWidth,
          drawIt)
 
     // v5 FIX: reset opposite duplicate filter so old levels don't block new structure
@@ -869,6 +903,8 @@ if fireDown and not na(fireLevel)
          isChoch ? chochLineWidth : bosLineWidth,
          isChoch ? effChochExtend : effBosExtend,
          isChoch ? chochVertical : bosVertical,
+         isChoch ? chochVertStyle : bosVertStyle,
+         isChoch ? chochVertWidth : bosVertWidth,
          drawIt)
 
     // v5 FIX: reset opposite duplicate filter
@@ -895,7 +931,7 @@ if useInternal
                  style = label.style_label_down, color = color.new(color.black, 15),
                  textcolor = color.new(iCol, intTransparency), size = size.tiny)
         line.new(iWatchHighBar, iWatchHigh, bar_index + effIntExtend, iWatchHigh,
-             color = color.new(iCol, intTransparency), style = line.style_dotted,
+             color = color.new(iCol, intTransparency), style = styleOf(intLineStyle),
              width = intLineWidth)
         iWatchHigh := na
         iWatchHighBar := na
@@ -913,7 +949,7 @@ if useInternal
                  style = label.style_label_up, color = color.new(color.black, 15),
                  textcolor = color.new(iCol, intTransparency), size = size.tiny)
         line.new(iWatchLowBar, iWatchLow, bar_index + effIntExtend, iWatchLow,
-             color = color.new(iCol, intTransparency), style = line.style_dotted,
+             color = color.new(iCol, intTransparency), style = styleOf(intLineStyle),
              width = intLineWidth)
         iWatchLow := na
         iWatchLowBar := na
@@ -929,7 +965,7 @@ if showUnconfirmed and confirmBars > 0
         line.delete(pendLine)
         color pendCol = pendDir == 1 ? color.new(colBOS, 75) : color.new(colCHoCH, 75)
         pendLine := line.new(pendLevelBar, pendLevel, bar_index, pendLevel,
-             color = pendCol, style = line.style_dotted, width = 1)
+             color = pendCol, style = styleOf(pendLineStyle), width = pendLineWidth)
     else
         line.delete(pendLine)
         pendLine := na
@@ -964,7 +1000,7 @@ bgcolor(tintBias and bias == -1 ? color.new(colCHoCH, 94) : na, title = "Bearish
 barcolor(colorCandles ? (bias == 1 ? colBOS : bias == -1 ? colCHoCH : na) : na)
 
 // ---------------------------- Status table -----------------------------------
-var table st = table.new(position.top_right, 2, 8,
+var table st = table.new(tablePos, 2, 8,
      border_width = 1, border_color = color.new(color.gray, 70), frame_width = 0)
 
 // Remember the most recent score so the table can show it between breaks.
@@ -1077,6 +1113,15 @@ if barstate.isconfirmed and array.size(retestLevels) > 0
                 if not isHi and high >= lvl and close <= lvl
                     retestDown := true
                     array.set(retestUsed, i, true)
+
+// Retest events only fired an alert before — nothing was drawn on the chart
+// itself. These triangles make the event visible without opening the alert
+// log, colored to match the BOS/CHoCH palette (retestUp held support = BOS
+// colour, retestDown held resistance = CHoCH colour).
+plotshape(showRetestMarker and retestUp, title = "Retest Support Marker",
+     location = location.belowbar, style = shape.triangleup, color = colBOS, size = retestMarkerSizeVal)
+plotshape(showRetestMarker and retestDown, title = "Retest Resistance Marker",
+     location = location.abovebar, style = shape.triangledown, color = colCHoCH, size = retestMarkerSizeVal)
 
 alertcondition(retestUp,   title = "Retest Support",   message = "Price retesting broken support level on {{ticker}} @ {{close}}")
 alertcondition(retestDown, title = "Retest Resistance", message = "Price retesting broken resistance level on {{ticker}} @ {{close}}")
