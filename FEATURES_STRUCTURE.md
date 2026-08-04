@@ -1,9 +1,9 @@
-# Structure Break Signals v7.3 — Feature Guide
+# Structure Break Signals v7.4 — Feature Guide
 
 *(Formerly "BOS / CHoCH Structure" — renamed, same script.)*
 
 **File:** `Structure_Break_Signals.pine` · **TradingView indicator name:**
-"Structure Break Signals v7.3" · **Companion:** `Key_Zone_Map.pine`
+"Structure Break Signals v7.4" · **Companion:** `Key_Zone_Map.pine`
 (`FEATURES_ZONES.md`)
 
 This indicator does one job: grade individual structure **break events**. It
@@ -261,10 +261,12 @@ All of these are ignored unless Preset = Custom, except where noted.
   break cleared beyond the level directly to the label (e.g. `BOS +0.3` or
   `CHoCH -0.2`), useful for quickly judging break quality without opening
   the table.
-- **Live (unbroken) levels** — dotted lines showing the levels price is
-  *currently* working against, before any break. This is the most useful
-  setting for live trading: it shows what needs to break for a signal to
-  fire, so you can plan the trade before the label appears.
+- **Live (unbroken) high level / Live (unbroken) low level** — independent
+  toggles, one per side. A dotted line showing the swing high (or low)
+  price is *currently* working against, before any break. This is the most
+  useful setting for live trading: it shows what needs to break for a
+  signal to fire, so you can plan the trade before the label appears. Turn
+  off one side if you only trade one direction.
 - **Live level line width** — thickness of the live level lines.
 - **Live level line style** *(Solid / Dashed / Dotted, default Dotted)* —
   dotted by default so live levels read as "not confirmed yet," visually
@@ -302,14 +304,15 @@ All of these are ignored unless Preset = Custom, except where noted.
   you can see the break forming in real time rather than waiting blindly.
 - **Preview line style / Preview line width** — style and thickness of the
   unconfirmed-preview line, independently configurable.
-- **Show retest marker on chart** — draws a small triangle at the bar where
-  a retest fires (price returns to a broken level and holds), colored to
-  match BOS/CHoCH (support retest = BOS colour, resistance retest = CHoCH
+- **Show retest-support marker / Show retest-resistance marker** —
+  independent toggles, one per side. Draws a small triangle at the bar
+  where that retest fires (price returns to a broken level and holds),
+  colored to match BOS/CHoCH (support = BOS colour, resistance = CHoCH
   colour). The `Retest Support`/`Retest Resistance` alerts (`⑪ Alerts`)
   already fire either way — this makes the event visible on the chart
   itself, not only in your alert log.
 - **Retest marker size** *(Tiny / Small / Normal)* — size of the retest
-  marker triangle. Only applies when the marker above is on.
+  marker triangles. Applies to both markers above.
 
 ---
 
@@ -327,7 +330,12 @@ Runs a second, faster swing-length pass alongside the main one.
   current leg: **i-BOS** = a minor break *with* the higher-timeframe trend,
   useful for entry timing; **i-CHoCH** = a minor break *against* the
   higher-timeframe trend, an early small-scale warning the current leg may
-  be losing steam before the main-structure CHoCH would ever fire.
+  be losing steam before the main-structure CHoCH would ever fire. Must be
+  ON for either event type below to be detected at all.
+- **Show internal BOS / Show internal CHoCH** — independent display
+  toggles, mirroring the main structure's `Draw BOS lines`/`Draw CHoCH
+  lines` split. Lets you show just one internal event type without the
+  other. Only apply when the master switch above is on.
 - **Internal swing length** — must be smaller than the main Swing pivot
   length. 2–3 is typical.
 - **Internal BOS colour / Internal CHoCH colour** — independently
@@ -492,9 +500,9 @@ shifting every threshold you had tuned.
   this is generally a higher-confidence entry than the original break, since
   the level has now been defended twice. De-duplicated so a level sitting on
   the alert threshold doesn't spam you every bar. Also draws a small
-  triangle marker on the chart at the same bar (see `Show retest marker on
-  chart`, `⑤ Display & history`), so the event is visible without opening
-  your alert log.
+  triangle marker on the chart at the same bar (see `Show retest-support
+  marker`/`Show retest-resistance marker`, `⑤ Display & history`), so the
+  event is visible without opening your alert log.
 
 ---
 

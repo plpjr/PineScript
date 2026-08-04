@@ -1,9 +1,9 @@
-# Key Zone Map v1.2 — Feature Guide
+# Key Zone Map v1.3 — Feature Guide
 
 *(Formerly "Support/Resistance Zones" — renamed, same script.)*
 
 **File:** `Key_Zone_Map.pine` · **TradingView indicator name:** "Key Zone Map
-v1.2" · **Companion:** `Structure_Break_Signals.pine` (`FEATURES_STRUCTURE.md`)
+v1.3" · **Companion:** `Structure_Break_Signals.pine` (`FEATURES_STRUCTURE.md`)
 
 This is the zones half of what used to be one combined indicator with
 **Structure Break Signals** — split out because the two do genuinely
@@ -128,15 +128,17 @@ One place controls the look and behavior of every zone type:
 The headline feature: the current nearest swing high/low, shown as a
 visible **area**, not just a price.
 
-- **Shade swing high/low zones** — the master toggle. Draws the current
-  watched swing high and swing low as a shaded box instead of just a thin
-  line — the exact area price needs to break for a signal to fire, made
-  impossible to miss. The box spans wick-to-body of the pivot candle: the
-  wick is the exact extreme, the body edge is where real conviction
-  started, so the zone reflects the whole area price likely reacts from,
-  not just one tick. Watched high is labelled **Resistance**; watched low
-  is labelled **Support**. Only ever shows the *current* nearest zone on
-  each side — a planning tool for what's coming, not a history log.
+- **Shade resistance zone (swing high) / Shade support zone (swing low)** —
+  independent toggles, one per side. Draws the current watched swing
+  high/low as a shaded box instead of just a thin line — the exact area
+  price needs to break for a signal to fire, made impossible to miss. The
+  box spans wick-to-body of the pivot candle: the wick is the exact
+  extreme, the body edge is where real conviction started, so the zone
+  reflects the whole area price likely reacts from, not just one tick.
+  Watched high is labelled **Resistance**; watched low is labelled
+  **Support**. Only ever shows the *current* nearest zone on each side — a
+  planning tool for what's coming, not a history log. Turn off one side if
+  you only trade in one direction.
 - **Extend zone right (bars)** — how far the swing zone box is drawn
   forward from the current bar. Purely visual, doesn't affect detection.
   Scales with Auto-adapt to timeframe.
@@ -154,16 +156,19 @@ visible **area**, not just a price.
 > **Helps with:** flags high-probability re-entry zones on a retest — the
 > classic "institutional footprint" trade.
 
-- **Show order blocks** — the master toggle. An order block is the last
-  opposite-coloured candle before an impulsive break of the current swing
-  zone — the candle where the move likely originated. Bullish OB = last
-  down-close candle before a break up. Bearish OB = last up-close candle
-  before a break down. Traders watch these as high-probability entry zones
-  on a retest. Lifecycle: the box grows while untested, fades ("(tested)")
-  the first time price wicks back into it, shows "(held)" if price then
-  closes back away by the hold margin (a confirmed rejection, not just a
-  touch), and deletes once price *closes* all the way through the far side
-  (invalidated).
+- **Show bullish order blocks / Show bearish order blocks** — independent
+  toggles, one per side. An order block is the last opposite-coloured
+  candle before an impulsive break of the current swing zone — the candle
+  where the move likely originated. Bullish OB = last down-close candle
+  before a break up. Bearish OB = last up-close candle before a break
+  down. Traders watch these as high-probability entry zones on a retest.
+  Lifecycle: the box grows while untested, fades ("(tested)") the first
+  time price wicks back into it, shows "(held)" if price then closes back
+  away by the hold margin (a confirmed rejection, not just a touch), and
+  deletes once price *closes* all the way through the far side
+  (invalidated). Turning a side off only stops NEW order blocks of that
+  side from being created — any already on the chart keep resolving
+  normally rather than freezing in place.
 - **Search back this many bars** — how far back from the break candle to
   search for the origin candle.
 - **Extend box right (bars)** — how far an ACTIVE (untested) order block
@@ -181,14 +186,16 @@ visible **area**, not just a price.
 > **Helps with:** marks zones price tends to revisit before continuing,
 > independent of any structure break.
 
-- **Show fair value gaps** — the master toggle. An FVG is a classic
-  3-candle imbalance: the wick of candle 1 doesn't overlap the wick of
-  candle 3, leaving a gap the market moved through without trading. Price
-  often returns to "fill" this gap before continuing. Bullish FVG = gap
-  left behind an up move (support-ish). Bearish FVG = gap left behind a
-  down move (resistance-ish). Lifecycle: fades ("(tested)") on first
-  partial fill, shows "(held)" if price closes back away by the hold
-  margin, deletes once fully filled.
+- **Show bullish FVGs / Show bearish FVGs** — independent toggles, one per
+  side. An FVG is a classic 3-candle imbalance: the wick of candle 1
+  doesn't overlap the wick of candle 3, leaving a gap the market moved
+  through without trading. Price often returns to "fill" this gap before
+  continuing. Bullish FVG = gap left behind an up move (support-ish).
+  Bearish FVG = gap left behind a down move (resistance-ish). Lifecycle:
+  fades ("(tested)") on first partial fill, shows "(held)" if price closes
+  back away by the hold margin, deletes once fully filled. Turning a side
+  off only stops NEW gaps of that side from being created; existing ones
+  keep resolving normally.
 - **Min gap size (× ATR)** — filters out tiny, insignificant gaps. 0.0
   shows every gap, even one tick wide. 0.05–0.15 is balanced, hiding noise
   on choppy instruments. 0.3+ keeps only large, obvious imbalances.
@@ -214,17 +221,19 @@ visible **area**, not just a price.
 > **Helps with:** anticipates sweep/stop-hunt behavior, so a wick toward one
 > of these levels doesn't catch you off guard.
 
-- **Show liquidity zones** — the master toggle. Marks equal (or
-  near-equal) highs and lows as resting liquidity pools — clusters of
-  stop-losses and breakout orders that price is statistically drawn toward
-  before reversing. **Buy-side liquidity** = equal highs, sitting above
-  price. **Sell-side liquidity** = equal lows, sitting below price. A move
-  toward one of these zones followed by a sharp reversal is a classic
-  "liquidity sweep." Lifecycle: fades ("(swept)") the moment price wicks
-  through (a sweep attempt), shows "(held)" if price closes back away by
-  the hold margin (the sweep failed to hold), and deletes once a *close*
-  confirms the level is consumed — whether or not price reversed, the
-  resting liquidity is gone either way.
+- **Show buy-side liquidity (equal highs) / Show sell-side liquidity (equal
+  lows)** — independent toggles, one per side. Marks equal (or near-equal)
+  highs and lows as resting liquidity pools — clusters of stop-losses and
+  breakout orders that price is statistically drawn toward before
+  reversing. **Buy-side liquidity** = equal highs, sitting above price.
+  **Sell-side liquidity** = equal lows, sitting below price. A move toward
+  one of these zones followed by a sharp reversal is a classic "liquidity
+  sweep." Lifecycle: fades ("(swept)") the moment price wicks through (a
+  sweep attempt), shows "(held)" if price closes back away by the hold
+  margin (the sweep failed to hold), and deletes once a *close* confirms
+  the level is consumed — whether or not price reversed, the resting
+  liquidity is gone either way. Turning a side off only stops NEW pools of
+  that side from being created; existing ones keep resolving normally.
 - **Equal-level tolerance (× ATR)** — how close two swing points must be,
   in ATR, to count as "equal" and form a pool. Smaller = only near-identical
   levels cluster. Larger = merges more distant swings into one pool, which

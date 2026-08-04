@@ -1,5 +1,13 @@
 // =============================================================================
-// Structure Break Signals  —  v7.3
+// Structure Break Signals  —  v7.4
+//
+// NEW IN v7.4 — INDEPENDENT ENABLE/DISABLE PER SIDE:
+//   * "Live (unbroken) levels" split into separate high/low toggles.
+//   * Internal structure now has its own BOS/CHoCH show toggles (mirroring
+//     the main structure's Draw BOS/CHoCH lines split) — the swing
+//     detection master switch stays, this just lets you show one event
+//     type without the other.
+//   * The retest marker split into separate support/resistance toggles.
 //
 // NEW IN v7.3 — FULL LINE CUSTOMIZATION + RETEST MARKER:
 //   * Vertical marker (BOS/CHoCH), internal structure, and the unconfirmed
@@ -107,7 +115,7 @@
 //   * Optional internal structure (faster swing length, thinner lines).
 // =============================================================================
 //@version=5
-indicator("Structure Break Signals v7.3", overlay = true, max_bars_back = 100, max_lines_count = 500, max_labels_count = 500)
+indicator("Structure Break Signals v7.4", overlay = true, max_bars_back = 100, max_lines_count = 500, max_labels_count = 500)
 
 // =============================================================================
 // SENSITIVITY MASTER CONTROLS
@@ -322,8 +330,10 @@ labelSize  = input.string("Small", "Label size", options = ["Tiny", "Small", "No
      tooltip = "Text size for break labels. Use Tiny on dense lower-timeframe charts.")
 verboseLabels = input.bool(false, "Verbose labels (show ATR clearance)", group = grpD,
      tooltip = "ON = labels show 'BOS +0.3' or 'CHoCH -0.2' indicating how many ATR the break cleared beyond the level. Useful for quickly judging break quality.")
-showLiveLv = input.bool(true, "Live (unbroken) levels", group = grpD,
-     tooltip = "Dotted lines showing the levels price is CURRENTLY working against, before any break.\n\nThis is the most useful setting for live trading: it shows what needs to break for a signal to fire, so you can plan the trade before the label appears.")
+showLiveHigh = input.bool(true, "Live (unbroken) high level", group = grpD,
+     tooltip = "Dotted line showing the swing HIGH price is CURRENTLY working against, before any break.\n\nThis is the most useful setting for live trading: it shows what needs to break for a signal to fire, so you can plan the trade before the label appears.")
+showLiveLow = input.bool(true, "Live (unbroken) low level", group = grpD,
+     tooltip = "Same as the high level above, mirrored for the current watched swing LOW.")
 liveLineWidth = input.int(1, "  Live level line width", minval = 1, maxval = 4, group = grpD,
      tooltip = "Thickness of the live (unbroken) level lines.")
 liveLineStyle = input.string("Dotted", "  Live level line style", options = ["Solid", "Dashed", "Dotted"], group = grpD,
@@ -350,10 +360,12 @@ pendLineStyle = input.string("Dotted", "  Preview line style", options = ["Solid
 pendLineWidth = input.int(1, "  Preview line width", minval = 1, maxval = 4, group = grpD,
      tooltip = "Thickness of the unconfirmed break preview line.")
 
-showRetestMarker = input.bool(true, "Show retest marker on chart", group = grpD,
-     tooltip = "Draws a small triangle at the bar where a retest fires (price returns to a broken level and holds), using the BOS/CHoCH colours.\n\nThe Retest Support/Resistance alerts already fire either way — this just makes the event visible on the chart too, not only in your alert log.")
+showRetestSupportMarker = input.bool(true, "Show retest-support marker on chart", group = grpD,
+     tooltip = "Draws a small triangle at the bar where a support retest fires (price returns to a broken level from above and holds), using the BOS colour.\n\nThe Retest Support alert already fires either way — this just makes the event visible on the chart too, not only in your alert log.")
+showRetestResistanceMarker = input.bool(true, "Show retest-resistance marker on chart", group = grpD,
+     tooltip = "Same as the retest-support marker above, mirrored: price returning to a broken level from below and holding, using the CHoCH colour.")
 retestMarkerSize = input.string("Small", "  Retest marker size", options = ["Tiny", "Small", "Normal"], group = grpD,
-     tooltip = "Size of the retest marker triangle.")
+     tooltip = "Size of the retest marker triangles. Applies to both markers above.")
 
 // =============================================================================
 // INTERNAL STRUCTURE (Optional)
@@ -361,7 +373,11 @@ retestMarkerSize = input.string("Small", "  Retest marker size", options = ["Tin
 grpI = "⑥ Internal structure (optional)"
 
 useInternal = input.bool(false, "Show internal structure", group = grpI,
-     tooltip = "Tracks a second, faster swing length for minor structure inside the current leg.\n\nInternal BOS = minor break WITH trend.\nInternal CHoCH = minor break AGAINST trend (early reversal warning).\n\nDrawn with thinner, semi-transparent lines. Useful for entry timing within a higher-timeframe bias.")
+     tooltip = "Master switch: tracks a second, faster swing length for minor structure inside the current leg. Must be ON for either event type below to be detected at all.\n\nInternal BOS = minor break WITH trend.\nInternal CHoCH = minor break AGAINST trend (early reversal warning).\n\nDrawn with thinner, semi-transparent lines. Useful for entry timing within a higher-timeframe bias.")
+showInternalBOS = input.bool(true, "  Show internal BOS", group = grpI,
+     tooltip = "Draws internal BOS events (minor break WITH trend). Only applies when the master switch above is on — this just lets you show one internal event type without the other, the same way the main BOS/CHoCH lines split.")
+showInternalCHoCH = input.bool(true, "  Show internal CHoCH", group = grpI,
+     tooltip = "Draws internal CHoCH events (minor break AGAINST trend). Only applies when the master switch above is on.")
 intSwingLen = input.int(3, "Internal swing length", minval = 1, group = grpI,
      tooltip = "Must be smaller than main Swing Pivot Length. 2–3 is typical.")
 intColBOS = input.color(#38BDF8, "Internal BOS colour", group = grpI,
@@ -926,13 +942,15 @@ if useInternal
         bool iIsChoch = bias <= 0
         color iCol = iIsChoch ? intColCHoCH : intColBOS
         string iTxt = iIsChoch ? "i-CHoCH" : "i-BOS"
-        if showLabels
+        bool iDrawIt = iIsChoch ? showInternalCHoCH : showInternalBOS
+        if showLabels and iDrawIt
             label.new(bar_index, high + atrVal * 0.3, iTxt,
                  style = label.style_label_down, color = color.new(color.black, 15),
                  textcolor = color.new(iCol, intTransparency), size = size.tiny)
-        line.new(iWatchHighBar, iWatchHigh, bar_index + effIntExtend, iWatchHigh,
-             color = color.new(iCol, intTransparency), style = styleOf(intLineStyle),
-             width = intLineWidth)
+        if iDrawIt
+            line.new(iWatchHighBar, iWatchHigh, bar_index + effIntExtend, iWatchHigh,
+                 color = color.new(iCol, intTransparency), style = styleOf(intLineStyle),
+                 width = intLineWidth)
         iWatchHigh := na
         iWatchHighBar := na
         iWatchLow := na
@@ -944,13 +962,15 @@ if useInternal
         bool iIsChoch = bias >= 0
         color iCol = iIsChoch ? intColCHoCH : intColBOS
         string iTxt = iIsChoch ? "i-CHoCH" : "i-BOS"
-        if showLabels
+        bool iDrawIt = iIsChoch ? showInternalCHoCH : showInternalBOS
+        if showLabels and iDrawIt
             label.new(bar_index, low - atrVal * 0.3, iTxt,
                  style = label.style_label_up, color = color.new(color.black, 15),
                  textcolor = color.new(iCol, intTransparency), size = size.tiny)
-        line.new(iWatchLowBar, iWatchLow, bar_index + effIntExtend, iWatchLow,
-             color = color.new(iCol, intTransparency), style = styleOf(intLineStyle),
-             width = intLineWidth)
+        if iDrawIt
+            line.new(iWatchLowBar, iWatchLow, bar_index + effIntExtend, iWatchLow,
+                 color = color.new(iCol, intTransparency), style = styleOf(intLineStyle),
+                 width = intLineWidth)
         iWatchLow := na
         iWatchLowBar := na
         iWatchHigh := na
@@ -980,10 +1000,10 @@ var line liveLoLine = na
 if barstate.islast
     line.delete(liveHiLine)
     line.delete(liveLoLine)
-    if showLiveLv and not na(watchHigh)
+    if showLiveHigh and not na(watchHigh)
         liveHiLine := line.new(watchHighBar, watchHigh, bar_index + effLiveExtend, watchHigh,
              color = color.new(colBOS, 60), style = styleOf(liveLineStyle), width = liveLineWidth)
-    if showLiveLv and not na(watchLow)
+    if showLiveLow and not na(watchLow)
         liveLoLine := line.new(watchLowBar, watchLow, bar_index + effLiveExtend, watchLow,
              color = color.new(colCHoCH, 60), style = styleOf(liveLineStyle), width = liveLineWidth)
 
@@ -1118,9 +1138,9 @@ if barstate.isconfirmed and array.size(retestLevels) > 0
 // itself. These triangles make the event visible without opening the alert
 // log, colored to match the BOS/CHoCH palette (retestUp held support = BOS
 // colour, retestDown held resistance = CHoCH colour).
-plotshape(showRetestMarker and retestUp, title = "Retest Support Marker",
+plotshape(showRetestSupportMarker and retestUp, title = "Retest Support Marker",
      location = location.belowbar, style = shape.triangleup, color = colBOS, size = retestMarkerSizeVal)
-plotshape(showRetestMarker and retestDown, title = "Retest Resistance Marker",
+plotshape(showRetestResistanceMarker and retestDown, title = "Retest Resistance Marker",
      location = location.abovebar, style = shape.triangledown, color = colCHoCH, size = retestMarkerSizeVal)
 
 alertcondition(retestUp,   title = "Retest Support",   message = "Price retesting broken support level on {{ticker}} @ {{close}}")

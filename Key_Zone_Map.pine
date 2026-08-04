@@ -1,5 +1,15 @@
 // =============================================================================
-// Key Zone Map  —  v1.2  (formerly "Support / Resistance Zones")
+// Key Zone Map  —  v1.3  (formerly "Support / Resistance Zones")
+//
+// NEW IN v1.3 — INDEPENDENT ENABLE/DISABLE PER SIDE:
+//   * Every zone type's single on/off toggle split into two: swing zones
+//     -> Resistance/Support, order blocks -> Bull/Bear, FVGs -> Bull/Bear,
+//     liquidity -> Buy-side/Sell-side. Turn off just the side you don't
+//     want instead of all-or-nothing per type.
+//   * Turning a side off only stops NEW zones of that side from being
+//     created — any already on the chart keep tracking their lifecycle
+//     (fade/hold/delete) normally until they resolve, rather than
+//     freezing in place.
 //
 // NEW IN v1.2 — PER-TYPE BORDER STYLE + TABLE POSITION:
 //   * Swing zones, order blocks, FVGs, and liquidity zones each now have
@@ -46,7 +56,7 @@
 //     hardcoded — see ⑤ Fair value gaps.
 // =============================================================================
 //@version=5
-indicator("Key Zone Map v1.2", overlay = true, max_bars_back = 100, max_lines_count = 500, max_boxes_count = 500)
+indicator("Key Zone Map v1.3", overlay = true, max_bars_back = 100, max_lines_count = 500, max_boxes_count = 500)
 
 // =============================================================================
 // SWING DETECTION
@@ -108,8 +118,10 @@ minConfSample = input.int(20, "  Min sample size before showing a rate", minval 
 // =============================================================================
 grpZS = "③ Swing zones"
 
-showSwingZones = input.bool(true, "Shade swing high/low zones", group = grpZS,
-     tooltip = "Draws the CURRENT nearest swing high and swing low as a shaded box — the whole area price needs to clear, not just an exact tick. The box spans wick-to-body of the pivot candle: the wick is the exact extreme, the body edge is where real conviction started.")
+showResistanceZone = input.bool(true, "Shade resistance zone (swing high)", group = grpZS,
+     tooltip = "Draws the CURRENT nearest swing high as a shaded box — the whole area price needs to clear, not just an exact tick. The box spans wick-to-body of the pivot candle: the wick is the exact extreme, the body edge is where real conviction started.")
+showSupportZone = input.bool(true, "Shade support zone (swing low)", group = grpZS,
+     tooltip = "Same as the resistance zone above, mirrored for the current nearest swing low.")
 
 swingZoneExtend = input.int(20, "  Extend zone right (bars)", minval = 0, maxval = 200, group = grpZS,
      tooltip = "How far the swing zone box is drawn forward from the current bar. Purely visual.")
@@ -122,8 +134,10 @@ swingZoneStyle = input.string("Dashed", "  Border style", options = ["Solid", "D
 // =============================================================================
 grpZO = "④ Order blocks"
 
-useOB = input.bool(true, "Show order blocks", group = grpZO,
-     tooltip = "An order block is the LAST opposite-coloured candle before an impulsive break of the current swing zone — the candle where the move likely originated. Bullish OB = last down-close candle before a break up. Bearish OB = last up-close candle before a break down.\n\nLifecycle: grows while untested, fades the first time price wicks back into it, deletes once price CLOSES all the way through the far side (invalidated).")
+useOBBull = input.bool(true, "Show bullish order blocks", group = grpZO,
+     tooltip = "A bullish order block is the LAST down-close candle before an impulsive break up of the current swing zone — the candle where the move likely originated.\n\nLifecycle: grows while untested, fades the first time price wicks back into it, deletes once price CLOSES all the way through the far side (invalidated).\n\nOFF stops NEW bullish order blocks from being created; any already on the chart keep tracking their lifecycle normally until they resolve.")
+useOBBear = input.bool(true, "Show bearish order blocks", group = grpZO,
+     tooltip = "Same as the bullish order block above, mirrored: the last up-close candle before an impulsive break down.")
 
 obLookback = input.int(15, "  Search back this many bars", minval = 1, maxval = 50, group = grpZO,
      tooltip = "How far back from the break candle to search for the origin candle.")
@@ -139,8 +153,10 @@ obBorderStyle = input.string("Solid", "  Border style", options = ["Solid", "Das
 // =============================================================================
 grpZF = "⑤ Fair value gaps"
 
-useFVG = input.bool(true, "Show fair value gaps", group = grpZF,
-     tooltip = "A fair value gap (FVG) is a 3-candle imbalance: the wick of candle 1 doesn't overlap the wick of candle 3, leaving a gap the market moved through without trading. Price often returns to 'fill' this gap.\n\nLifecycle: fades on first partial fill, deletes once fully filled.")
+useFVGBull = input.bool(true, "Show bullish FVGs", group = grpZF,
+     tooltip = "A bullish fair value gap (FVG) is a 3-candle imbalance left behind an up move: the wick of candle 1 doesn't overlap the wick of candle 3, leaving a gap the market moved through without trading. Price often returns to 'fill' this gap.\n\nLifecycle: fades on first partial fill, deletes once fully filled.\n\nOFF stops NEW bullish FVGs from being created; any already on the chart keep tracking their lifecycle normally.")
+useFVGBear = input.bool(true, "Show bearish FVGs", group = grpZF,
+     tooltip = "Same as the bullish FVG above, mirrored: an imbalance left behind a down move.")
 
 fvgMinSize = input.float(0.05, "  Min gap size (× ATR)", minval = 0.0, step = 0.05, group = grpZF,
      tooltip = "Filters out tiny, insignificant gaps.")
@@ -165,8 +181,10 @@ fvgMidlineStyle = input.string("Dotted", "  Midline style", options = ["Solid", 
 // =============================================================================
 grpZL = "⑥ Liquidity zones"
 
-useLiquidity = input.bool(true, "Show liquidity zones", group = grpZL,
-     tooltip = "Marks equal (or near-equal) highs and lows as resting liquidity pools. Buy-side liquidity = equal highs (above price). Sell-side liquidity = equal lows (below price).\n\nLifecycle: fades the moment price wicks through (a sweep attempt), deletes once a CLOSE confirms the level is consumed.")
+useLiqBuySide = input.bool(true, "Show buy-side liquidity (equal highs)", group = grpZL,
+     tooltip = "Marks equal (or near-equal) highs as resting liquidity pools, above price.\n\nLifecycle: fades the moment price wicks through (a sweep attempt), deletes once a CLOSE confirms the level is consumed.\n\nOFF stops NEW buy-side pools from being created; any already on the chart keep tracking their lifecycle normally.")
+useLiqSellSide = input.bool(true, "Show sell-side liquidity (equal lows)", group = grpZL,
+     tooltip = "Same as buy-side liquidity above, mirrored: equal (or near-equal) lows, below price.")
 
 liqTol = input.float(0.12, "  Equal-level tolerance (× ATR)", minval = 0.01, step = 0.01, group = grpZL,
      tooltip = "How close two swing points must be, in ATR, to count as 'equal' and form a pool.")
@@ -335,7 +353,7 @@ bool rawBreakUp   = not na(watchHigh) and close > watchHigh
 bool rawBreakDown = not na(watchLow)  and close < watchLow
 
 // ---------------------------- Order blocks (creation) ------------------------
-if useOB and rawBreakUp
+if useOBBull and rawBreakUp
     int   obOffset = na
     float obTopVal = na
     float obBotVal = na
@@ -367,7 +385,7 @@ if useOB and rawBreakUp
             array.shift(obState)
             array.shift(obConfBucket)
 
-if useOB and rawBreakDown
+if useOBBear and rawBreakDown
     int   obOffset = na
     float obTopVal = na
     float obBotVal = na
@@ -399,7 +417,8 @@ if useOB and rawBreakDown
             array.shift(obState)
             array.shift(obConfBucket)
 
-// Advance to the next swing after ANY raw break, regardless of useOB.
+// Advance to the next swing after ANY raw break, regardless of whether
+// order blocks are shown.
 if rawBreakUp or rawBreakDown
     watchHigh    := na
     watchHighBar := na
@@ -409,7 +428,7 @@ if rawBreakUp or rawBreakDown
     refLow       := na
 
 // ---------------------------- Order blocks (mitigation) ----------------------
-if useOB and array.size(obBox) > 0
+if (useOBBull or useOBBear) and array.size(obBox) > 0
     for i = array.size(obBox) - 1 to 0
         box   b    = array.get(obBox, i)
         float top  = array.get(obTop, i)
@@ -447,11 +466,11 @@ if useOB and array.size(obBox) > 0
             box.set_right(b, bar_index + effObExtend)
 
 // ---------------------------- Fair value gaps ---------------------------------
-if useFVG and atrVal > 0
+if atrVal > 0
     bool bullGap = low > high[2] and (low - high[2]) >= fvgMinSize * atrVal
     bool bearGap = high < low[2] and (low[2] - high) >= fvgMinSize * atrVal
 
-    if bullGap
+    if bullGap and useFVGBull
         float gapTop = low
         float gapBot = high[2]
         int fvgConf = useConfluence ? math.min(2, overlapCount(gapTop, gapBot, obTop, obBottom, obIsBull, true) + overlapCount(gapTop, gapBot, liqTop, liqBottom, liqBuySide, false)) : 0
@@ -478,7 +497,7 @@ if useFVG and atrVal > 0
             array.shift(fvgState)
             array.shift(fvgConfBucket)
 
-    if bearGap
+    if bearGap and useFVGBear
         float gapTop = low[2]
         float gapBot = high
         int fvgConf = useConfluence ? math.min(2, overlapCount(gapTop, gapBot, obTop, obBottom, obIsBull, false) + overlapCount(gapTop, gapBot, liqTop, liqBottom, liqBuySide, true)) : 0
@@ -505,7 +524,7 @@ if useFVG and atrVal > 0
             array.shift(fvgState)
             array.shift(fvgConfBucket)
 
-if useFVG and array.size(fvgBox) > 0
+if (useFVGBull or useFVGBear) and array.size(fvgBox) > 0
     for i = array.size(fvgBox) - 1 to 0
         box   b    = array.get(fvgBox, i)
         float top  = array.get(fvgTop, i)
@@ -543,7 +562,7 @@ if useFVG and array.size(fvgBox) > 0
             box.set_right(b, bar_index + effFvgExtend)
 
 // ---------------------------- Liquidity zones ---------------------------------
-if useLiquidity and not na(ph)
+if useLiqBuySide and not na(ph)
     array.push(pivHighVals, ph)
     array.push(pivHighBars, bar_index - swingLen)
     while array.size(pivHighBars) > 0
@@ -580,7 +599,7 @@ if useLiquidity and not na(ph)
                     array.shift(liqConfBucket)
                 break
 
-if useLiquidity and not na(pl)
+if useLiqSellSide and not na(pl)
     array.push(pivLowVals, pl)
     array.push(pivLowBars, bar_index - swingLen)
     while array.size(pivLowBars) > 0
@@ -617,7 +636,7 @@ if useLiquidity and not na(pl)
                     array.shift(liqConfBucket)
                 break
 
-if useLiquidity and array.size(liqBox) > 0
+if (useLiqBuySide or useLiqSellSide) and array.size(liqBox) > 0
     for i = array.size(liqBox) - 1 to 0
         box   b    = array.get(liqBox, i)
         float top  = array.get(liqTop, i)
@@ -660,12 +679,12 @@ var box liveLoZone = na
 if barstate.islast
     box.delete(liveHiZone)
     box.delete(liveLoZone)
-    if showSwingZones and not na(watchHigh) and not na(watchHighBody)
+    if showResistanceZone and not na(watchHigh) and not na(watchHighBody)
         liveHiZone := box.new(watchHighBar, watchHigh, bar_index + effSwingExtend, math.min(watchHighBody, watchHigh),
              border_color = color.new(zoneBearColor, zoneOpacity), border_width = zoneBorderWidth, border_style = styleOf(swingZoneStyle),
              bgcolor = color.new(zoneBearColor, math.min(95, zoneOpacity + 8)),
              text = "Resistance", text_size = size.tiny, text_color = color.white)
-    if showSwingZones and not na(watchLow) and not na(watchLowBody)
+    if showSupportZone and not na(watchLow) and not na(watchLowBody)
         liveLoZone := box.new(watchLowBar, math.max(watchLowBody, watchLow), bar_index + effSwingExtend, watchLow,
              border_color = color.new(zoneBullColor, zoneOpacity), border_width = zoneBorderWidth, border_style = styleOf(swingZoneStyle),
              bgcolor = color.new(zoneBullColor, math.min(95, zoneOpacity + 8)),
@@ -712,7 +731,7 @@ rateText(int tot, int hit, int held, string repTag) =>
     txt
 
 if useConfluence and barstate.islast
-    if showSwingZones and not na(watchHigh) and not na(watchHighBody) and not na(liveHiZone)
+    if showResistanceZone and not na(watchHigh) and not na(watchHighBody) and not na(liveHiZone)
         float resTop = watchHigh
         float resBot = math.min(watchHighBody, watchHigh)
         int obOverlap  = overlapCount(resTop, resBot, obTop, obBottom, obIsBull, false)
@@ -726,7 +745,7 @@ if useConfluence and barstate.islast
              liqOverlap, array.get(liqConfTotal, bucket), array.get(liqConfHit, bucket), array.get(liqConfHeld, bucket))
         resRateTxt := rateText(tot, hit, held, repTag)
         box.set_text(liveHiZone, "Resistance · " + str.tostring(int(resConfluence)) + " conf" + (resRateTxt == "" ? "" : " · " + resRateTxt))
-    if showSwingZones and not na(watchLow) and not na(watchLowBody) and not na(liveLoZone)
+    if showSupportZone and not na(watchLow) and not na(watchLowBody) and not na(liveLoZone)
         float supTop = math.max(watchLowBody, watchLow)
         float supBot = watchLow
         int obOverlap  = overlapCount(supTop, supBot, obTop, obBottom, obIsBull, true)
