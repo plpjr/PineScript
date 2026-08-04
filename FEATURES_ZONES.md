@@ -2,6 +2,9 @@
 
 *(Formerly "Support/Resistance Zones" — renamed, same script.)*
 
+**File:** `Key_Zone_Map.pine` · **TradingView indicator name:** "Key Zone Map
+v1.1" · **Companion:** `Structure_Break_Signals.pine` (`FEATURES_STRUCTURE.md`)
+
 This is the zones half of what used to be one combined indicator with
 **Structure Break Signals** — split out because the two do genuinely
 different jobs. This script's one job: tell you the nearest
@@ -184,6 +187,94 @@ zone worth watching, and how do we know?**
 - **Raw pivot markers** — every detected swing high/low, including ones the
   ATR filter rejected. Useful for diagnosing why a zone isn't showing up
   where you'd expect one.
+
+---
+
+## Recommended techniques
+
+**1. Prioritize sample size over raw confluence count.** A zone showing `3
+conf` with `n=4` is a coin flip dressed up as a strong signal. A zone showing
+`2 conf` with `n=60` is real evidence. Until `Min sample size before showing
+a rate` has actually been cleared for a given confluence level, treat the
+zone on confluence count alone and don't lean on the percentage.
+
+**2. Trade the HELD rate, not the hit rate, for fade/reversal setups.** Hit
+rate answers "does price get here?" — that's attention, not respect. Held
+rate answers "does price actually reject once it arrives?" A zone with a
+90% hit rate but a 30% held rate is a magnet, not a wall — price visits it
+constantly and mostly blows through. If your plan is to fade a zone, the
+held rate is the number that matters.
+
+**3. Read the box label as a live trade manager, not just a static
+marker.** "(tested)" on a zone you're relying on means your thesis is now
+being actively challenged — tighten stops or scale out rather than waiting
+to find out. "(held)" means the zone just did its job — that's validation,
+and often the highest-confidence moment to add or hold with confidence. The
+box disappearing entirely means the level failed outright — if your trade
+depends on it, that's your exit signal, not a "wait and see."
+
+**4. Don't retune settings mid-session and expect the hit-rate numbers to
+still mean anything immediately.** Every input change restarts every
+confluence bucket at `n=0` (TradingView recalculates the whole script from
+bar 1). If you're actively tuning `Min overlap to count as confluence` or
+any zone-type setting, expect the rates to read `(building)` for a while
+afterward — that's expected, not broken.
+
+**5. Let the table tell you which detector to trust on this instrument,
+don't assume one is universally best.** The Resistance/Support rows name
+whichever type (OB, FVG, or Liquidity) has the largest sample size at the
+current confluence level. Over time this tells you, empirically, which
+detector actually works on what you're trading — that's more useful than
+assuming order blocks (or any one type) are inherently superior.
+
+**6. Treat liquidity pools as "likely wick target," not "reversal
+guaranteed."** A liquidity zone marks where stops are statistically
+resting — price is drawn there, but that doesn't mean it reverses there.
+Check the zone's held rate specifically before treating a sweep as your
+reversal trigger; a low held rate means sweeps on this instrument tend to
+run, not snap back.
+
+**7. Consider a top-down layout: Key Zone Map on a higher timeframe, Structure Break Signals on your execution timeframe.** These are separate
+indicator instances, so this means two chart layouts (or two panes) — but
+mapping the macro zones on, say, a 1H chart while you time entries on a 5M
+with Structure Break Signals gives you zone context that a single-timeframe
+view can't.
+
+---
+
+## Using both scripts together
+
+The two were one indicator before being split for a reason — they answer
+different halves of the same question, and are most useful read side by
+side on the same chart:
+
+1. **Key Zone Map tells you WHERE.** Watch the nearest Resistance/Support
+   zone as price approaches it — check its confluence count and, once
+   there's enough sample size, its hit/held rate.
+2. **Structure Break Signals tells you WHETHER something real happened
+   there.** As price interacts with that zone, watch for a CHoCH or BOS
+   with a strong confidence score (55+, ideally 75+) at or near the same
+   level.
+3. **Agreement between the two is the highest-confidence setup available.**
+   A zone showing "(held)" in Key Zone Map at the same time Structure Break
+   Signals prints a high-score CHoCH in the rejecting direction is two
+   independent systems confirming the same read — meaningfully stronger
+   than either alone.
+4. **Use the retest alert as the entry trigger once the zone shows
+   "(held)."** Structure Break Signals' `Retest Support`/`Retest
+   Resistance` alerts already favor higher-confidence entries; requiring
+   the Key Zone Map box to also show a confirmed hold before acting on that
+   alert filters out the retests that are least likely to matter.
+5. **If you're trading a breakout THROUGH a zone instead of a bounce off
+   it**, look for the inverse combination: the zone transitioning from
+   "(tested)" to gone (invalidated) at the same time Structure Break
+   Signals fires a high-score BOS through it. Both systems agreeing the
+   level failed is stronger confirmation than a break with no zone context,
+   or a failed zone with no structural confirmation.
+6. **Manage the trade using the opposite zone as your target.** If you
+   entered off a Support bounce, Key Zone Map's Resistance row is your
+   nearest logical target — read straight off the table rather than eyeballing
+   the chart.
 
 ---
 

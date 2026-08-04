@@ -2,6 +2,10 @@
 
 *(Formerly "BOS / CHoCH Structure" — renamed, same script.)*
 
+**File:** `Structure_Break_Signals.pine` · **TradingView indicator name:**
+"Structure Break Signals v7.2" · **Companion:** `Key_Zone_Map.pine`
+(`FEATURES_ZONES.md`)
+
 This indicator does one job: grade individual structure **break events**. It
 labels BOS (Break of Structure) and CHoCH (Change of Character) with a
 0–100 confidence score, so you can tell a marginal break from an emphatic one
@@ -204,6 +208,57 @@ below 40 marginal.**
 
 ---
 
+## Recommended techniques
+
+**1. Match the preset to your timeframe and style before touching anything
+else.** `Balanced` is tuned for 5–15M intraday futures. Scalping lower
+timeframes: try `Loose` and accept more noise for earlier entries. Swing
+trading on 1H+: `Strict` or `Very Strict` — you want fewer, more decisive
+breaks, not every micro-swing. Use the Fine tune dial to nudge a preset
+that's *almost* right rather than jumping to the next one.
+
+**2. Run the score at zero before you gate anything with it.** Turn
+`Minimum score to signal` off (0) for a week or two with `Show score on
+label` on. Watch which scores actually led to follow-through on your
+instrument. Set the minimum to *that* number, not a guess — the whole point
+of the score is to let the chart tell you where your cutoff is, instead of
+you tightening filters blind.
+
+**3. Treat CHoCH and BOS as two different jobs, not one signal repeated
+twice.** CHoCH is a *reversal alert* — the trend may be turning, but it's the
+riskiest, earliest read. BOS is a *continuation confirmation* — the trend is
+already established and just proved itself again. If you trade reversals,
+use CHoCH to get your attention, then look for a retest or a same-direction
+BOS before committing size. If you trade continuations, largely ignore CHoCH
+and lean on BOS + a high score.
+
+**4. Let the retest alert do the entry timing, not the raw break.** The docs
+already say it plainly: a level that gets retested and holds is
+higher-confidence than the original break. Chasing the break candle itself
+means worse fills and more fakeout exposure. Use `Retest Support` /
+`Retest Resistance` as your actual trigger where your style allows for the
+extra wait.
+
+**5. Turn off the EMA trend filter if you trade reversals — it will actively
+hide the setup you're looking for.** It's designed to suppress
+against-trend signals, but the first CHoCH of a real reversal is *by
+definition* against the trend. Only run it if you exclusively take
+with-trend continuation trades.
+
+**6. Use internal structure for entry timing, not bias.** Set the main
+`Swing pivot length` (② Core structure) longer to define your higher
+timeframe bias, then turn on `⑥ Internal structure` with a short internal
+swing length to catch the minor pullback/continuation that gives you a
+tighter entry within that bias — rather than entering right on the big
+structure break.
+
+**7. Restrict to your actual session if you don't trade 24 hours.** Overnight
+and low-liquidity chop generates a lot of structure that isn't actionable
+for you anyway; filtering it out means the signals you do see are all ones
+you could realistically act on.
+
+---
+
 ## Reading the chart at a glance
 
 1. **Lines with labels** (BOS/CHoCH) = confirmation that structure actually
@@ -213,4 +268,6 @@ below 40 marginal.**
 
 If you also run the **Key Zone Map** companion script on the same chart,
 that's where the "which level is worth watching, and why" question lives —
-this script answers "did structure actually break, and how well."
+this script answers "did structure actually break, and how well." See
+**"Using both scripts together"** in `FEATURES_ZONES.md` for the combined
+workflow.
