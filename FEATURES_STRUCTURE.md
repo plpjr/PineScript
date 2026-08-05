@@ -1,11 +1,11 @@
-# Structure Break Signals v7.7 — Feature Guide
+# Structure Break Signals v7.8 — Feature Guide
 
 *(Formerly "BOS / CHoCH Structure" — renamed, same script. As of v7.5, the
 BOS/CHoCH labels themselves are renamed to classic Dow Theory swing terms —
 HH, LL, LH, HL — see §1 below.)*
 
 **File:** `Structure_Break_Signals.pine` · **TradingView indicator name:**
-"Structure Break Signals v7.7" · **Companion:** `Key_Zone_Map.pine`
+"Structure Break Signals v7.8" · **Companion:** `Key_Zone_Map.pine`
 (`FEATURES_ZONES.md`)
 
 This indicator does one job: grade individual structure **break events**. It
@@ -118,9 +118,31 @@ reading text.
 > the score, alerts — is built on top of. Get this wrong and every other
 > section is working from the wrong foundation.
 
-- **Swing pivot length** — how many bars must sit on each side of a candle
-  for it to count as a swing high/low. THE most important setting in the
-  indicator: it directly sets your confirmation lag (a swing of length 5
+- **Swing engine** *(Pivot (fixed bars) / Directional change (adaptive))* —
+  *how* a swing gets confirmed. The deepest choice in the indicator, since
+  everything downstream is built on the swings it produces. **Pivot** is the
+  classic: a bar is a swing high once N bars on each side are lower.
+  Predictable, but the confirmation lag is a fixed *bar count*, so it means
+  completely different amounts of real time and real movement in a dead lunch
+  hour versus a news release. **Directional change** confirms an extreme the
+  moment price retraces a set multiple of ATR away from it — a sharp reversal
+  confirms almost immediately, a slow drift takes as long as it needs. The
+  trigger is a real market event (price actually turned) instead of a clock,
+  and being ATR-scaled it means the same thing across timeframes and
+  volatility regimes. In practice it gets you the same swings *earlier*,
+  which matters most on fast reversals; pivot mode is more familiar and
+  easier to eyeball against a chart. Internal structure (⑥) always uses the
+  pivot engine — it exists to read a faster, smaller scale, which a short
+  fixed pivot length already does well.
+- **Reversal threshold (× ATR)** — directional-change mode only; this is what
+  replaces Swing pivot length. How far price must pull back from an extreme
+  before that extreme is confirmed as a swing. Lower (0.5–1.0) confirms
+  quickly and detects small swings — the analogue of a short pivot length,
+  but adaptive. 1.5 is a balanced start. Higher (2.5–4.0) means only real
+  reversals confirm a swing.
+- **Swing pivot length** — pivot mode only. How many bars must sit on each
+  side of a candle for it to count as a swing high/low. In pivot mode this is
+  THE most important setting: it directly sets your confirmation lag (a swing of length 5
   can't be confirmed until 5 bars after it forms — that lag is unavoidable
   with pivot detection). Lower (2–4) detects small swings: more structure
   points, more signals, more noise, but less lag. Higher (7–12) keeps only
@@ -373,6 +395,22 @@ All of these are ignored unless Preset = Custom, except where noted.
   itself, not only in your alert log.
 - **Retest marker size** *(Tiny / Small / Normal)* — size of the retest
   marker triangles. Applies to both markers above.
+- **Retest proximity (× ATR)** — how close the close must come to a broken
+  level for the bar to count as a retest of it. Tighter (0.05–0.15) counts
+  only near-exact returns: fewer, cleaner retests, but you miss ones that
+  reacted slightly early. 0.20 is balanced. Wider (0.4+) counts anything in
+  the neighbourhood. *(Was fixed at 0.20 with no way to adjust it before
+  v7.8.)*
+- **Allow repeat retests of a level** — whether a level can fire more than
+  one retest over its lifetime. ON (default) lets a level retest again after
+  the cooldown below, because a level that holds *twice* is stronger evidence
+  than one that held once — retiring it after the first test threw away the
+  better signal. OFF gives each level exactly one firing ever, which is the
+  pre-v7.8 behaviour.
+- **Bars before a level can retest again** — minimum bars between two retests
+  of the *same* level. Stops price hovering on a level from re-firing
+  continuously while still letting a genuine second visit register. Scales
+  with "Auto-adapt to timeframe".
 
 ---
 

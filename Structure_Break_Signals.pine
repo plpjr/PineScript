@@ -1,5 +1,20 @@
 // =============================================================================
-// Structure Break Signals  —  v7.7
+// Structure Break Signals  —  v7.8
+//
+// NEW IN v7.8 — ADAPTIVE SWING ENGINE:
+//   * New SWING ENGINE choice. The pivot detector's confirmation lag is a
+//     fixed bar count: at swing length 5, every swing confirms exactly 5
+//     bars later whether the market moved 3 ticks or 30 points in between.
+//     The new DIRECTIONAL CHANGE engine instead confirms an extreme once
+//     price retraces a volatility-scaled distance from it, so the trigger is
+//     the market actually turning rather than a clock. Sharp reversals
+//     confirm almost immediately; slow drifts take as long as they take.
+//     Pivot mode remains the default and is unchanged.
+//   * Retest proximity is now an input (was hardcoded at 0.20 x ATR).
+//   * Levels can retest more than once, gated by a per-level cooldown
+//     instead of a one-shot flag. A level that holds a SECOND retest is
+//     stronger evidence than one that held once; retiring it after the first
+//     threw away the better signal. Toggle off for the old behaviour.
 //
 // NEW IN v7.7 — STRONGER STATISTICS:
 //   * Volume baseline is selectable, and defaults to TIME OF DAY. Intraday
@@ -193,7 +208,7 @@
 // (swing 50 -> 100 bars, volume 200), 500 leaves comfortable headroom. The
 // previous value of 100 was below what the inputs already permitted and threw
 // "requested historical offset is beyond the historical buffer's limit".
-indicator("Structure Break Signals v7.7", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500)
+indicator("Structure Break Signals v7.8", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500)
 
 // =============================================================================
 // SENSITIVITY MASTER CONTROLS
@@ -237,6 +252,20 @@ float dialSwing = math.pow(0.90, sensDial - 5)
 // CORE STRUCTURE SETTINGS
 // =============================================================================
 grpS = "② Core structure"
+
+swingEngine = input.string("Pivot (fixed bars)", "Swing engine", options = ["Pivot (fixed bars)", "Directional change (adaptive)"], group = grpS,
+     tooltip = "HOW a swing high/low gets confirmed. This is the deepest choice in the indicator — everything downstream is built on the swings this produces.\n\n" +
+       "PIVOT (FIXED BARS) — the classic: a bar is a swing high once N bars on each side are lower. Simple and predictable, but it carries an unavoidable, FIXED confirmation lag: at a swing length of 5, every swing is confirmed exactly 5 bars after it actually formed, whether the market moved 3 ticks or 30 points in between. The lag is a bar count, so it means completely different things in a dead lunch hour and a news release.\n\n" +
+       "DIRECTIONAL CHANGE (ADAPTIVE) — confirms an extreme the moment price retraces a set multiple of ATR away from it, rather than after a set number of bars. A sharp reversal confirms almost immediately; a slow drift takes as long as it needs. The confirmation trigger is a real market event (price actually turned) instead of a clock, and because the threshold is ATR-scaled it automatically means the same thing across timeframes and volatility regimes.\n\n" +
+       "Which to use: directional change generally gets you the same swings EARLIER, which matters most on fast reversals. Pivot mode is more familiar and easier to eyeball against a chart. Swing pivot length is ignored in directional-change mode; the reversal threshold below replaces it.\n\n" +
+       "Internal structure (⑥) always uses the pivot engine — it exists to read a faster, smaller scale, which is exactly what a fixed short pivot length already does well.")
+
+dcMult = input.float(1.5, "  Reversal threshold (× ATR)", minval = 0.1, maxval = 10.0, step = 0.1, group = grpS,
+     tooltip = "How far price must pull back from an extreme, in ATR, before that extreme is confirmed as a swing. Directional-change mode only — this is what replaces Swing pivot length.\n\n" +
+       "LOWER (0.5–1.0) = confirms quickly, detects small swings. More structure points, more signals, more noise — the analogue of a short pivot length, but adaptive.\n" +
+       "1.5 = balanced starting point.\n" +
+       "HIGHER (2.5–4.0) = only real reversals confirm a swing. Far fewer, larger structural swings.\n\n" +
+       "Unlike a bar count, this is volatility-scaled: the same value keeps meaning 'a genuine turn' whether the instrument is quiet or moving.")
 
 mSwingLen = input.int(5, "Swing pivot length", minval = 1, maxval = 50, group = grpS,
      tooltip = "THE MOST IMPORTANT SETTING.\n\n" +
@@ -458,6 +487,22 @@ showRetestResistanceMarker = input.bool(true, "Show retest-resistance marker on 
 retestMarkerSize = input.string("Small", "  Retest marker size", options = ["Tiny", "Small", "Normal"], group = grpD,
      tooltip = "Size of the retest marker triangles. Applies to both markers above.")
 
+retestBand = input.float(0.20, "  Retest proximity (× ATR)", minval = 0.01, maxval = 2.0, step = 0.05, group = grpD,
+     tooltip = "How close the close must come to a broken level, in ATR, for the bar to count as a retest of it.\n\n" +
+       "TIGHTER (0.05–0.15) = only near-exact returns to the level count. Fewer, cleaner retests, but you miss ones that reacted a little early.\n" +
+       "0.20 = balanced.\n" +
+       "WIDER (0.4+) = anything in the neighbourhood counts. More retests, more of them loose.\n\n" +
+       "Was previously fixed at 0.20 with no way to adjust it. If your instrument respects levels precisely, tighten it.")
+
+retestRepeat = input.bool(true, "  Allow repeat retests of a level", group = grpD,
+     tooltip = "Whether a level can fire more than one retest over its lifetime.\n\n" +
+       "ON (default) = a level can retest again after a cooldown. A level that holds twice is STRONGER evidence than one that held once, so retiring it after the first test throws away the better signal.\n" +
+       "OFF = each level fires exactly once ever, then goes quiet. Fewer alerts, and the original behaviour.\n\n" +
+       "Either way the cooldown below stops a level price is sitting directly on from firing every bar.")
+
+retestCooldown = input.int(10, "  Bars before a level can retest again", minval = 1, maxval = 200, group = grpD,
+     tooltip = "Minimum bars between two retests OF THE SAME LEVEL. Stops price hovering on a level from re-firing continuously, while still letting a genuine second visit register. Scales with 'Auto-adapt to timeframe'.\n\nOnly applies when repeat retests are on.")
+
 // =============================================================================
 // INTERNAL STRUCTURE (Optional)
 // =============================================================================
@@ -664,6 +709,7 @@ int effIntExtend    = scaleBars(30, 3, 300)
 int effRetestWindow = scaleBars(100, 10, 500)
 int effRetestMinAge = scaleBars(3, 1, 20)
 int effRetestMaxAge = scaleBars(50, 5, 200)
+int effRetestCooldown = scaleBars(retestCooldown, 1, 200)
 
 // =============================================================================
 // CORE CALCULATIONS
@@ -729,8 +775,69 @@ else if volBaseline == "Time of day"
 
 bool inSession = not mUseSession or not na(time(timeframe.period, mSession))
 
-float ph = ta.pivothigh(high, swingLen, swingLen)
-float pl = ta.pivotlow(low, swingLen, swingLen)
+// =============================================================================
+// SWING ENGINE
+// =============================================================================
+// Two ways to decide a swing is confirmed, producing the same interface
+// downstream: a value (ph / pl) and the bar it belongs to (phBar / plBar).
+//
+// The pivot engine's confirmation lag is a fixed bar count, which means
+// different amounts of real time and real movement depending on when it lands.
+// The directional-change engine instead confirms an extreme once price has
+// retraced a volatility-scaled distance from it — the trigger is the market
+// actually turning, so a sharp reversal confirms almost at once while a slow
+// drift takes as long as it genuinely takes.
+bool useDC = swingEngine == "Directional change (adaptive)"
+
+// ta.* must be evaluated on every bar regardless of which engine is selected,
+// or their internal series state desynchronises the moment you switch.
+float pivPh = ta.pivothigh(high, swingLen, swingLen)
+float pivPl = ta.pivotlow(low, swingLen, swingLen)
+
+// --- Directional-change state ------------------------------------------------
+var float dcExtreme = na   // running extreme in the direction currently sought
+var int   dcExtBar  = na
+var int   dcDir     = 0    // +1 seeking a high, -1 seeking a low, 0 unseeded
+
+float dcPh    = na
+int   dcPhBar = na
+float dcPl    = na
+int   dcPlBar = na
+
+if useDC and atrVal > 0
+    float theta = dcMult * atrVal
+    if dcDir == 0
+        // Seed arbitrarily on the first usable bar; whichever side comes first
+        // is confirmed first, and the alternation is self-correcting after.
+        dcDir     := 1
+        dcExtreme := high
+        dcExtBar  := bar_index
+    else if dcDir == 1
+        if high > dcExtreme
+            dcExtreme := high
+            dcExtBar  := bar_index
+        // Retraced far enough from the running high: that high was the swing.
+        if close < dcExtreme - theta
+            dcPh      := dcExtreme
+            dcPhBar   := dcExtBar
+            dcDir     := -1
+            dcExtreme := low
+            dcExtBar  := bar_index
+    else
+        if low < dcExtreme
+            dcExtreme := low
+            dcExtBar  := bar_index
+        if close > dcExtreme + theta
+            dcPl      := dcExtreme
+            dcPlBar   := dcExtBar
+            dcDir     := 1
+            dcExtreme := high
+            dcExtBar  := bar_index
+
+float ph    = useDC ? dcPh : pivPh
+int   phBar = useDC ? dcPhBar : (na(pivPh) ? na : bar_index - swingLen)
+float pl    = useDC ? dcPl : pivPl
+int   plBar = useDC ? dcPlBar : (na(pivPl) ? na : bar_index - swingLen)
 
 // Internal structure pivots
 float iPh = useInternal ? ta.pivothigh(high, intSwingLen, intSwingLen) : na
@@ -818,7 +925,7 @@ if not na(ph)
         if not na(watchHigh)
             prevSwingHigh := watchHigh
         watchHigh     := ph
-        watchHighBar  := bar_index - swingLen
+        watchHighBar  := phBar
         refHigh       := ph
 
 if not na(pl)
@@ -827,7 +934,7 @@ if not na(pl)
         if not na(watchLow)
             prevSwingLow := watchLow
         watchLow     := pl
-        watchLowBar  := bar_index - swingLen
+        watchLowBar  := plBar
         refLow       := pl
 
 // Anchor to true leg extreme
@@ -1315,10 +1422,18 @@ if barstate.islast
              color = color.new(colRev, 60), style = styleOf(liveLineStyle), width = liveLineWidth)
 
 // ---------------------------- Pivot markers ----------------------------------
-plotshape(showPivots and not na(ph), title = "Swing High", location = location.abovebar,
+// plotshape's offset must be a constant, so the two engines get their own
+// pair. Pivot mode draws the marker back at the swing bar itself; directional
+// change confirms at a variable distance, so its marker sits on the bar where
+// confirmation happened — which is also the bar you could first have acted on.
+plotshape(showPivots and not useDC and not na(ph), title = "Swing High", location = location.abovebar,
      style = shape.triangledown, color = color.new(color.gray, 60), size = size.tiny, offset = -swingLen)
-plotshape(showPivots and not na(pl), title = "Swing Low", location = location.belowbar,
+plotshape(showPivots and not useDC and not na(pl), title = "Swing Low", location = location.belowbar,
      style = shape.triangleup, color = color.new(color.gray, 60), size = size.tiny, offset = -swingLen)
+plotshape(showPivots and useDC and not na(ph), title = "Swing High (confirmed)", location = location.abovebar,
+     style = shape.triangledown, color = color.new(color.gray, 40), size = size.tiny)
+plotshape(showPivots and useDC and not na(pl), title = "Swing Low (confirmed)", location = location.belowbar,
+     style = shape.triangleup, color = color.new(color.gray, 40), size = size.tiny)
 
 bgcolor(tintBias and bias ==  1 ? color.new(colCont, 94) : na, title = "Bullish bias")
 bgcolor(tintBias and bias == -1 ? color.new(colRev, 94) : na, title = "Bearish bias")
@@ -1359,8 +1474,11 @@ if showTable and barstate.islast
     table.cell(st, 1, 4, na(lastBreakBar) ? "—" : str.tostring(bar_index - lastBreakBar),
          text_color = color.white, text_size = size.tiny, bgcolor = cellBg)
 
+    // In directional-change mode the swing pivot length means nothing, so show
+    // the reversal threshold that actually governs swing confirmation instead.
+    string swingTxt = useDC ? "DC " + str.tostring(dcMult, "#.#") : str.tostring(swingLen)
     table.cell(st, 0, 5, "Swing / ATR", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
-    table.cell(st, 1, 5, str.tostring(swingLen) + " · " + str.tostring(atrVal, format.mintick),
+    table.cell(st, 1, 5, swingTxt + " · " + str.tostring(atrVal, format.mintick),
          text_color = color.white, text_size = size.tiny, bgcolor = cellBg)
 
     table.cell(st, 0, 6, "Last score", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
@@ -1392,20 +1510,25 @@ var array<float> retestLevels = array.new_float(0)
 var array<int>   retestBars   = array.new_int(0)
 var array<bool>  retestIsHigh = array.new_bool(0)
 var array<float> retestScores = array.new_float(0)
-var array<bool>  retestUsed   = array.new_bool(0)
+// Bar index of this level's most recent retest, or na if it has never fired.
+// Replaces a one-shot boolean: a level that holds a SECOND retest is stronger
+// evidence than one that held once, so permanently retiring it after the first
+// discarded the better signal. A cooldown still prevents price sitting on a
+// level from re-firing every bar.
+var array<int>   retestLastBar = array.new_int(0)
 
 if fireUp and not na(fireLevel)
     array.push(retestLevels, fireLevel)
     array.push(retestBars, bar_index)
     array.push(retestIsHigh, true)
     array.push(retestScores, fireScore)
-    array.push(retestUsed, false)
+    array.push(retestLastBar, na)
 if fireDown and not na(fireLevel)
     array.push(retestLevels, fireLevel)
     array.push(retestBars, bar_index)
     array.push(retestIsHigh, false)
     array.push(retestScores, fireScore)
-    array.push(retestUsed, false)
+    array.push(retestLastBar, na)
 
 // Drop levels older than the retest window. A `while` here, not an `if`: the
 // original single shift per bar could not keep up with bursts of breaks, so the
@@ -1420,7 +1543,7 @@ while array.size(retestBars) > 0
         array.shift(retestBars)
         array.shift(retestIsHigh)
         array.shift(retestScores)
-        array.shift(retestUsed)
+        array.shift(retestLastBar)
     else
         break
 
@@ -1428,20 +1551,23 @@ bool retestUp = false
 bool retestDown = false
 if barstate.isconfirmed and array.size(retestLevels) > 0
     for i = 0 to array.size(retestLevels) - 1
-        int bBar = array.get(retestBars, i)
-        // Skip levels already retested once, otherwise a level that price sits
-        // on re-fires the alert every single bar.
-        if not array.get(retestUsed, i) and bar_index - bBar > effRetestMinAge and bar_index - bBar < effRetestMaxAge
+        int bBar  = array.get(retestBars, i)
+        int lastAt = array.get(retestLastBar, i)
+        // A level is eligible if it has never fired, or fired long enough ago
+        // to count as a genuine second visit rather than the same one
+        // continuing. With repeat retests off, one firing retires it for good.
+        bool eligible = na(lastAt) or (retestRepeat and bar_index - lastAt >= effRetestCooldown)
+        if eligible and bar_index - bBar > effRetestMinAge and bar_index - bBar < effRetestMaxAge
             float lvl  = array.get(retestLevels, i)
             bool  isHi = array.get(retestIsHigh, i)
             bool  scoreOk = not useScore or minScore == 0 or array.get(retestScores, i) >= minScore
-            if scoreOk and atrVal > 0 and math.abs(close - lvl) < atrVal * 0.2
+            if scoreOk and atrVal > 0 and math.abs(close - lvl) < atrVal * retestBand
                 if isHi and low <= lvl and close >= lvl
                     retestUp := true
-                    array.set(retestUsed, i, true)
+                    array.set(retestLastBar, i, bar_index)
                 if not isHi and high >= lvl and close <= lvl
                     retestDown := true
-                    array.set(retestUsed, i, true)
+                    array.set(retestLastBar, i, bar_index)
 
 // Retest events only fired an alert before — nothing was drawn on the chart
 // itself. These triangles make the event visible without opening the alert

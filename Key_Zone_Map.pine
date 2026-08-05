@@ -1,5 +1,18 @@
 // =============================================================================
-// Key Zone Map  —  v1.5  (formerly "Support / Resistance Zones")
+// Key Zone Map  —  v1.6  (formerly "Support / Resistance Zones")
+//
+// NEW IN v1.6 — ADAPTIVE SWING ENGINE + ORDER BLOCK QUALITY:
+//   * New SWING ENGINE choice mirroring the companion script: the existing
+//     fixed-bar pivot detector, or DIRECTIONAL CHANGE, which confirms an
+//     extreme once price retraces a volatility-scaled distance from it
+//     rather than after a fixed number of bars. Keep it matched across both
+//     scripts. Pivot mode remains the default and is unchanged.
+//   * Order blocks now require the breaking move to actually DISPLACE
+//     (default 0.8 x ATR) before one is created. Previously any raw break
+//     minted an order block with no quality gate whatsoever, including
+//     breaks that closed a tick through the level and stalled — zones
+//     marking impulsive moves that never happened. Set to 0 for the old
+//     behaviour.
 //
 // NEW IN v1.5 — STRONGER STATISTICS:
 //   * Hit/held rates are now CONFIDENCE-ADJUSTED by default (Wilson score
@@ -86,12 +99,21 @@
 // close[swingLen] are read directly during swing detection. With the swing
 // input now capped at 50, 500 leaves comfortable headroom. The previous value
 // of 100 was below what the inputs already permitted.
-indicator("Key Zone Map v1.5", overlay = true, max_bars_back = 500, max_lines_count = 500, max_boxes_count = 500)
+indicator("Key Zone Map v1.6", overlay = true, max_bars_back = 500, max_lines_count = 500, max_boxes_count = 500)
 
 // =============================================================================
 // SWING DETECTION
 // =============================================================================
 grpS = "① Swing detection"
+
+swingEngine = input.string("Pivot (fixed bars)", "Swing engine", options = ["Pivot (fixed bars)", "Directional change (adaptive)"], group = grpS,
+     tooltip = "HOW a swing high/low gets confirmed — the anchor every zone in this script gets measured against.\n\n" +
+       "PIVOT (FIXED BARS) — a bar is a swing high once N bars on each side are lower. Predictable, but the confirmation lag is a fixed bar count, so it means completely different amounts of real time and real movement in a dead lunch hour versus a news release.\n\n" +
+       "DIRECTIONAL CHANGE (ADAPTIVE) — confirms an extreme the moment price retraces a set multiple of ATR from it. A sharp reversal confirms almost immediately; a slow drift takes as long as it needs. Because the threshold is ATR-scaled it means the same thing across timeframes and volatility regimes.\n\n" +
+       "Keep this MATCHED with the same setting in the companion Structure Break Signals script. The two already differ slightly on the watched level (this script uses a raw break, that one waits for a graded one); running different swing engines would widen that gap considerably.")
+
+dcMult = input.float(1.5, "  Reversal threshold (× ATR)", minval = 0.1, maxval = 10.0, step = 0.1, group = grpS,
+     tooltip = "How far price must pull back from an extreme, in ATR, before that extreme is confirmed as a swing. Directional-change mode only — this replaces Swing pivot length.\n\nLOWER (0.5–1.0) = more, smaller, faster-confirming zones. 1.5 = balanced. HIGHER (2.5–4.0) = only major reversals create a zone.")
 
 swingLen = input.int(5, "Swing pivot length", minval = 1, maxval = 50, group = grpS,
      tooltip = "How many bars must sit on each side of a candle for it to count as a swing high/low.\n\nLOWER (2–4) = more, smaller, faster-forming zones. HIGHER (7–12) = fewer, major zones, more lag (a swing can't confirm until this many bars after it forms).")
@@ -174,6 +196,15 @@ useOBBull = input.bool(true, "Show bullish order blocks", group = grpZO,
      tooltip = "A bullish order block is the LAST down-close candle before an impulsive break up of the current swing zone — the candle where the move likely originated.\n\nLifecycle: grows while untested, fades the first time price wicks back into it, deletes once price CLOSES all the way through the far side (invalidated).\n\nOFF stops NEW bullish order blocks from being created; any already on the chart keep tracking their lifecycle normally until they resolve.")
 useOBBear = input.bool(true, "Show bearish order blocks", group = grpZO,
      tooltip = "Same as the bullish order block above, mirrored: the last up-close candle before an impulsive break down.")
+
+obMinDisplace = input.float(0.8, "  Min impulse displacement (× ATR)", minval = 0.0, step = 0.1, group = grpZO,
+     tooltip = "How far the breaking move must actually TRAVEL, in ATR, before it earns an order block.\n\n" +
+       "The point of an order block is that it marks where an impulsive move originated. But a break can be technically true and completely limp — price closes a tick through the swing and stalls. Without this gate every one of those mints an order block, and the chart fills with zones marking moves that never happened.\n\n" +
+       "Measured from the broken level to the furthest point the breaking bar reached, so it grades the impulse itself rather than the candle that happened to close through.\n\n" +
+       "0.0 = no gate (every raw break creates an order block — the old behaviour).\n" +
+       "0.5–1.0 = balanced. Requires visible displacement.\n" +
+       "1.5+ = only violent breaks leave an order block. Far fewer zones.\n\n" +
+       "This is the single most effective way to cut order-block clutter, because it removes the zones least likely to be revisited with any force.")
 
 obLookback = input.int(15, "  Search back this many bars", minval = 1, maxval = 50, group = grpZO,
      tooltip = "How far back from the break candle to search for the origin candle.")
@@ -270,8 +301,76 @@ int effLiqExtend    = scaleBars(liqExtendBars, 0, 300)
 // =============================================================================
 atrVal = ta.atr(atrLen)
 
-float ph = ta.pivothigh(high, swingLen, swingLen)
-float pl = ta.pivotlow(low, swingLen, swingLen)
+// =============================================================================
+// SWING ENGINE
+// =============================================================================
+// Mirrors the companion script's engine so the two agree on what a swing is.
+// Downstream code only needs the value (ph/pl), the bar it belongs to
+// (phBar/plBar), and the body edge of that bar (phBody/plBody) — the swing
+// zone box spans wick-to-body, so the body edge has to travel with the swing.
+//
+// The directional-change engine records the body edge as it tracks the extreme
+// rather than looking it up afterwards. A variable-depth history read would
+// work but is unbounded: a swing that runs a long time without retracing could
+// ask for a bar further back than the historical buffer holds.
+bool useDC = swingEngine == "Directional change (adaptive)"
+
+// ta.* must run on every bar regardless of engine, or their state desyncs.
+float pivPh = ta.pivothigh(high, swingLen, swingLen)
+float pivPl = ta.pivotlow(low, swingLen, swingLen)
+
+var float dcExtreme  = na
+var float dcExtBody  = na
+var int   dcExtBar   = na
+var int   dcDir      = 0
+
+float dcPh     = na
+int   dcPhBar  = na
+float dcPhBody = na
+float dcPl     = na
+int   dcPlBar  = na
+float dcPlBody = na
+
+if useDC and atrVal > 0
+    float theta = dcMult * atrVal
+    if dcDir == 0
+        dcDir     := 1
+        dcExtreme := high
+        dcExtBody := math.max(open, close)
+        dcExtBar  := bar_index
+    else if dcDir == 1
+        if high > dcExtreme
+            dcExtreme := high
+            dcExtBody := math.max(open, close)
+            dcExtBar  := bar_index
+        if close < dcExtreme - theta
+            dcPh      := dcExtreme
+            dcPhBar   := dcExtBar
+            dcPhBody  := dcExtBody
+            dcDir     := -1
+            dcExtreme := low
+            dcExtBody := math.min(open, close)
+            dcExtBar  := bar_index
+    else
+        if low < dcExtreme
+            dcExtreme := low
+            dcExtBody := math.min(open, close)
+            dcExtBar  := bar_index
+        if close > dcExtreme + theta
+            dcPl      := dcExtreme
+            dcPlBar   := dcExtBar
+            dcPlBody  := dcExtBody
+            dcDir     := 1
+            dcExtreme := high
+            dcExtBody := math.max(open, close)
+            dcExtBar  := bar_index
+
+float ph     = useDC ? dcPh : pivPh
+int   phBar  = useDC ? dcPhBar : (na(pivPh) ? na : bar_index - swingLen)
+float phBody = useDC ? dcPhBody : (na(pivPh) ? na : math.max(open[swingLen], close[swingLen]))
+float pl     = useDC ? dcPl : pivPl
+int   plBar  = useDC ? dcPlBar : (na(pivPl) ? na : bar_index - swingLen)
+float plBody = useDC ? dcPlBody : (na(pivPl) ? na : math.min(open[swingLen], close[swingLen]))
 
 var float watchHigh     = na
 var int   watchHighBar  = na
@@ -377,16 +476,16 @@ if not na(ph)
     bool bigEnough = not useAtrFilter or na(refLow) or (ph - refLow) >= atrMult * atrVal
     if bigEnough
         watchHigh     := ph
-        watchHighBar  := bar_index - swingLen
-        watchHighBody := math.max(open[swingLen], close[swingLen])
+        watchHighBar  := phBar
+        watchHighBody := phBody
         refHigh       := ph
 
 if not na(pl)
     bool bigEnough = not useAtrFilter or na(refHigh) or (refHigh - pl) >= atrMult * atrVal
     if bigEnough
         watchLow     := pl
-        watchLowBar  := bar_index - swingLen
-        watchLowBody := math.min(open[swingLen], close[swingLen])
+        watchLowBar  := plBar
+        watchLowBody := plBody
         refLow       := pl
 
 // Anchor to true leg extreme
@@ -406,7 +505,15 @@ bool rawBreakUp   = not na(watchHigh) and close > watchHigh
 bool rawBreakDown = not na(watchLow)  and close < watchLow
 
 // ---------------------------- Order blocks (creation) ------------------------
-if useOBBull and rawBreakUp
+// Gate order-block creation on the impulse actually displacing. A break that
+// closes a tick through the level and stalls is still a break, but it did not
+// originate an impulsive move, so the "order block" it would mint marks
+// nothing. Measured from the broken level to the extreme the breaking bar
+// reached.
+bool obImpulseUp   = obMinDisplace <= 0.0 or atrVal <= 0 or na(watchHigh) or (high - watchHigh) >= obMinDisplace * atrVal
+bool obImpulseDown = obMinDisplace <= 0.0 or atrVal <= 0 or na(watchLow)  or (watchLow - low)  >= obMinDisplace * atrVal
+
+if useOBBull and rawBreakUp and obImpulseUp
     int   obOffset = na
     float obTopVal = na
     float obBotVal = na
@@ -438,7 +545,7 @@ if useOBBull and rawBreakUp
             array.shift(obState)
             array.shift(obConfBucket)
 
-if useOBBear and rawBreakDown
+if useOBBear and rawBreakDown and obImpulseDown
     int   obOffset = na
     float obTopVal = na
     float obBotVal = na
@@ -633,7 +740,9 @@ if (useFVGBull or useFVGBear) and array.size(fvgBox) > 0
 // ---------------------------- Liquidity zones ---------------------------------
 if useLiqBuySide and not na(ph)
     array.push(pivHighVals, ph)
-    array.push(pivHighBars, bar_index - swingLen)
+    // phBar, not a fixed swingLen offset — the directional-change engine
+    // confirms swings at a variable distance from the bar they belong to.
+    array.push(pivHighBars, phBar)
     while array.size(pivHighBars) > 0
         if bar_index - array.get(pivHighBars, 0) > effLiqLookback
             array.shift(pivHighVals)
@@ -670,7 +779,7 @@ if useLiqBuySide and not na(ph)
 
 if useLiqSellSide and not na(pl)
     array.push(pivLowVals, pl)
-    array.push(pivLowBars, bar_index - swingLen)
+    array.push(pivLowBars, plBar)
     while array.size(pivLowBars) > 0
         if bar_index - array.get(pivLowBars, 0) > effLiqLookback
             array.shift(pivLowVals)
@@ -856,10 +965,17 @@ if useConfluence and barstate.islast
         box.set_text(liveLoZone, "Support · " + str.tostring(int(supConfluence)) + " conf" + (supRateTxt == "" ? "" : " · " + supRateTxt))
 
 // ---------------------------- Pivot markers ----------------------------------
-plotshape(showPivots and not na(ph), title = "Swing High", location = location.abovebar,
+// plotshape's offset must be constant, so each engine gets its own pair: the
+// pivot marker sits back at the swing bar, the directional-change marker on
+// the bar where confirmation actually happened.
+plotshape(showPivots and not useDC and not na(ph), title = "Swing High", location = location.abovebar,
      style = shape.triangledown, color = color.new(color.gray, 60), size = size.tiny, offset = -swingLen)
-plotshape(showPivots and not na(pl), title = "Swing Low", location = location.belowbar,
+plotshape(showPivots and not useDC and not na(pl), title = "Swing Low", location = location.belowbar,
      style = shape.triangleup, color = color.new(color.gray, 60), size = size.tiny, offset = -swingLen)
+plotshape(showPivots and useDC and not na(ph), title = "Swing High (confirmed)", location = location.abovebar,
+     style = shape.triangledown, color = color.new(color.gray, 40), size = size.tiny)
+plotshape(showPivots and useDC and not na(pl), title = "Swing Low (confirmed)", location = location.belowbar,
+     style = shape.triangleup, color = color.new(color.gray, 40), size = size.tiny)
 
 // ---------------------------- Status table -----------------------------------
 var table st = table.new(tablePos, 2, 5,
@@ -869,7 +985,8 @@ if showTable and barstate.islast
     color cellBg = color.new(color.black, 20)
 
     table.cell(st, 0, 0, "Swing / ATR", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
-    table.cell(st, 1, 0, str.tostring(swingLen) + " · " + str.tostring(atrVal, format.mintick),
+    string swingTxt = useDC ? "DC " + str.tostring(dcMult, "#.#") : str.tostring(swingLen)
+    table.cell(st, 1, 0, swingTxt + " · " + str.tostring(atrVal, format.mintick),
          text_color = color.white, text_size = size.tiny, bgcolor = cellBg)
 
     table.cell(st, 0, 1, "Watch high", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)

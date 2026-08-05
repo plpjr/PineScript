@@ -1,9 +1,9 @@
-# Key Zone Map v1.5 — Feature Guide
+# Key Zone Map v1.6 — Feature Guide
 
 *(Formerly "Support/Resistance Zones" — renamed, same script.)*
 
 **File:** `Key_Zone_Map.pine` · **TradingView indicator name:** "Key Zone Map
-v1.5" · **Companion:** `Structure_Break_Signals.pine` (`FEATURES_STRUCTURE.md`)
+v1.6" · **Companion:** `Structure_Break_Signals.pine` (`FEATURES_STRUCTURE.md`)
 
 This is the zones half of what used to be one combined indicator with
 **Structure Break Signals** — split out because the two do genuinely
@@ -25,10 +25,26 @@ actually gotten hit before.
 > **Helps with:** establishes the anchor point — the swing zone — that
 > every other zone type gets measured against for confluence.
 
-- **Swing pivot length** — how many bars must sit on each side of a candle
-  for it to count as a swing high/low. Lower (2–4) detects more, smaller,
-  faster-forming zones. Higher (7–12) keeps fewer, major zones, with more
-  lag (a swing can't confirm until this many bars after it forms).
+- **Swing engine** *(Pivot (fixed bars) / Directional change (adaptive))* —
+  how a swing gets confirmed, and therefore the anchor every zone here is
+  measured against. **Pivot** confirms a swing high once N bars on each side
+  are lower — predictable, but the lag is a fixed bar count that means very
+  different things at different times of day. **Directional change** confirms
+  an extreme the moment price retraces a set multiple of ATR from it, so it
+  adapts to volatility instead of assuming a bar count means the same thing
+  everywhere. **Keep this matched with the same setting in Structure Break
+  Signals** — the two already differ slightly on the watched level (see the
+  note at the end of this section), and running different engines would widen
+  that gap considerably.
+- **Reversal threshold (× ATR)** — directional-change mode only; replaces
+  Swing pivot length. Lower (0.5–1.0) gives more, smaller, faster-confirming
+  zones; 1.5 is balanced; higher (2.5–4.0) means only major reversals create
+  a zone.
+- **Swing pivot length** — pivot mode only. How many bars must sit on each
+  side of a candle for it to count as a swing high/low. Lower (2–4) detects
+  more, smaller, faster-forming zones. Higher (7–12) keeps fewer, major
+  zones, with more lag (a swing can't confirm until this many bars after it
+  forms).
 - **ATR length** — lookback for the ATR used by every size/overlap
   threshold in this script: the swing filter, zone lifecycle margins (hold
   confirmation), and confluence overlap. 14 is standard for intraday.
@@ -180,6 +196,17 @@ visible **area**, not just a price.
   (invalidated). Turning a side off only stops NEW order blocks of that
   side from being created — any already on the chart keep resolving
   normally rather than freezing in place.
+- **Min impulse displacement (× ATR)** — how far the breaking move must
+  actually *travel* before it earns an order block. The point of an order
+  block is that it marks where an impulsive move originated, but a break can
+  be technically true and completely limp — price closes a tick through the
+  swing and stalls. Without this gate every one of those mints a zone, and
+  the chart fills with boxes marking moves that never happened. Measured from
+  the broken level to the furthest point the breaking bar reached. 0.0 = no
+  gate (every raw break creates one, the pre-v1.6 behaviour); 0.5–1.0 is
+  balanced; 1.5+ leaves order blocks only after violent breaks. This is the
+  most effective single control for cutting order-block clutter, because it
+  removes the zones least likely to be revisited with any force.
 - **Search back this many bars** — how far back from the break candle to
   search for the origin candle.
 - **Extend box right (bars)** — how far an ACTIVE (untested) order block
