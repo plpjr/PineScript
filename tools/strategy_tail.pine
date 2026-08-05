@@ -1,0 +1,102 @@
+
+// =============================================================================
+// BACKTEST TRADE LOGIC
+// =============================================================================
+// Appended by tools/build_strategy.py. Everything above this line is the
+// indicator source verbatim — this block is the only thing that differs, so
+// the strategy can never drift from the signals it is supposed to be testing.
+//
+// The point of this file is NOT to assert a correct strategy. It is to make
+// the score falsifiable: if tightening "Minimum score to signal" does not
+// improve the results, the score is not measuring what it claims to. Every
+// rule below is an input precisely so you can sweep them rather than trust
+// one hardcoded set.
+grpBT = "⑫ Backtest"
+
+entryTrigger = input.string("Break", "Entry trigger", options = ["Break", "Retest"], group = grpBT,
+     tooltip = "WHEN to enter.\n\nBREAK — enter the moment a break confirms.\n\nRETEST — wait for price to come back to the broken level and hold it. The documentation argues throughout that this is the higher-confidence entry; running both is how you find out whether that is true on your instrument.\n\nNote: retests do not carry a break type, so the Trade direction filter below cannot apply to them.")
+
+tradeDirection = input.string("Both", "Trade direction", options = ["Both", "Continuation only", "Reversal only"], group = grpBT,
+     tooltip = "Which break types to trade.\n\nCONTINUATION ONLY = HH and LL.\nREVERSAL ONLY = LH and HL.\n\nThe docs treat these as two different jobs. This tests whether they actually perform differently.\n\nIgnored when Entry trigger = Retest.")
+
+stopMode = input.string("ATR multiple", "Stop placement", options = ["ATR multiple", "Beyond broken level"], group = grpBT,
+     tooltip = "ATR MULTIPLE — a fixed volatility-scaled distance from entry. Simple and consistent.\n\nBEYOND BROKEN LEVEL — place the stop on the far side of the level that broke, plus a buffer. Structurally meaningful, but the distance varies per trade, which makes R-multiple comparisons noisier.")
+
+stopATR = input.float(1.5, "  Stop distance (× ATR)", minval = 0.1, maxval = 20.0, step = 0.1, group = grpBT,
+     tooltip = "Stop distance in ATR when using ATR multiple. Also the fallback when Beyond broken level has no level to work from.")
+
+stopBuffer = input.float(0.25, "  Buffer beyond level (× ATR)", minval = 0.0, maxval = 5.0, step = 0.05, group = grpBT,
+     tooltip = "Extra room past the broken level when using Beyond broken level, so a stop is not sitting exactly where everyone else's is.")
+
+targetMode = input.string("R multiple", "Target", options = ["R multiple", "Opposite swing"], group = grpBT,
+     tooltip = "R MULTIPLE — a fixed multiple of the stop distance. Keeps the risk/reward constant so results are comparable across settings.\n\nOPPOSITE SWING — target the current watched level on the other side, which is what the docs recommend reading off the table. Falls back to the R multiple when no opposite level exists yet.")
+
+targetR = input.float(2.0, "  Target (R)", minval = 0.1, maxval = 20.0, step = 0.1, group = grpBT,
+     tooltip = "Target as a multiple of the stop distance. 2.0 means risking 1 to make 2.")
+
+exitOnOpposite = input.bool(true, "Exit on opposite break", group = grpBT,
+     tooltip = "Close the position when a break fires in the opposite direction, rather than waiting for stop or target. Structural invalidation: the thesis is dead, so the trade is too.")
+
+// --- Signal selection ---------------------------------------------------------
+bool wantCont = tradeDirection != "Reversal only"
+bool wantRev  = tradeDirection != "Continuation only"
+
+bool longBreak  = (fireIsHH and wantCont) or (fireIsLH and wantRev)
+bool shortBreak = (fireIsLL and wantCont) or (fireIsHL and wantRev)
+
+bool goLong  = entryTrigger == "Break" ? longBreak  : retestUp
+bool goShort = entryTrigger == "Break" ? shortBreak : retestDown
+
+// Most recent break level. Used for structural stop placement, and as the
+// approximate level a retest is testing — retests only fire on recently broken
+// levels, so the last one is the right neighbourhood.
+var float lastBreakLevel = na
+if (fireUp or fireDown) and not na(fireLevel)
+    lastBreakLevel := fireLevel
+
+// --- Stop distance ------------------------------------------------------------
+// Computed at entry and frozen, so the exit orders and the R multiple both
+// reference the risk that was actually taken rather than a distance that keeps
+// moving with ATR.
+float atrStop = stopATR * atrVal
+
+float structuralStop = na
+if not na(lastBreakLevel) and atrVal > 0
+    structuralStop := math.abs(close - lastBreakLevel) + stopBuffer * atrVal
+
+float stopDistNow = stopMode == "Beyond broken level" and not na(structuralStop) ? structuralStop : atrStop
+// Never allow a degenerate stop — a zero-distance stop fills instantly and
+// produces meaningless statistics.
+stopDistNow := math.max(nz(stopDistNow, atrStop), syminfo.mintick * 2)
+
+var float entryStopDist = na
+
+// --- Entries ------------------------------------------------------------------
+if goLong and strategy.position_size <= 0
+    entryStopDist := stopDistNow
+    strategy.entry("Long", strategy.long)
+
+if goShort and strategy.position_size >= 0
+    entryStopDist := stopDistNow
+    strategy.entry("Short", strategy.short)
+
+// --- Exits --------------------------------------------------------------------
+if strategy.position_size != 0 and not na(entryStopDist)
+    float avg = strategy.position_avg_price
+    float rTarget = targetR * entryStopDist
+
+    if strategy.position_size > 0
+        float stopPx = avg - entryStopDist
+        float tgtPx  = targetMode == "Opposite swing" and not na(watchHigh) and watchHigh > avg ? watchHigh : avg + rTarget
+        strategy.exit("Long exit", from_entry = "Long", stop = stopPx, limit = tgtPx)
+
+    if strategy.position_size < 0
+        float stopPx = avg + entryStopDist
+        float tgtPx  = targetMode == "Opposite swing" and not na(watchLow) and watchLow < avg ? watchLow : avg - rTarget
+        strategy.exit("Short exit", from_entry = "Short", stop = stopPx, limit = tgtPx)
+
+if exitOnOpposite
+    if strategy.position_size > 0 and (fireIsLL or fireIsHL)
+        strategy.close("Long", comment = "Opposite break")
+    if strategy.position_size < 0 and (fireIsHH or fireIsLH)
+        strategy.close("Short", comment = "Opposite break")

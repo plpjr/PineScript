@@ -17,6 +17,7 @@
 
 **Using them**
 - [Playbooks](Playbooks.md)
+- [Backtesting](Backtesting.md)
 - [Alerts](Alerts.md)
 - [Troubleshooting](Troubleshooting.md)
 

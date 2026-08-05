@@ -28,6 +28,7 @@ slots better than one that does everything.
 | [Key Zone Map](wiki/Key-Zone-Map.md) | Full settings reference |
 | [Confluence & Hit Rates](wiki/Confluence-and-Hit-Rates.md) | The statistics layer, and its limits |
 | [Playbooks](wiki/Playbooks.md) | Timeframe setups and workflows |
+| [Backtesting](wiki/Backtesting.md) | The generated strategy, and the score sweep |
 | [Alerts](wiki/Alerts.md) | Alert reference |
 | [Troubleshooting](wiki/Troubleshooting.md) | Symptom → cause → fix |
 | [Changelog](wiki/Changelog.md) | Version history and upgrade notes |
@@ -65,8 +66,18 @@ particular.
 ```
 Structure_Break_Signals.pine    Break-event indicator (Pine v5)
 Key_Zone_Map.pine               Zone-mapping indicator (Pine v5)
+Structure_Break_Strategy.pine   GENERATED backtest strategy -- do not edit
+tools/build_strategy.py         Generates the strategy from the indicator
+tools/strategy_tail.pine        Trade logic appended by the generator
 wiki/                           Documentation
 README.md                       This file
+```
+
+Regenerate the strategy after changing the indicator or the trade logic:
+
+```bash
+python3 tools/build_strategy.py          # write
+python3 tools/build_strategy.py --check  # exit 1 if stale
 ```
 
 Each `.pine` file carries its own full changelog in the header comment.

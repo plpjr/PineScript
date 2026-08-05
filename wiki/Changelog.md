@@ -65,6 +65,10 @@ behaviour.
   from the `Retest marker size` input. Broken since the setting was added in
   v7.3 — the script would not load at all. Now one gated `plotshape` per size
   constant, so the setting works for the first time.
+- **Backtestable strategy added.** `Structure_Break_Strategy.pine`, generated
+  from the indicator by `tools/build_strategy.py` so the two cannot drift.
+  Exists to answer whether tightening `Minimum score to signal` actually
+  improves results — see [Backtesting](Backtesting.md).
 - Internal-structure pivots computed unconditionally and gated afterwards,
   matching the swing engine — a `ta.*` call behind a condition isn't guaranteed
   to run every bar.

@@ -177,6 +177,12 @@ see [Data export](Structure-Break-Signals.md#data-export).
 > re-export. Full detail: [Confidence Score →
 > Calibration](Confidence-Score.md#calibration).
 
+> **Cross-check with the backtest.** [Backtesting](Backtesting.md) sweeps the
+> score threshold mechanically over history, which is faster than a forward
+> calibration and can falsify the score outright. It is weaker evidence though
+> — treat it as a sanity check on the numbers you collect live, not a
+> replacement.
+
 > **Split by `Break type` too.** Continuation (`≤2`) and reversal (`≥3`) breaks
 > may well have different useful cutoffs — the wiki argues throughout that they
 > are different jobs, and this is how you'd actually find out on your
