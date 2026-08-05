@@ -627,9 +627,6 @@ wFollow = input.int(10, "Weight · follow-through", minval = 0, maxval = 100, gr
        "REQUIRES 'Confirmation bars after break' (③ Break quality filters) to be 1 or more — that waiting period is where the follow-through is measured. At 0 confirmation bars there is no 'after' yet, so this component returns a neutral half-score for every break, exactly like the volume component does on feeds without real volume.\n\n" +
        "Set to 0 to remove it entirely; its share is redistributed across the other measures.")
 
-tFollow = input.float(1.00, "Full marks · follow-through (× ATR)", minval = 0.10, step = 0.10, group = grpQ2,
-     tooltip = "How far beyond the level price must travel during the confirmation window to earn the FULL follow-through score, in ATR.\n\nMeasured from the level to the furthest point reached in the break's direction, so a break that clears and keeps running scores high while one that clears and immediately stalls scores near zero.\n\nRaise on instruments that trend hard after breaking; lower on ones that grind.")
-
 // --- Where each measure earns full marks ---------------------------------------
 tClear = input.float(0.40, "Full marks · clearance (× ATR)", minval = 0.05, step = 0.05, group = grpQ2,
      tooltip = "Clearance beyond the level that earns the FULL clearance score.\n\n" +
@@ -648,6 +645,9 @@ tVol = input.float(1.60, "Full marks · volume (× average)", minval = 0.20, ste
 
 tLeg = input.float(2.00, "Full marks · leg size (× ATR)", minval = 0.10, step = 0.10, group = grpQ2,
      tooltip = "Size of the broken leg, in ATR, that earns the FULL structural score.\n\nRaise on higher timeframes where legs are naturally larger.")
+
+tFollow = input.float(1.00, "Full marks · follow-through (× ATR)", minval = 0.10, step = 0.10, group = grpQ2,
+     tooltip = "How far beyond the level price must travel during the confirmation window to earn the FULL follow-through score, in ATR.\n\nMeasured from the level to the furthest point reached in the break's direction, so a break that clears and keeps running scores high while one that clears and immediately stalls scores near zero.\n\nRaise on instruments that trend hard after breaking; lower on ones that grind.")
 
 // Normalise the weights so the score always lands on a 0-100 scale regardless of
 // what the user typed. Without this, zeroing volume would silently cap the score
