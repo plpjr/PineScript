@@ -3,13 +3,19 @@
 [← Home](Home.md) · Provided by
 [Structure Break Signals](Structure-Break-Signals.md)
 
-> **Key Zone Map has no alerts.** Zone state changes are visual only. If you
-> want to be notified about a level, alert on the *break* of it via Structure
-> Break Signals.
+Both scripts have alerts. They answer different questions, and you'll usually
+want some of each:
+
+- **[Structure Break Signals](#structure-break-signals-alerts)** — *did
+  something structural just happen?* Break confirmations and retests.
+- **[Key Zone Map](#key-zone-map-alerts)** — *did price reach, respect, or
+  break a level I was watching?* Zone touches and lifecycle events.
 
 ---
 
-## The six alert conditions
+<a id="structure-break-signals-alerts"></a>
+
+## Structure Break Signals — the six alert conditions
 
 | Alert | Fires when | Read as |
 |---|---|---|
@@ -126,6 +132,48 @@ its first retest, which discarded the better signal.
 
 If you preferred one-alert-per-level, turn off `Allow repeat retests of a
 level` in `⑤ Display & history`.
+
+---
+
+<a id="key-zone-map-alerts"></a>
+
+## Key Zone Map — the seven alert conditions
+
+Added in v1.7. Before that this script was entirely silent — every zone event
+was a text change on a box you had to be watching at the time, which made the
+most actionable thing it produces also the easiest thing to miss.
+
+| Alert | Fires when | Read as |
+|---|---|---|
+| **Resistance zone touched** | Price first reaches the nearest swing-high zone | You're at the level you were watching. Decision point |
+| **Support zone touched** | Price first reaches the nearest swing-low zone | Same, mirrored |
+| **Zone held (bullish)** | Any bullish zone confirmed a rejection | Support defended — the strongest "this zone worked" signal |
+| **Zone held (bearish)** | Any bearish zone confirmed a rejection | Resistance defended |
+| **Zone held (either direction)** | Either of the above | One alert if you don't want to wire two |
+| **Zone invalidated** | Any zone failed — price closed through it | If a trade depended on that level, this is your exit, not a "wait and see" |
+| **Liquidity swept** | A liquidity pool was probed through | Possible stop-run. Check the pool's held rate before treating it as a reversal |
+
+**Touch alerts fire on the transition into the zone**, not every bar price sits
+inside it — otherwise a level price camps on would notify continuously.
+
+> **Note the inversion for liquidity.** A buy-side pool sits *above* price as
+> resistance, so a buy-side pool holding is a **bearish** event. The alerts
+> account for this; the directional split is by what the event means, not by
+> which array it came from.
+
+### Which to wire
+
+**Trading reactions off levels:** `Support/Resistance zone touched` to get your
+attention, then `Zone held` in the matching direction as confirmation. That
+pair is the core loop of the zone workflow.
+
+**Trading breakouts:** `Zone invalidated` — a level failing is your signal, and
+it's the one the visual-only design made easiest to miss.
+
+**Combining with the companion script:** pair `Zone held` with a high-score
+`HH`/`LL`/`LH`/`HL` in the same direction. Two independent systems agreeing is
+the highest-confidence read available — see [Playbooks → Using both scripts
+together](Playbooks.md#using-both-scripts-together).
 
 ---
 

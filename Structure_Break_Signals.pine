@@ -1607,6 +1607,11 @@ while array.size(retestBars) > 0
 
 bool retestUp = false
 bool retestDown = false
+// The actual level being retested. Exposed because consumers need it: the
+// backtest strategy places its stop relative to the level the trade is
+// reacting to, and approximating that with "the most recent break level" is
+// wrong whenever an older level in the window is the one price came back to.
+float retestLevel = na
 if barstate.isconfirmed and array.size(retestLevels) > 0
     for i = 0 to array.size(retestLevels) - 1
         int bBar  = array.get(retestBars, i)
@@ -1622,9 +1627,11 @@ if barstate.isconfirmed and array.size(retestLevels) > 0
             if scoreOk and atrVal > 0 and math.abs(close - lvl) < atrVal * retestBand
                 if isHi and low <= lvl and close >= lvl
                     retestUp := true
+                    retestLevel := lvl
                     array.set(retestLastBar, i, bar_index)
                 if not isHi and high >= lvl and close <= lvl
                     retestDown := true
+                    retestLevel := lvl
                     array.set(retestLastBar, i, bar_index)
 
 // Retest events only fired an alert before — nothing was drawn on the chart
@@ -1703,6 +1710,9 @@ plot(anyBreak ? (fireUp ? fireClearance : -fireClearance) : na, "Break clearance
 
 // 1 = support retest, -1 = resistance retest.
 plot(retestUp ? 1 : retestDown ? -1 : na, "Retest fired",
+     display = display.data_window)
+
+plot(retestUp or retestDown ? retestLevel : na, "Retest level",
      display = display.data_window)
 
 // Context columns — constant per bar, but they make an exported CSV

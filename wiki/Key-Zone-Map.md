@@ -7,8 +7,10 @@ One job: tell you the nearest support/resistance zones above and below price,
 why several independent detectors agree on them, and how often zones with that
 much agreement have actually gotten hit before.
 
-> Looking for HH/LL/LH/HL break labels, the confidence score, or break alerts?
-> Those live in [Structure Break Signals](Structure-Break-Signals.md).
+> Looking for HH/LL/LH/HL break labels or the confidence score? Those live in
+> [Structure Break Signals](Structure-Break-Signals.md). This script has its
+> own [zone-lifecycle alerts](Alerts.md#key-zone-map-alerts) as of v1.7 — a
+> different thing from break alerts.
 
 **Jump to:** [① Swing detection](#swing-detection) · [② Shared
 style](#zones-shared-style) · [③ Swing zones](#swing-zones) · [④ Order
@@ -325,6 +327,37 @@ Resistance/Support confluence + hit-rate rows.
 **Raw pivot markers** — triangles on every detected swing, *including ones the
 ATR filter rejected*. Use this to diagnose why a zone isn't appearing where
 you'd expect one.
+
+---
+
+<a id="alerts-and-export"></a>
+
+## Alerts and data export
+
+**Seven alerts** (v1.7): resistance/support zone touched, zone held (bullish,
+bearish, or either), zone invalidated, liquidity swept. Full reference at
+[Alerts → Key Zone Map](Alerts.md#key-zone-map-alerts).
+
+Before v1.7 this script was silent — every zone event was a text change on a
+box you had to be watching, which made a confirmed hold both the most
+actionable thing here and the easiest to miss.
+
+**Eleven data-window plots** for CSV export via *Export chart data…* and for
+`{{plot("...")}}` in alert messages:
+
+| Column | Encoding |
+|---|---|
+| `Zone event` | `1`=tested `2`=held `3`=invalidated `4`=liquidity swept |
+| `Hold direction` | `1`=bullish `-1`=bearish |
+| `Swing zone touched` | `1`=resistance `-1`=support |
+| `Watch high` / `Watch low` | Current watched levels |
+| `ATR` | Context |
+| `Active order blocks` / `Active FVGs` / `Active liquidity` | Live count per detector |
+
+> **Confluence and hit/held rates are deliberately not exported.** They're
+> computed only on the last bar — rerunning the overlap scan every bar would
+> multiply the script's cost by the number of active zones. Read them off the
+> status table.
 
 ---
 

@@ -5,7 +5,7 @@
 Both scripts version independently. The authoritative history lives in each
 `.pine` file's header comment; this page is the readable summary.
 
-**Current:** Structure Break Signals **v7.9** · Key Zone Map **v1.6**
+**Current:** Structure Break Signals **v7.9** · Key Zone Map **v1.7**
 
 ---
 
@@ -69,6 +69,11 @@ behaviour.
   from the indicator by `tools/build_strategy.py` so the two cannot drift.
   Exists to answer whether tightening `Minimum score to signal` actually
   improves results — see [Backtesting](Backtesting.md).
+- **`Retest level` exposed and exported.** The backtest strategy places its
+  structural stop relative to the level a trade is reacting to; on retest
+  entries it previously had to approximate that with "the most recent break
+  level", which is wrong whenever an older level in the window is the one price
+  returned to.
 - Internal-structure pivots computed unconditionally and gated afterwards,
   matching the swing engine — a `ta.*` call behind a condition isn't guaranteed
   to run every bar.
@@ -203,6 +208,26 @@ behaviour.
 ---
 
 # Key Zone Map
+
+## v1.7 — Alerts, and the zone data can leave the chart
+
+- **This script had no alerts at all.** Every zone event was visible only as a
+  text change on a box you had to be watching at the time — which made a
+  confirmed hold simultaneously the most actionable thing the script produces
+  and the easiest to miss. **Seven alerts added:** resistance/support zone
+  touched, zone held (bullish / bearish / either), zone invalidated, liquidity
+  swept. See [Alerts](Alerts.md#key-zone-map-alerts).
+- Touch alerts fire on the **transition** into a zone, not every bar price sits
+  in it — a level price camps on would otherwise notify continuously.
+- Hold alerts are split by direction, and account for the inversion in
+  liquidity: a buy-side pool sits above price as resistance, so it holding is a
+  **bearish** event.
+- **Eleven `display.data_window` plots** — zone event code, hold direction,
+  swing-zone touch, watch high/low, ATR, and the live count of each detector
+  type. *Export chart data…* now yields a CSV.
+- **Not exported:** confluence count and hit/held rates. Computed last-bar-only
+  by design, since rerunning the overlap scan every bar would multiply cost by
+  the number of active zones.
 
 ## v1.6 — Adaptive swing engine + order block quality
 

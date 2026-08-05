@@ -1,5 +1,28 @@
 // =============================================================================
-// Key Zone Map  —  v1.6  (formerly "Support / Resistance Zones")
+// Key Zone Map  —  v1.7  (formerly "Support / Resistance Zones")
+//
+// NEW IN v1.7 — ALERTS, AND THE ZONE DATA CAN LEAVE THE CHART:
+//   * This script had NO ALERTS AT ALL. Every zone event was visible only as
+//     a text change on a box you had to be watching at the time. A zone
+//     confirming a hold is the most actionable thing this script produces,
+//     which made it the worst possible thing to leave silent. Seven alerts
+//     added: resistance/support zone touched, zone held (bullish, bearish,
+//     or either), zone invalidated, and liquidity swept.
+//   * Swing-zone touch alerts fire on the TRANSITION into the zone, not
+//     every bar price sits inside it — otherwise a level price camps on
+//     would notify continuously.
+//   * Hold alerts are split by direction because which one you want to be
+//     woken up by depends on which way you trade. Note the inversion for
+//     liquidity: a buy-side pool sits above price as resistance, so it
+//     holding is a BEARISH event.
+//   * Eleven data_window plots added — zone event code, hold direction,
+//     swing-zone touch, watch high/low, ATR, and the active count of each
+//     detector type. "Export chart data..." now yields a CSV, and alert
+//     messages can interpolate {{plot("...")}}.
+//   * NOT exported: confluence count and hit/held rates. Those are computed
+//     only on the last bar by design — rerunning the overlap scan every bar
+//     would multiply this script's cost by the number of active zones. Read
+//     them off the status table.
 //
 // NEW IN v1.6 — ADAPTIVE SWING ENGINE + ORDER BLOCK QUALITY:
 //   * New SWING ENGINE choice mirroring the companion script: the existing
@@ -81,8 +104,9 @@
 //     scoring signals doesn't apply here. This means the exact "watch
 //     high/low" shown here can differ slightly from the companion script's,
 //     which waits for a higher-quality break before moving on.
-//   * No HH/LL/LH/HL lines, labels, confidence score, or alerts — that's the
-//     other script's job.
+//   * No HH/LL/LH/HL lines, labels, or confidence score — that's the other
+//     script's job. (It does have its own zone-lifecycle alerts as of v1.7,
+//     which are a different thing from break alerts.)
 //   * Order blocks, fair value gaps, liquidity pools, confluence scoring, and
 //     the historical hit-rate system are carried over unchanged.
 //
@@ -99,7 +123,7 @@
 // close[swingLen] are read directly during swing detection. With the swing
 // input now capped at 50, 500 leaves comfortable headroom. The previous value
 // of 100 was below what the inputs already permitted.
-indicator("Key Zone Map v1.6", overlay = true, max_bars_back = 500, max_lines_count = 500, max_boxes_count = 500)
+indicator("Key Zone Map v1.7", overlay = true, max_bars_back = 500, max_lines_count = 500, max_boxes_count = 500)
 
 // =============================================================================
 // SWING DETECTION
@@ -504,6 +528,27 @@ if not na(watchLow) and low < watchLow and close >= watchLow
 bool rawBreakUp   = not na(watchHigh) and close > watchHigh
 bool rawBreakDown = not na(watchLow)  and close < watchLow
 
+// ---------------------------- Zone lifecycle events ---------------------------
+// Set by the three lifecycle loops below, consumed by the alerts and export
+// plots at the end of the script. Bar-scoped: true only on the bar a zone
+// actually changes state, never latched — so an alert fires on the transition
+// rather than continuously while the zone sits in that state.
+//
+// These exist because a zone confirming a hold is arguably the single most
+// actionable event this script produces, and until now it was visible only as
+// a text change on a box you had to be watching.
+bool evtZoneTested      = false   // any zone touched for the first time
+bool evtZoneHeld        = false   // any zone closed back away by the hold margin
+bool evtZoneInvalidated = false   // any zone failed outright and was deleted
+bool evtLiqSwept        = false   // a liquidity pool was probed through
+
+// Directional split of the hold event. A BULLISH zone holding means price
+// rejected upward off support; a bearish zone holding means it rejected down
+// off resistance. Which one you want to be woken up by depends on which way
+// you trade, so they get separate alerts.
+bool evtHeldBullish = false
+bool evtHeldBearish = false
+
 // ---------------------------- Order blocks (creation) ------------------------
 // Gate order-block creation on the impulse actually displacing. A break that
 // closes a tick through the level and stalls is still a break, but it did not
@@ -601,6 +646,7 @@ if (useOBBull or useOBBear) and array.size(obBox) > 0
         bool heldNow     = bull ? close >= top + holdMargin * atrVal : close <= bot - holdMargin * atrVal
 
         if invalidated
+            evtZoneInvalidated := true
             if useConfluence
                 logOutcome(obConfTotal, obConfHit, array.get(obConfBucket, i), touched or st >= 1)
             box.delete(b)
@@ -612,11 +658,17 @@ if (useOBBull or useOBBear) and array.size(obBox) > 0
             array.remove(obConfBucket, i)
         else if st == 1 and heldNow
             array.set(obState, i, 2)
+            evtZoneHeld := true
+            if bull
+                evtHeldBullish := true
+            else
+                evtHeldBearish := true
             if useConfluence
                 logHeld(obConfHeld, array.get(obConfBucket, i))
             box.set_text(b, (bull ? "Bull OB" : "Bear OB") + " (held)")
         else if touched and st == 0
             array.set(obState, i, 1)
+            evtZoneTested := true
             color c = bull ? zoneBullColor : zoneBearColor
             box.set_bgcolor(b, color.new(c, math.min(95, zoneOpacity + zoneFadeExtra + 8)))
             box.set_border_color(b, color.new(c, math.min(95, zoneOpacity + zoneFadeExtra)))
@@ -705,6 +757,7 @@ if (useFVGBull or useFVGBear) and array.size(fvgBox) > 0
         line  mid  = array.get(fvgMidLine, i)
 
         if filled
+            evtZoneInvalidated := true
             if useConfluence
                 logOutcome(fvgConfTotal, fvgConfHit, array.get(fvgConfBucket, i), touched or st >= 1)
             box.delete(b)
@@ -718,11 +771,17 @@ if (useFVGBull or useFVGBear) and array.size(fvgBox) > 0
             array.remove(fvgConfBucket, i)
         else if st == 1 and heldNow
             array.set(fvgState, i, 2)
+            evtZoneHeld := true
+            if bull
+                evtHeldBullish := true
+            else
+                evtHeldBearish := true
             if useConfluence
                 logHeld(fvgConfHeld, array.get(fvgConfBucket, i))
             box.set_text(b, (bull ? "Bull FVG" : "Bear FVG") + " (held)")
         else if touched and st == 0
             array.set(fvgState, i, 1)
+            evtZoneTested := true
             color c = bull ? zoneBullColor : zoneBearColor
             box.set_bgcolor(b, color.new(c, math.min(95, zoneOpacity + zoneFadeExtra + 8)))
             box.set_border_color(b, color.new(c, math.min(95, zoneOpacity + zoneFadeExtra)))
@@ -827,6 +886,7 @@ if (useLiqBuySide or useLiqSellSide) and array.size(liqBox) > 0
         bool heldNow  = buyS ? close <= bot - holdMargin * atrVal : close >= top + holdMargin * atrVal
 
         if consumed
+            evtZoneInvalidated := true
             if useConfluence
                 logOutcome(liqConfTotal, liqConfHit, array.get(liqConfBucket, i), swept or st >= 1)
             box.delete(b)
@@ -838,11 +898,21 @@ if (useLiqBuySide or useLiqSellSide) and array.size(liqBox) > 0
             array.remove(liqConfBucket, i)
         else if st == 1 and heldNow
             array.set(liqState, i, 2)
+            evtZoneHeld := true
+            // Directionality inverts for liquidity: a BUY-SIDE pool sits above
+            // price as resistance, so it "holding" means price was rejected
+            // downward off it — a bearish event, not a bullish one.
+            if buyS
+                evtHeldBearish := true
+            else
+                evtHeldBullish := true
             if useConfluence
                 logHeld(liqConfHeld, array.get(liqConfBucket, i))
             box.set_text(b, (buyS ? "Buy-side Liquidity" : "Sell-side Liquidity") + " (held)")
         else if swept and st == 0
             array.set(liqState, i, 1)
+            evtZoneTested := true
+            evtLiqSwept := true
             color c = buyS ? zoneBearColor : zoneBullColor
             box.set_bgcolor(b, color.new(c, math.min(95, zoneOpacity + zoneFadeExtra + 10)))
             box.set_border_color(b, color.new(c, math.min(95, zoneOpacity + zoneFadeExtra)))
@@ -1004,3 +1074,85 @@ if showTable and barstate.islast
     table.cell(st, 0, 4, "Support", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
     string supCellTxt = na(supConfluence) ? "—" : str.tostring(int(supConfluence)) + " conf" + (supRateTxt == "" ? "" : " · " + supRateTxt)
     table.cell(st, 1, 4, supCellTxt, text_color = zoneBullColor, text_size = size.tiny, bgcolor = cellBg)
+
+// =============================================================================
+// ALERTS
+// =============================================================================
+// This script had no alerts at all until v1.7 — every zone event was visible
+// only as a text change on a box you had to be watching. A zone confirming a
+// hold is the most actionable thing here, so it was the worst thing to leave
+// silent.
+//
+// Two families:
+//   * SWING ZONE touches — price arriving at the level you were watching.
+//     Fires on the transition into the zone, not every bar price sits in it.
+//   * ZONE LIFECYCLE — a zone of any type holding, failing, or being swept.
+
+// Reconstruct the nearest swing zone's bounds every bar. The drawn boxes only
+// exist on the last bar (they are a live planning tool, not a history log), so
+// the touch condition is computed from the watched levels directly.
+float resZoneTop = watchHigh
+float resZoneBot = na(watchHighBody) or na(watchHigh) ? na : math.min(watchHighBody, watchHigh)
+float supZoneTop = na(watchLowBody)  or na(watchLow)  ? na : math.max(watchLowBody, watchLow)
+float supZoneBot = watchLow
+
+// "In the zone" is a state; the alert wants the edge. Comparing against the
+// previous bar turns a level price is camped on into a single event.
+bool inResZone = not na(resZoneBot) and high >= resZoneBot
+bool inSupZone = not na(supZoneTop) and low  <= supZoneTop
+
+bool evtResistanceTouched = inResZone and not inResZone[1]
+bool evtSupportTouched    = inSupZone and not inSupZone[1]
+
+alertcondition(evtResistanceTouched, title = "Resistance zone touched",
+     message = "Price reached the resistance zone on {{ticker}} @ {{close}}")
+alertcondition(evtSupportTouched, title = "Support zone touched",
+     message = "Price reached the support zone on {{ticker}} @ {{close}}")
+
+alertcondition(evtHeldBullish, title = "Zone held (bullish)",
+     message = "A bullish zone confirmed a rejection on {{ticker}} @ {{close}} — support defended")
+alertcondition(evtHeldBearish, title = "Zone held (bearish)",
+     message = "A bearish zone confirmed a rejection on {{ticker}} @ {{close}} — resistance defended")
+alertcondition(evtZoneHeld, title = "Zone held (either direction)",
+     message = "A zone confirmed a rejection on {{ticker}} @ {{close}}")
+
+alertcondition(evtZoneInvalidated, title = "Zone invalidated",
+     message = "A zone failed — price closed through it on {{ticker}} @ {{close}}")
+alertcondition(evtLiqSwept, title = "Liquidity swept",
+     message = "A liquidity pool was swept on {{ticker}} @ {{close}}")
+
+// =============================================================================
+// MACHINE-READABLE OUTPUT
+// =============================================================================
+// Same reasoning as the companion script: the hit-rate layer is the most
+// empirically-minded thing here, and until now there was no way to get any of
+// it off the chart. display.data_window keeps these out of the price scale
+// while still exporting via "Export chart data..." and remaining addressable
+// from alert messages as {{plot("...")}}.
+//
+// NOT exported: the confluence count and hit/held rates. Those are computed
+// only on the last bar by design — recomputing the overlap scan every bar
+// would multiply this script's cost by the number of active zones. They are
+// read off the status table instead.
+
+// 1 = tested, 2 = held, 3 = invalidated, 4 = liquidity swept. Highest-severity
+// event wins when several land on one bar.
+plot(evtZoneInvalidated ? 3 : evtLiqSwept ? 4 : evtZoneHeld ? 2 : evtZoneTested ? 1 : na,
+     "Zone event", display = display.data_window)
+
+// 1 = bullish hold, -1 = bearish hold.
+plot(evtHeldBullish ? 1 : evtHeldBearish ? -1 : na, "Hold direction",
+     display = display.data_window)
+
+plot(evtResistanceTouched ? 1 : evtSupportTouched ? -1 : na, "Swing zone touched",
+     display = display.data_window)
+
+plot(watchHigh, "Watch high", display = display.data_window)
+plot(watchLow,  "Watch low",  display = display.data_window)
+plot(atrVal,    "ATR",        display = display.data_window)
+
+// Active zone counts — how much of each detector is live right now. Useful for
+// spotting that one type is dominating the chart, or has gone quiet.
+plot(array.size(obBox),  "Active order blocks", display = display.data_window)
+plot(array.size(fvgBox), "Active FVGs",         display = display.data_window)
+plot(array.size(liqBox), "Active liquidity",    display = display.data_window)

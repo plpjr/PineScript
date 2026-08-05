@@ -1624,6 +1624,11 @@ while array.size(retestBars) > 0
 
 bool retestUp = false
 bool retestDown = false
+// The actual level being retested. Exposed because consumers need it: the
+// backtest strategy places its stop relative to the level the trade is
+// reacting to, and approximating that with "the most recent break level" is
+// wrong whenever an older level in the window is the one price came back to.
+float retestLevel = na
 if barstate.isconfirmed and array.size(retestLevels) > 0
     for i = 0 to array.size(retestLevels) - 1
         int bBar  = array.get(retestBars, i)
@@ -1639,9 +1644,11 @@ if barstate.isconfirmed and array.size(retestLevels) > 0
             if scoreOk and atrVal > 0 and math.abs(close - lvl) < atrVal * retestBand
                 if isHi and low <= lvl and close >= lvl
                     retestUp := true
+                    retestLevel := lvl
                     array.set(retestLastBar, i, bar_index)
                 if not isHi and high >= lvl and close <= lvl
                     retestDown := true
+                    retestLevel := lvl
                     array.set(retestLastBar, i, bar_index)
 
 // Retest events only fired an alert before — nothing was drawn on the chart
@@ -1720,6 +1727,9 @@ plot(anyBreak ? (fireUp ? fireClearance : -fireClearance) : na, "Break clearance
 plot(retestUp ? 1 : retestDown ? -1 : na, "Retest fired",
      display = display.data_window)
 
+plot(retestUp or retestDown ? retestLevel : na, "Retest level",
+     display = display.data_window)
+
 // Context columns — constant per bar, but they make an exported CSV
 // self-describing instead of needing a note about what the settings were.
 plot(atrVal, "ATR", display = display.data_window)
@@ -1773,12 +1783,17 @@ bool shortBreak = (fireIsLL and wantCont) or (fireIsHL and wantRev)
 bool goLong  = entryTrigger == "Break" ? longBreak  : retestUp
 bool goShort = entryTrigger == "Break" ? shortBreak : retestDown
 
-// Most recent break level. Used for structural stop placement, and as the
-// approximate level a retest is testing — retests only fire on recently broken
-// levels, so the last one is the right neighbourhood.
-var float lastBreakLevel = na
+// The level this trade is reacting to, used for structural stop placement.
+// On a break entry that is the level that broke; on a retest entry it is the
+// level actually retested, which the indicator exposes directly rather than
+// leaving us to guess. Approximating it with "the most recent break" would be
+// wrong whenever an older level in the retest window is the one price returned
+// to — which is exactly the case a structural stop most needs to get right.
+var float tradeRefLevel = na
 if (fireUp or fireDown) and not na(fireLevel)
-    lastBreakLevel := fireLevel
+    tradeRefLevel := fireLevel
+if (retestUp or retestDown) and not na(retestLevel)
+    tradeRefLevel := retestLevel
 
 // --- Stop distance ------------------------------------------------------------
 // Computed at entry and frozen, so the exit orders and the R multiple both
@@ -1787,8 +1802,8 @@ if (fireUp or fireDown) and not na(fireLevel)
 float atrStop = stopATR * atrVal
 
 float structuralStop = na
-if not na(lastBreakLevel) and atrVal > 0
-    structuralStop := math.abs(close - lastBreakLevel) + stopBuffer * atrVal
+if not na(tradeRefLevel) and atrVal > 0
+    structuralStop := math.abs(close - tradeRefLevel) + stopBuffer * atrVal
 
 float stopDistNow = stopMode == "Beyond broken level" and not na(structuralStop) ? structuralStop : atrStop
 // Never allow a degenerate stop — a zero-distance stop fills instantly and
