@@ -139,7 +139,7 @@ spans **wick-to-body** while Structure Break Signals draws a line at the
 | Rates never leave `(building)` | `Min sample size` too high for your history, or zones rarely resolve. Lower it, or load more bars |
 | Rates look low across the board | `Confidence-adjusted rates` is on — you're reading a 95% lower bound, not the observed rate. See [why](Confluence-and-Hit-Rates.md#wilson) |
 | A zone shows high confluence but no rate | Buckets are per-confluence-level; 3+ confluence is rare and fills slowly |
-| Rates dropped after updating | v1.6 widened buckets from 0/1/2+ to 0/1/2/3+, so history redistributed |
+| Rates dropped after updating | v1.5 widened buckets from 0/1/2+ to 0/1/2/3+, so history redistributed |
 
 **Remember:** these are frequency counts over loaded bars, not a backtest. See
 [the hard limits](Confluence-and-Hit-Rates.md#the-hard-limits-of-these-numbers).

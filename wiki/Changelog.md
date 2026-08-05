@@ -18,7 +18,7 @@ worth knowing before you trust the output:
 | Change | Version | What to do |
 |---|---|---|
 | **Confidence scores shifted** — the leg-size component was frequently returning a neutral half-score instead of measuring, and follow-through was added | v7.6, v7.7 | **Re-check `Minimum score to signal`** if you had tuned it |
-| **Zone hit rates now show a confidence-adjusted `≥` figure** and buckets were split finer | v1.5, v1.6 | Numbers will read lower and take longer to fill. [Why](Confluence-and-Hit-Rates.md#wilson) |
+| **Zone hit rates now show a confidence-adjusted `≥` figure** and buckets were split finer | v1.5 | Numbers will read lower and take longer to fill. [Why](Confluence-and-Hit-Rates.md#wilson) |
 | **`Reject long-wick breaks` triggers more often** — it was measuring the wrong two quantities | v7.6 | If you had it on, expect more rejections; it's catching cases it used to miss |
 | **Signals arrive one bar later** — `Confirmation bars` now defaults to 1 | v7.9 | Nothing to change, but it is a real cost. Set back to 0 (and zero the follow-through weight) if entry timing matters more |
 

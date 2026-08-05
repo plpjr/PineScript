@@ -160,7 +160,7 @@ guard — useful mainly because a `(building)` label is an unambiguous signal to
 *not lean on this number yet*, whereas a low percentage might be misread as
 "this zone type is bad."
 
-> **Buckets fill slowly.** As of v1.6 buckets are 0 / 1 / 2 / 3+ rather than
+> **Buckets fill slowly.** As of v1.5 buckets are 0 / 1 / 2 / 3+ rather than
 > 0 / 1 / 2+, which is more informative — the old top bucket pooled a four-way
 > confluence with a two-way one — but spreads the same history across more
 > buckets. Expect longer warm-up, especially at 3+ confluence.
