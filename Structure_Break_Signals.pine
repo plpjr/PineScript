@@ -1,5 +1,27 @@
 // =============================================================================
-// Structure Break Signals  —  v7.6
+// Structure Break Signals  —  v7.7
+//
+// NEW IN v7.7 — STRONGER STATISTICS:
+//   * Volume baseline is selectable, and defaults to TIME OF DAY. Intraday
+//     volume is strongly U-shaped, so the old trailing mean was contaminated
+//     by the opening surge at 10:00 and sat in the lunch lull at 12:00 — the
+//     filter was measuring what time it was as much as participation. Each
+//     bar is now compared against the same slot on previous days, with older
+//     days decaying in weight. Median is also offered (spike-robust, still
+//     time-biased), as is the original simple average.
+//   * Volatility measure is selectable: ATR (Wilder) or MEDIAN TRUE RANGE.
+//     ATR is a mean of a right-skewed variable, so one 10x news bar lifts it
+//     for many bars and quietly tightens every ATR-scaled threshold at once.
+//     NOTE: median true range reads ~10-20% lower than ATR on the same data,
+//     so every multiple becomes effectively looser when you switch.
+//   * Sixth score component: FOLLOW-THROUGH (default weight 10). Clearance,
+//     displacement and body conviction all describe the same candle from
+//     different angles and move together; follow-through measures how far
+//     price actually ran past the level during the confirmation window,
+//     which none of them can see. Needs Confirmation bars > 0 to be
+//     measurable and returns a neutral half-score otherwise, exactly like
+//     the volume component on feeds without real volume. The minimum-score
+//     gate applies the same neutral allowance so tuned cutoffs don't shift.
 //
 // NEW IN v7.6 — CORRECTNESS FIXES (no new settings, no new features):
 //   * HH/LL/LH/HL is now decided by the PIVOT SEQUENCE, not by `bias`.
@@ -171,7 +193,7 @@
 // (swing 50 -> 100 bars, volume 200), 500 leaves comfortable headroom. The
 // previous value of 100 was below what the inputs already permitted and threw
 // "requested historical offset is beyond the historical buffer's limit".
-indicator("Structure Break Signals v7.6", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500)
+indicator("Structure Break Signals v7.7", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500)
 
 // =============================================================================
 // SENSITIVITY MASTER CONTROLS
@@ -224,7 +246,13 @@ mSwingLen = input.int(5, "Swing pivot length", minval = 1, maxval = 50, group = 
        "This directly sets your confirmation delay: a swing cannot be confirmed until this many bars after it forms. At 5, labels appear ~5 bars late. That lag is unavoidable with pivot detection.\n\n" +
        "Only used when Preset = Custom.")
 
-mAtrLen = input.int(14, "ATR length", minval = 1, maxval = 200, group = grpS,
+volMeasure = input.string("ATR (Wilder)", "Volatility measure", options = ["ATR (Wilder)", "Median true range"], group = grpS,
+     tooltip = "Which estimate of 'normal bar size' every ATR-scaled threshold in this indicator is built on — break clearance, displacement, min swing size, equal-level tolerance, and all five score thresholds.\n\n" +
+       "ATR (WILDER) — the standard: a running average of true range. Simple and familiar, but it is a MEAN, and true range is a right-skewed variable. One news bar at 10x normal size lifts it for many bars afterward, which quietly tightens every threshold at once — so the indicator goes quiet right after the most informative move of the session.\n\n" +
+       "MEDIAN TRUE RANGE — the middle bar of the lookback instead of the average. A single outlier moves it barely at all, so thresholds stay put through spikes and reflect what a typical bar actually looks like.\n\n" +
+       "IMPORTANT: median true range reads roughly 10-20% LOWER than ATR on the same data, because it ignores the fat right tail that pulls a mean upward. Every ATR-multiple setting therefore becomes effectively LOOSER when you switch. Expect more signals, and raise your multiples by about 15% if you want to hold sensitivity constant.")
+
+mAtrLen = input.int(14, "  Volatility lookback", minval = 1, maxval = 200, group = grpS,
      tooltip = "Lookback for the ATR used by every size-based filter below.\n\n" +
        "SHORTER (7–10) = ATR reacts fast to volatility changes, so filters tighten and loosen quickly. Good for sessions with sharp volatility shifts.\n" +
        "LONGER (20–50) = smoother, more stable thresholds. Less reactive to a single volatile bar.\n\n" +
@@ -304,8 +332,15 @@ mVolMult = input.float(1.2, "  Min volume (× average)", minval = 0.1, step = 0.
        "2.0+ = only high-participation breaks. Very restrictive.\n\n" +
        "Only applies when 'Require volume expansion' is ON.")
 
-mVolLen = input.int(20, "  Volume average length", minval = 1, maxval = 200, group = grpF,
-     tooltip = "Lookback for the average volume comparison.\n\n" +
+volBaseline = input.string("Time of day", "  Volume baseline", options = ["Simple average", "Median", "Time of day"], group = grpF,
+     tooltip = "What 'normal volume' means for this bar. This feeds BOTH the volume filter above and the volume component of the confidence score.\n\n" +
+       "SIMPLE AVERAGE — a rolling mean of the last N bars. The classic choice, and the weakest one intraday: volume is strongly U-shaped through a session, so at 10:00 the trailing mean is contaminated by the opening surge and almost nothing passes, while at 12:00 it sits in the lunch lull and almost everything does. The filter ends up measuring what TIME it is as much as it measures participation.\n\n" +
+       "MEDIAN — same rolling window, middle value instead of the mean. One block print or halt-reopen bar stops dragging the baseline around. Still carries the time-of-day bias, just less noisily.\n\n" +
+       "TIME OF DAY (default) — compares this bar against the SAME slot on previous days, so 10:00 is judged against other 10:00s. This is the construction that actually removes the U-shape, and it's what 'relative volume' means everywhere else. Older days decay in weight, so the baseline follows changes in the instrument's activity instead of averaging over its whole history.\n\n" +
+       "Time of day needs a few sessions of history to warm up, and falls back to the median on non-intraday charts where the concept doesn't apply.")
+
+mVolLen = input.int(20, "  Volume lookback (average/median)", minval = 1, maxval = 200, group = grpF,
+     tooltip = "Lookback for the Simple average and Median baselines. Ignored by the Time of day baseline, which uses its own per-slot history instead.\n\n" +
        "SHORTER (10) = compares against very recent activity, adapts quickly within a session.\n" +
        "LONGER (50) = compares against a broader baseline, less affected by a single busy period.\n\n" +
        "20 is a reasonable default for intraday.")
@@ -491,12 +526,14 @@ grpQ = "⑨ Confidence score"
 useScore = input.bool(true, "Score every break 0-100", group = grpQ,
      tooltip = "Grades each break on HOW WELL it passed, instead of a simple pass/fail.\n\n" +
        "The filters above are binary: a break either qualifies or it doesn't. A break that cleared the level by 0.21 ATR and one that cleared it by 1.4 ATR both just say 'HH'. This scores them, so you can tell a marginal signal from an emphatic one.\n\n" +
-       "Score is built from five independent measures:\n" +
-       "  Clearance beyond the level   0-30\n" +
-       "  Displacement of the candle   0-25\n" +
-       "  Body conviction              0-15\n" +
-       "  Volume participation         0-15\n" +
-       "  Size of the leg broken       0-15\n\n" +
+       "Score is built from six measures (default weights, auto-normalised to 100):\n" +
+       "  Clearance beyond the level   30\n" +
+       "  Displacement of the candle   25\n" +
+       "  Body conviction              15\n" +
+       "  Volume participation         15\n" +
+       "  Size of the leg broken       15\n" +
+       "  Follow-through               10\n\n" +
+       "The first three all describe the same breaking candle from different angles, so they tend to move together. Volume, leg size and follow-through each see something the others cannot — follow-through especially, since it is the only one that looks at what happened AFTER the break (it needs Confirmation bars > 0 to be measurable; otherwise it returns a neutral half-score).\n\n" +
        "Rough reading: 75+ is emphatic, 55-75 is solid, below 40 is marginal.")
 
 minScore = input.int(0, "  Minimum score to signal", minval = 0, maxval = 100, group = grpQ,
@@ -539,6 +576,15 @@ wVol = input.int(15, "Weight · volume participation", minval = 0, maxval = 100,
 wLeg = input.int(15, "Weight · size of leg broken", minval = 0, maxval = 100, group = grpQ2,
      tooltip = "How much the score cares that the swing being broken was a LARGE, well-formed leg rather than a shallow one.\n\nThis is the only component that looks at structural context rather than the breaking candle itself.")
 
+wFollow = input.int(10, "Weight · follow-through", minval = 0, maxval = 100, group = grpQ2,
+     tooltip = "How much the score cares that price kept GOING after clearing the level, rather than stalling the moment it got there.\n\n" +
+       "This is the most genuinely independent measure in the score. Clearance, displacement and body conviction all describe the same breaking candle from different angles, so they rise and fall together; follow-through describes what happened NEXT, which none of them can see.\n\n" +
+       "REQUIRES 'Confirmation bars after break' (③ Break quality filters) to be 1 or more — that waiting period is where the follow-through is measured. At 0 confirmation bars there is no 'after' yet, so this component returns a neutral half-score for every break, exactly like the volume component does on feeds without real volume.\n\n" +
+       "Set to 0 to remove it entirely; its share is redistributed across the other measures.")
+
+tFollow = input.float(1.00, "Full marks · follow-through (× ATR)", minval = 0.10, step = 0.10, group = grpQ2,
+     tooltip = "How far beyond the level price must travel during the confirmation window to earn the FULL follow-through score, in ATR.\n\nMeasured from the level to the furthest point reached in the break's direction, so a break that clears and keeps running scores high while one that clears and immediately stalls scores near zero.\n\nRaise on instruments that trend hard after breaking; lower on ones that grind.")
+
 // --- Where each measure earns full marks ---------------------------------------
 tClear = input.float(0.40, "Full marks · clearance (× ATR)", minval = 0.05, step = 0.05, group = grpQ2,
      tooltip = "Clearance beyond the level that earns the FULL clearance score.\n\n" +
@@ -561,7 +607,7 @@ tLeg = input.float(2.00, "Full marks · leg size (× ATR)", minval = 0.10, step 
 // Normalise the weights so the score always lands on a 0-100 scale regardless of
 // what the user typed. Without this, zeroing volume would silently cap the score
 // at 85 and every threshold you had tuned would shift under you.
-float wSum  = wClear + wDisp + wBody + wVol + wLeg
+float wSum  = wClear + wDisp + wBody + wVol + wLeg + wFollow
 float wNorm = wSum > 0 ? 100.0 / wSum : 0.0
 
 lblSize = labelSize == "Tiny" ? size.tiny : labelSize == "Normal" ? size.normal : size.small
@@ -622,9 +668,64 @@ int effRetestMaxAge = scaleBars(50, 5, 200)
 // =============================================================================
 // CORE CALCULATIONS
 // =============================================================================
-atrVal = ta.atr(atrLen)
+// Every size-based threshold in this script is a multiple of atrVal, so the
+// choice of estimator propagates everywhere. ta.tr(true) is gap-aware (it
+// measures against the previous close), which matters on session boundaries.
+// Both branches are evaluated unconditionally — ta.* calls must not sit
+// behind a condition in Pine or their internal state desynchronises.
+float trueRange = ta.tr(true)
+float atrWilder = ta.atr(atrLen)
+float atrMedian = ta.median(trueRange, atrLen)
+atrVal = volMeasure == "Median true range" ? atrMedian : atrWilder
+
 emaVal = ta.ema(close, mTrendLen)
-volAvg = ta.sma(volume, mVolLen)
+
+// ---------------------------- Volume baseline --------------------------------
+// A trailing mean is the wrong reference for intraday volume: the intraday
+// profile is U-shaped, so a 20-bar mean at 10:00 is measuring the opening
+// surge and at 12:00 the lunch lull. The filter then rejects or passes breaks
+// largely according to the clock. Comparing each bar against the SAME slot on
+// previous days removes that, which is what "relative volume" means.
+//
+// One decaying accumulator per intraday slot. Decay makes the baseline follow
+// the instrument's current activity rather than averaging its whole history:
+// at 0.97 per session, a day's weight halves after roughly 23 sessions.
+var array<float> todVolSum = array.new_float(0)
+var array<float> todVolCnt = array.new_float(0)
+
+int tfMinutes = math.max(1, int(math.round(tfSeconds / 60.0)))
+int todSlots  = timeframe.isintraday and tfSeconds > 0 ? int(math.ceil(1440.0 / tfMinutes)) : 0
+
+if todSlots > 0 and array.size(todVolSum) != todSlots
+    todVolSum := array.new_float(todSlots, 0.0)
+    todVolCnt := array.new_float(todSlots, 0.0)
+
+float todVolAvg = na
+if todSlots > 0
+    int slot = int(math.floor((hour * 60.0 + minute) / tfMinutes)) % todSlots
+    float prevCnt = array.get(todVolCnt, slot)
+    // Read BEFORE accumulating, so a bar never contributes to the baseline it
+    // is being judged against.
+    if prevCnt > 0
+        todVolAvg := array.get(todVolSum, slot) / prevCnt
+    // Only confirmed bars update history — otherwise the live bar's partial
+    // volume would be folded in repeatedly as it ticks.
+    if barstate.isconfirmed
+        float d = 0.97
+        array.set(todVolSum, slot, array.get(todVolSum, slot) * d + volume)
+        array.set(todVolCnt, slot, prevCnt * d + 1.0)
+
+// ta.* must run unconditionally to keep their internal state in step.
+float volSma = ta.sma(volume, mVolLen)
+float volMed = ta.median(volume, mVolLen)
+
+// Time of day falls back to the median until its per-slot history has warmed
+// up, and on non-intraday charts where the concept does not apply.
+float volAvg = volMed
+if volBaseline == "Simple average"
+    volAvg := volSma
+else if volBaseline == "Time of day"
+    volAvg := na(todVolAvg) ? volMed : todVolAvg
 
 bool inSession = not mUseSession or not na(time(timeframe.period, mSession))
 
@@ -814,7 +915,10 @@ scoreBreak(bool isUp, float lvl) =>
         if not na(legRaw)
             legFrac := frac01(legRaw / atrVal, tLeg)
         sc += legFrac * wLeg * wNorm
-    math.round(sc)
+    // Returned UNROUNDED and WITHOUT the follow-through component, which is
+    // only knowable after the confirmation window has elapsed. The caller adds
+    // it and rounds once, so the score is never rounded twice.
+    sc
 
 var int lastBreakBar = na
 bool coolOk = cooldownBars == 0 or na(lastBreakBar) or (bar_index - lastBreakBar) >= cooldownBars
@@ -856,11 +960,20 @@ bool candUp   = rawUp   and hasDisplace and hasVolume and coolOk and upNotDup   
 bool candDown = rawDown and hasDisplace and hasVolume and coolOk and downNotDup and wickOkDown and trendOkDown and inSession
 
 // Score the candidates, then apply the minimum-score gate.
+//
+// The gate has to run now, before the confirmation window that follow-through
+// is measured over has even started. So gating uses a NEUTRAL follow-through
+// allowance — the same half-score an unmeasurable component always falls back
+// to. Without it, a non-zero follow-through weight would make every candidate
+// score short of its own maximum and quietly tighten whatever minimum score
+// you had tuned.
+float ftNeutral = 0.5 * wFollow * wNorm
+
 float scoreUp   = candUp   ? scoreBreak(true,  watchHigh) : 0.0
 float scoreDown = candDown ? scoreBreak(false, watchLow)  : 0.0
 if useScore and minScore > 0
-    candUp   := candUp   and scoreUp   >= minScore
-    candDown := candDown and scoreDown >= minScore
+    candUp   := candUp   and (scoreUp   + ftNeutral) >= minScore
+    candDown := candDown and (scoreDown + ftNeutral) >= minScore
 
 // Internal break candidates
 bool iRawUp   = useInternal and not na(iWatchHigh) and close > iWatchHigh
@@ -875,6 +988,11 @@ var float pendLevel = na
 var int   pendLevelBar = na
 var float pendClearance = 0.0
 var float pendScore = 0.0
+// Furthest price travelled beyond the pending level, in price terms, while the
+// confirmation window ran. This is the follow-through measurement: it is the
+// only score input that describes what happened AFTER the break, which is why
+// it carries information none of the candle-shape measures can.
+var float pendMaxExc = 0.0
 
 bool fireUp   = false
 bool fireDown = false
@@ -890,7 +1008,10 @@ if confirmBars == 0
     fireLevelBar := candUp ? watchHighBar : candDown ? watchLowBar : na
     // Guarded against a zero/na ATR, which the other two call sites already were.
     fireClearance := atrVal > 0 ? (candUp ? (upRef - watchHigh) / atrVal : candDown ? (watchLow - downRef) / atrVal : 0.0) : 0.0
-    fireScore := candUp ? scoreUp : candDown ? scoreDown : 0.0
+    // With no confirmation window there is no "after" to measure, so
+    // follow-through takes its neutral half-score for every break — the same
+    // fallback the volume component uses on feeds without real volume.
+    fireScore := math.round((candUp ? scoreUp : candDown ? scoreDown : 0.0) + ftNeutral)
 else
     // Cancel or upgrade pending breaks
     if pendDir == 1
@@ -903,6 +1024,7 @@ else
             pendLevelBar := na
             pendClearance := 0.0
             pendScore := 0.0
+            pendMaxExc := 0.0
             if upgraded
                 pendDir := 1
                 pendBar := bar_index
@@ -910,6 +1032,7 @@ else
                 pendLevelBar := watchHighBar
                 pendClearance := atrVal > 0 ? (upRef - watchHigh) / atrVal : 0.0
                 pendScore := scoreUp
+                pendMaxExc := math.max(0.0, high - watchHigh)
     else if pendDir == -1
         bool cancelled = close > pendLevel + eqTol or candUp
         bool upgraded  = candDown and not na(watchLow) and watchLow < pendLevel - eqTol
@@ -920,6 +1043,7 @@ else
             pendLevelBar := na
             pendClearance := 0.0
             pendScore := 0.0
+            pendMaxExc := 0.0
             if upgraded
                 pendDir := -1
                 pendBar := bar_index
@@ -927,6 +1051,7 @@ else
                 pendLevelBar := watchLowBar
                 pendClearance := atrVal > 0 ? (watchLow - downRef) / atrVal : 0.0
                 pendScore := scoreDown
+                pendMaxExc := math.max(0.0, watchLow - low)
 
     // Start new pending if none active
     if pendDir == 0
@@ -937,6 +1062,7 @@ else
             pendLevelBar := watchHighBar
             pendClearance := atrVal > 0 ? (upRef - watchHigh) / atrVal : 0.0
             pendScore := scoreUp
+            pendMaxExc := math.max(0.0, high - watchHigh)
         else if candDown
             pendDir := -1
             pendBar := bar_index
@@ -944,29 +1070,44 @@ else
             pendLevelBar := watchLowBar
             pendClearance := atrVal > 0 ? (watchLow - downRef) / atrVal : 0.0
             pendScore := scoreDown
+            pendMaxExc := math.max(0.0, watchLow - low)
+
+    // Extend the follow-through measurement across the waiting period. Runs
+    // after the start/upgrade blocks so a pending opened THIS bar already has
+    // its own excursion counted, and before the confirmation check so the bar
+    // that confirms contributes too.
+    if pendDir == 1 and not na(pendLevel)
+        pendMaxExc := math.max(pendMaxExc, high - pendLevel)
+    else if pendDir == -1 and not na(pendLevel)
+        pendMaxExc := math.max(pendMaxExc, pendLevel - low)
 
     // Check for confirmation
     if pendDir != 0 and bar_index - pendBar >= confirmBars
         bool stillUp   = pendDir ==  1 and close > pendLevel
         bool stillDown = pendDir == -1 and close < pendLevel
+        // The confirmation window has now elapsed, so follow-through is finally
+        // measurable: how far price ran past the level, in ATR, against the
+        // full-marks target.
+        float ftScore = atrVal > 0 ? frac01(pendMaxExc / atrVal, tFollow) * wFollow * wNorm : ftNeutral
         if stillUp
             fireUp := true
             fireLevel := pendLevel
             fireLevelBar := pendLevelBar
             fireClearance := pendClearance
-            fireScore := pendScore
+            fireScore := math.round(pendScore + ftScore)
         if stillDown
             fireDown := true
             fireLevel := pendLevel
             fireLevelBar := pendLevelBar
             fireClearance := pendClearance
-            fireScore := pendScore
+            fireScore := math.round(pendScore + ftScore)
         pendDir := 0
         pendBar := na
         pendLevel := na
         pendLevelBar := na
         pendClearance := 0.0
         pendScore := 0.0
+        pendMaxExc := 0.0
 
 // ---------------------------- Break classification ---------------------------
 // Decided once, here, from the pivot sequence — BEFORE the draw blocks below

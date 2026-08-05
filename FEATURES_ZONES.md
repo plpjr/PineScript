@@ -1,9 +1,9 @@
-# Key Zone Map v1.4 — Feature Guide
+# Key Zone Map v1.5 — Feature Guide
 
 *(Formerly "Support/Resistance Zones" — renamed, same script.)*
 
 **File:** `Key_Zone_Map.pine` · **TradingView indicator name:** "Key Zone Map
-v1.4" · **Companion:** `Structure_Break_Signals.pine` (`FEATURES_STRUCTURE.md`)
+v1.5" · **Companion:** `Structure_Break_Signals.pine` (`FEATURES_STRUCTURE.md`)
 
 This is the zones half of what used to be one combined indicator with
 **Structure Break Signals** — split out because the two do genuinely
@@ -115,6 +115,17 @@ One place controls the look and behavior of every zone type:
   built from 1-2 samples is noise dressed up as a number. Raise this for
   more confirmation before trusting a rate; lower it to see numbers sooner
   at the cost of reliability.
+- **Confidence-adjusted rates** — shows a rate you can rely on rather than
+  the raw observed one. The problem with a raw percentage: 14 hits out of 20
+  reads as "70%", but with only 20 samples the true rate could plausibly sit
+  anywhere from about 46% to 88% — the number looks far more precise than the
+  evidence behind it, and you're using it to decide which zones to trade. ON
+  (default) shows the **Wilson score lower bound**, marked with `≥`: the rate
+  you can be 95% confident the zone type beats. It sits close to the observed
+  rate when the sample is large and pulls sharply toward zero when it's
+  small, so a lucky 3-for-3 stops outranking a solid 60-for-100. OFF shows
+  the raw observed percentage — simpler to read, but it treats a 5-sample
+  rate and a 500-sample rate as equally trustworthy.
 
 ---
 

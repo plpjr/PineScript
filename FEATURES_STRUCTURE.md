@@ -1,11 +1,11 @@
-# Structure Break Signals v7.6 — Feature Guide
+# Structure Break Signals v7.7 — Feature Guide
 
 *(Formerly "BOS / CHoCH Structure" — renamed, same script. As of v7.5, the
 BOS/CHoCH labels themselves are renamed to classic Dow Theory swing terms —
 HH, LL, LH, HL — see §1 below.)*
 
 **File:** `Structure_Break_Signals.pine` · **TradingView indicator name:**
-"Structure Break Signals v7.6" · **Companion:** `Key_Zone_Map.pine`
+"Structure Break Signals v7.7" · **Companion:** `Key_Zone_Map.pine`
 (`FEATURES_ZONES.md`)
 
 This indicator does one job: grade individual structure **break events**. It
@@ -126,12 +126,25 @@ reading text.
   points, more signals, more noise, but less lag. Higher (7–12) keeps only
   major swings: cleaner structure, far fewer signals, more lag. Only used
   when Preset = Custom.
-- **ATR length** — lookback for the ATR used by every size-based filter in
-  the indicator. Shorter (7–10) reacts fast to volatility changes, so
-  filters tighten and loosen quickly — good for sessions with sharp
-  volatility shifts. Longer (20–50) is smoother and more stable, less
-  reactive to a single volatile bar. 14 is standard and used in every
-  preset, not just Custom.
+- **Volatility measure** *(ATR (Wilder) / Median true range)* — which
+  estimate of "normal bar size" every ATR-scaled threshold is built on:
+  break clearance, displacement, min swing size, equal-level tolerance, and
+  all six score thresholds. **ATR (Wilder)** is the standard running average
+  of true range — familiar, but it's a *mean* of a right-skewed variable, so
+  one news bar at 10× normal size lifts it for many bars afterward and
+  quietly tightens every threshold at once. The practical effect is that the
+  indicator goes quiet right after the most informative move of the session.
+  **Median true range** takes the middle bar of the lookback instead, so a
+  single outlier barely moves it. Caveat worth knowing before you switch:
+  median true range reads roughly **10–20% lower** than ATR on the same
+  data, because it ignores the fat right tail a mean gets pulled by — so
+  every ATR-multiple setting becomes effectively *looser*. Raise your
+  multiples by about 15% if you want to hold sensitivity constant.
+- **Volatility lookback** — lookback for whichever measure you picked above.
+  Shorter (7–10) reacts fast to volatility changes, so filters tighten and
+  loosen quickly — good for sessions with sharp volatility shifts. Longer
+  (20–50) is smoother and more stable, less reactive to a single volatile
+  bar. 14 is standard and used in every preset, not just Custom.
 - **Filter minor swings by size** — ON means a pivot only counts as
   structure if it moved far enough from the last opposite swing, removing
   the tiny wiggles inside consolidation that would otherwise get labelled as
@@ -210,10 +223,28 @@ All of these are ignored unless Preset = Custom, except where noted.
   candle must be, when volume expansion is required. 1.0 is merely average
   volume. 1.2–1.5 is clear expansion, balanced. 2.0+ keeps only
   high-participation breaks — very restrictive.
-- **Volume average length** — lookback for the average-volume comparison.
-  Shorter (10) compares against very recent activity and adapts quickly
-  within a session. Longer (50) compares against a broader baseline, less
-  affected by a single busy period. 20 is a reasonable intraday default.
+- **Volume baseline** *(Simple average / Median / Time of day)* — what
+  "normal volume" means for this bar. Feeds both the volume filter and the
+  volume component of the confidence score. **Simple average** is a rolling
+  mean and the weakest choice intraday: volume is strongly U-shaped through
+  a session, so at 10:00 the trailing mean is contaminated by the opening
+  surge and almost nothing passes, while at 12:00 it sits in the lunch lull
+  and almost everything does — the filter ends up measuring *what time it
+  is* as much as participation. **Median** uses the same window but the
+  middle value, so one block print stops dragging the baseline around;
+  still time-biased, just less noisily. **Time of day** (default) compares
+  this bar against the same slot on previous days, which is the
+  construction that actually removes the U-shape and is what "relative
+  volume" means everywhere else. Older days decay in weight so the baseline
+  tracks the instrument's current activity rather than its whole history.
+  It needs a few sessions to warm up and falls back to the median on
+  non-intraday charts.
+- **Volume lookback (average/median)** — lookback for the Simple average and
+  Median baselines. Ignored by Time of day, which keeps its own per-slot
+  history. Shorter (10) compares against very recent activity and adapts
+  quickly within a session. Longer (50) compares against a broader
+  baseline, less affected by a single busy period. 20 is a reasonable
+  intraday default.
 - **Merge near-equal levels** — treats levels that sit within a small band
   of each other as the same level. ON prevents the indicator printing two
   labels for what is really one double top or double bottom. OFF treats
@@ -434,12 +465,16 @@ passed — a break that barely qualified and one that qualified emphatically
 both used to just say "HH." Now they say "HH 42" and "HH 91."
 
 - **Score every break 0-100** — the master toggle. Grades each break on how
-  well it passed instead of a simple pass/fail. Built from five independent
-  measures (full breakdown and tuning in `⑩ Score tuning`, next section):
-  clearance beyond the level (0–30), displacement of the candle (0–25), body
-  conviction (0–15), volume participation (0–15), and size of the leg broken
-  (0–15). Rough reading: 75+ is emphatic, 55–75 is solid, below 40 is
-  marginal.
+  well it passed instead of a simple pass/fail. Built from six measures
+  (default weights, auto-normalised to 100; full breakdown and tuning in
+  `⑩ Score tuning`, next section): clearance beyond the level (30),
+  displacement of the candle (25), body conviction (15), volume
+  participation (15), size of the leg broken (15), and follow-through (10).
+  Worth knowing how independent these actually are: the first three all
+  describe the same breaking candle from different angles, so they rise and
+  fall together — volume, leg size and follow-through are what add
+  information the others can't see. Rough reading: 75+ is emphatic, 55–75 is
+  solid, below 40 is marginal.
 - **Minimum score to signal** — breaks scoring below this aren't labelled at
   all. 0 labels everything, score is display-only — start here. Recommended
   workflow: run at 0 for a week with scores shown, watch which scores
@@ -498,6 +533,18 @@ shifting every threshold you had tuned.
   up for breaks of large legs and down for breaks of shallow ones. If you had
   tuned `Minimum score to signal` against the old behaviour, re-check it.)*
 
+- **Weight · follow-through** (default 10) — how much the score cares that
+  price kept *going* after clearing the level rather than stalling the moment
+  it got there. This is the most genuinely independent measure in the score:
+  clearance, displacement and body conviction all describe the same breaking
+  candle, while this one describes what happened next. **Requires
+  `Confirmation bars after break` ≥ 1** — that waiting period is where the
+  follow-through gets measured. At 0 confirmation bars there is no "after"
+  yet, so it returns a neutral half-score for every break, exactly like the
+  volume component does on feeds without real volume. The minimum-score gate
+  applies the same neutral allowance, so turning this weight on doesn't
+  silently tighten a cutoff you'd already tuned.
+
 **Thresholds — where each measure earns full marks:**
 
 - **Full marks · clearance (× ATR)** (default 0.40) — clearance beyond the
@@ -517,6 +564,12 @@ shifting every threshold you had tuned.
 - **Full marks · leg size (× ATR)** (default 2.00) — size of the broken
   leg, in ATR, that earns the full structural score. Raise on higher
   timeframes where legs are naturally larger.
+- **Full marks · follow-through (× ATR)** (default 1.00) — how far beyond the
+  level price must travel during the confirmation window to earn the full
+  follow-through score. Measured from the level to the furthest point reached
+  in the break's direction, so a break that clears and keeps running scores
+  high while one that clears and immediately stalls scores near zero. Raise
+  on instruments that trend hard after breaking; lower on ones that grind.
 
 ---
 

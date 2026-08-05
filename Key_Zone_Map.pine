@@ -1,5 +1,18 @@
 // =============================================================================
-// Key Zone Map  —  v1.4  (formerly "Support / Resistance Zones")
+// Key Zone Map  —  v1.5  (formerly "Support / Resistance Zones")
+//
+// NEW IN v1.5 — STRONGER STATISTICS:
+//   * Hit/held rates are now CONFIDENCE-ADJUSTED by default (Wilson score
+//     lower bound, 95%), shown with a "≥" mark. A raw proportion carries no
+//     indication of how much evidence sits behind it — 3-for-3 and
+//     300-for-300 both print "100%", and the first would outrank the second
+//     in any ranking built on the point estimate. The bound collapses toward
+//     zero on thin samples and converges on the observed rate as evidence
+//     accumulates. Toggle it off to see raw percentages.
+//   * Confluence buckets widened from 0 / 1 / 2+ to 0 / 1 / 2 / 3+. The old
+//     top bucket pooled a four-way confluence with a two-way one, hiding
+//     exactly the distinction the feature exists to show. Finer buckets fill
+//     more slowly, which is what the Wilson bound above is there to absorb.
 //
 // NEW IN v1.4 — CORRECTNESS FIXES (no new settings, no new features):
 //   * FVG midlines are tracked with their gap and deleted with it. They were
@@ -73,7 +86,7 @@
 // close[swingLen] are read directly during swing detection. With the swing
 // input now capped at 50, 500 leaves comfortable headroom. The previous value
 // of 100 was below what the inputs already permitted.
-indicator("Key Zone Map v1.4", overlay = true, max_bars_back = 500, max_lines_count = 500, max_boxes_count = 500)
+indicator("Key Zone Map v1.5", overlay = true, max_bars_back = 500, max_lines_count = 500, max_boxes_count = 500)
 
 // =============================================================================
 // SWING DETECTION
@@ -129,6 +142,12 @@ minOverlapFrac = input.float(0.3, "  Min overlap to count as confluence", minval
 
 minConfSample = input.int(20, "  Min sample size before showing a rate", minval = 1, group = grpZ,
      tooltip = "Hides the hit-rate/hold-rate percentage until at least this many zones at that confluence level have resolved — shows '(building)' with the current count instead. A rate from 1-2 samples is noise dressed up as a number.")
+
+useWilson = input.bool(true, "  Confidence-adjusted rates", group = grpZ,
+     tooltip = "Shows a rate you can actually rely on rather than the raw observed one.\n\n" +
+       "The problem with a raw percentage: 14 hits out of 20 reads as '70%', but with only 20 samples the true rate could plausibly be anywhere from about 46% to 88%. The number looks far more precise than the evidence behind it — and you are using it to decide which zones to trade.\n\n" +
+       "ON (default) = shows the WILSON SCORE LOWER BOUND, marked with '≥'. That is the rate you can be 95% confident the zone type beats. It sits close to the observed rate when the sample is large and pulls sharply toward zero when it is small, so a lucky 3-for-3 stops outranking a solid 60-for-100. This is the correct way to rank proportions by small samples, and it is what makes the finer 0/1/2/3+ confluence buckets safe to read while they fill.\n\n" +
+       "OFF = shows the raw observed percentage. Simpler to interpret, but treats a 5-sample rate and a 500-sample rate as equally trustworthy.")
 
 // =============================================================================
 // SWING ZONES
@@ -300,17 +319,27 @@ var array<int> obConfBucket  = array.new_int(0)
 var array<int> fvgConfBucket = array.new_int(0)
 var array<int> liqConfBucket = array.new_int(0)
 
-var array<int> obConfTotal  = array.new_int(3, 0)
-var array<int> obConfHit    = array.new_int(3, 0)
-var array<int> obConfHeld   = array.new_int(3, 0)
+// Confluence bucketing. Zones are grouped by how many OTHER zone types
+// overlap them, and outcomes are tallied per group. Buckets are 0 / 1 / 2 / 3+
+// — widened from 0 / 1 / 2+, which pooled a four-way confluence with a
+// two-way one and hid exactly the distinction the feature exists to show.
+// Splitting finer spreads the same history over more buckets, so each fills
+// more slowly; the Wilson bound below is what makes those thinner samples
+// safe to read.
+int confTopBucket   = 3
+int confBucketCount = confTopBucket + 1
 
-var array<int> fvgConfTotal = array.new_int(3, 0)
-var array<int> fvgConfHit   = array.new_int(3, 0)
-var array<int> fvgConfHeld  = array.new_int(3, 0)
+var array<int> obConfTotal  = array.new_int(confBucketCount, 0)
+var array<int> obConfHit    = array.new_int(confBucketCount, 0)
+var array<int> obConfHeld   = array.new_int(confBucketCount, 0)
 
-var array<int> liqConfTotal = array.new_int(3, 0)
-var array<int> liqConfHit   = array.new_int(3, 0)
-var array<int> liqConfHeld  = array.new_int(3, 0)
+var array<int> fvgConfTotal = array.new_int(confBucketCount, 0)
+var array<int> fvgConfHit   = array.new_int(confBucketCount, 0)
+var array<int> fvgConfHeld  = array.new_int(confBucketCount, 0)
+
+var array<int> liqConfTotal = array.new_int(confBucketCount, 0)
+var array<int> liqConfHit   = array.new_int(confBucketCount, 0)
+var array<int> liqConfHeld  = array.new_int(confBucketCount, 0)
 
 // Counts active zones in the given parallel top/bottom arrays whose bias flag
 // equals matchBias AND whose price range overlaps [top, bot] by at least
@@ -388,8 +417,8 @@ if useOBBull and rawBreakUp
             obBotVal := low[i]
             break
     if not na(obOffset)
-        int obConf = useConfluence ? math.min(2, overlapCount(obTopVal, obBotVal, fvgTop, fvgBottom, fvgIsBull, true) + overlapCount(obTopVal, obBotVal, liqTop, liqBottom, liqBuySide, false)) : 0
-        string obTxt = "Bull OB" + (useConfluence ? " · " + str.tostring(obConf) + (obConf >= 2 ? "+ conf" : " conf") : "")
+        int obConf = useConfluence ? math.min(confTopBucket, overlapCount(obTopVal, obBotVal, fvgTop, fvgBottom, fvgIsBull, true) + overlapCount(obTopVal, obBotVal, liqTop, liqBottom, liqBuySide, false)) : 0
+        string obTxt = "Bull OB" + (useConfluence ? " · " + str.tostring(obConf) + (obConf >= confTopBucket ? "+ conf" : " conf") : "")
         box ob = box.new(bar_index - obOffset, obTopVal, bar_index + effObExtend, obBotVal,
              border_color = color.new(zoneBullColor, zoneOpacity), border_width = zoneBorderWidth, border_style = styleOf(obBorderStyle),
              bgcolor = color.new(zoneBullColor, math.min(95, zoneOpacity + 8)),
@@ -420,8 +449,8 @@ if useOBBear and rawBreakDown
             obBotVal := low[i]
             break
     if not na(obOffset)
-        int obConf = useConfluence ? math.min(2, overlapCount(obTopVal, obBotVal, fvgTop, fvgBottom, fvgIsBull, false) + overlapCount(obTopVal, obBotVal, liqTop, liqBottom, liqBuySide, true)) : 0
-        string obTxt = "Bear OB" + (useConfluence ? " · " + str.tostring(obConf) + (obConf >= 2 ? "+ conf" : " conf") : "")
+        int obConf = useConfluence ? math.min(confTopBucket, overlapCount(obTopVal, obBotVal, fvgTop, fvgBottom, fvgIsBull, false) + overlapCount(obTopVal, obBotVal, liqTop, liqBottom, liqBuySide, true)) : 0
+        string obTxt = "Bear OB" + (useConfluence ? " · " + str.tostring(obConf) + (obConf >= confTopBucket ? "+ conf" : " conf") : "")
         box ob = box.new(bar_index - obOffset, obTopVal, bar_index + effObExtend, obBotVal,
              border_color = color.new(zoneBearColor, zoneOpacity), border_width = zoneBorderWidth, border_style = styleOf(obBorderStyle),
              bgcolor = color.new(zoneBearColor, math.min(95, zoneOpacity + 8)),
@@ -497,8 +526,8 @@ if atrVal > 0
     if bullGap and useFVGBull
         float gapTop = low
         float gapBot = high[2]
-        int fvgConf = useConfluence ? math.min(2, overlapCount(gapTop, gapBot, obTop, obBottom, obIsBull, true) + overlapCount(gapTop, gapBot, liqTop, liqBottom, liqBuySide, false)) : 0
-        string fvgTxt = "Bull FVG" + (useConfluence ? " · " + str.tostring(fvgConf) + (fvgConf >= 2 ? "+ conf" : " conf") : "")
+        int fvgConf = useConfluence ? math.min(confTopBucket, overlapCount(gapTop, gapBot, obTop, obBottom, obIsBull, true) + overlapCount(gapTop, gapBot, liqTop, liqBottom, liqBuySide, false)) : 0
+        string fvgTxt = "Bull FVG" + (useConfluence ? " · " + str.tostring(fvgConf) + (fvgConf >= confTopBucket ? "+ conf" : " conf") : "")
         box g = box.new(bar_index - 2, gapTop, bar_index + effFvgExtend, gapBot,
              border_color = color.new(zoneBullColor, zoneOpacity), border_width = zoneBorderWidth, border_style = styleOf(fvgBorderStyle),
              bgcolor = color.new(zoneBullColor, math.min(95, zoneOpacity + 8)),
@@ -527,8 +556,8 @@ if atrVal > 0
     if bearGap and useFVGBear
         float gapTop = low[2]
         float gapBot = high
-        int fvgConf = useConfluence ? math.min(2, overlapCount(gapTop, gapBot, obTop, obBottom, obIsBull, false) + overlapCount(gapTop, gapBot, liqTop, liqBottom, liqBuySide, true)) : 0
-        string fvgTxt = "Bear FVG" + (useConfluence ? " · " + str.tostring(fvgConf) + (fvgConf >= 2 ? "+ conf" : " conf") : "")
+        int fvgConf = useConfluence ? math.min(confTopBucket, overlapCount(gapTop, gapBot, obTop, obBottom, obIsBull, false) + overlapCount(gapTop, gapBot, liqTop, liqBottom, liqBuySide, true)) : 0
+        string fvgTxt = "Bear FVG" + (useConfluence ? " · " + str.tostring(fvgConf) + (fvgConf >= confTopBucket ? "+ conf" : " conf") : "")
         box g = box.new(bar_index - 2, gapTop, bar_index + effFvgExtend, gapBot,
              border_color = color.new(zoneBearColor, zoneOpacity), border_width = zoneBorderWidth, border_style = styleOf(fvgBorderStyle),
              bgcolor = color.new(zoneBearColor, math.min(95, zoneOpacity + 8)),
@@ -617,8 +646,8 @@ if useLiqBuySide and not na(ph)
             if math.abs(ph - v) <= liqTol * atrVal
                 float lTop = math.max(ph, v)
                 float lBot = math.min(ph, v)
-                int liqConf = useConfluence ? math.min(2, overlapCount(lTop, lBot, obTop, obBottom, obIsBull, false) + overlapCount(lTop, lBot, fvgTop, fvgBottom, fvgIsBull, false)) : 0
-                string liqTxt = "Buy-side Liquidity" + (useConfluence ? " · " + str.tostring(liqConf) + (liqConf >= 2 ? "+ conf" : " conf") : "")
+                int liqConf = useConfluence ? math.min(confTopBucket, overlapCount(lTop, lBot, obTop, obBottom, obIsBull, false) + overlapCount(lTop, lBot, fvgTop, fvgBottom, fvgIsBull, false)) : 0
+                string liqTxt = "Buy-side Liquidity" + (useConfluence ? " · " + str.tostring(liqConf) + (liqConf >= confTopBucket ? "+ conf" : " conf") : "")
                 box lb = box.new(array.get(pivHighBars, j), lTop, bar_index + effLiqExtend, lBot,
                      border_color = color.new(zoneBearColor, zoneOpacity), border_width = zoneBorderWidth, border_style = styleOf(liqBorderStyle),
                      bgcolor = color.new(zoneBearColor, math.min(95, zoneOpacity + 10)),
@@ -654,8 +683,8 @@ if useLiqSellSide and not na(pl)
             if math.abs(pl - v) <= liqTol * atrVal
                 float lTop = math.max(pl, v)
                 float lBot = math.min(pl, v)
-                int liqConf = useConfluence ? math.min(2, overlapCount(lTop, lBot, obTop, obBottom, obIsBull, true) + overlapCount(lTop, lBot, fvgTop, fvgBottom, fvgIsBull, true)) : 0
-                string liqTxt = "Sell-side Liquidity" + (useConfluence ? " · " + str.tostring(liqConf) + (liqConf >= 2 ? "+ conf" : " conf") : "")
+                int liqConf = useConfluence ? math.min(confTopBucket, overlapCount(lTop, lBot, obTop, obBottom, obIsBull, true) + overlapCount(lTop, lBot, fvgTop, fvgBottom, fvgIsBull, true)) : 0
+                string liqTxt = "Sell-side Liquidity" + (useConfluence ? " · " + str.tostring(liqConf) + (liqConf >= confTopBucket ? "+ conf" : " conf") : "")
                 box lb = box.new(array.get(pivLowBars, j), lTop, bar_index + effLiqExtend, lBot,
                      border_color = color.new(zoneBullColor, zoneOpacity), border_width = zoneBorderWidth, border_style = styleOf(liqBorderStyle),
                      bgcolor = color.new(zoneBullColor, math.min(95, zoneOpacity + 10)),
@@ -760,12 +789,38 @@ pickRep(int obN, int obTot, int obHit, int obHeld, int fvgN, int fvgTot, int fvg
         repTag := "Liq"
     [tot, hit, held, repTag]
 
+// Wilson score interval, lower bound, at 95% confidence.
+//
+// A raw hit/total proportion carries no indication of how much evidence sits
+// behind it: 3-for-3 and 300-for-300 both print "100%", and the first will
+// happily outrank the second in a ranking built on the point estimate. The
+// Wilson lower bound is the standard fix — it answers "what rate can I be 95%
+// confident this actually beats", which is the question a trader ranking zones
+// is really asking. It collapses toward 0 for tiny samples and converges on
+// the observed rate as evidence accumulates.
+//
+// Preferred over the textbook normal approximation because that one misbehaves
+// badly exactly where zone statistics live: small n and proportions near 0 or 1.
+wilsonLower(int hit, int tot) =>
+    float r = 0.0
+    if tot > 0
+        float z   = 1.96
+        float z2  = z * z
+        float n   = tot
+        float p   = hit / n
+        float den = 1.0 + z2 / n
+        float ctr = p + z2 / (2.0 * n)
+        float mrg = z * math.sqrt(math.max(0.0, p * (1.0 - p) / n + z2 / (4.0 * n * n)))
+        r := math.max(0.0, (ctr - mrg) / den)
+    r
+
 rateText(int tot, int hit, int held, string repTag) =>
     string txt = ""
     if tot >= minConfSample
-        float hitRate  = 100.0 * hit / tot
-        float heldRate = 100.0 * held / tot
-        txt := repTag + " hit " + str.tostring(hitRate, "#") + "%/held " + str.tostring(heldRate, "#") + "% (n=" + str.tostring(tot) + ")"
+        float hitRate  = useWilson ? 100.0 * wilsonLower(hit,  tot) : 100.0 * hit  / tot
+        float heldRate = useWilson ? 100.0 * wilsonLower(held, tot) : 100.0 * held / tot
+        string mark = useWilson ? "≥" : ""
+        txt := repTag + " hit " + mark + str.tostring(hitRate, "#") + "%/held " + mark + str.tostring(heldRate, "#") + "% (n=" + str.tostring(tot) + ")"
     else if tot > 0
         txt := repTag + " n=" + str.tostring(tot) + " (building)"
     txt
@@ -778,7 +833,7 @@ if useConfluence and barstate.islast
         int fvgOverlap = overlapCount(resTop, resBot, fvgTop, fvgBottom, fvgIsBull, false)
         int liqOverlap = overlapCount(resTop, resBot, liqTop, liqBottom, liqBuySide, true)
         resConfluence := obOverlap + fvgOverlap + liqOverlap
-        int bucket = int(math.min(2, resConfluence))
+        int bucket = int(math.min(confTopBucket, resConfluence))
         [tot, hit, held, repTag] = pickRep(
              obOverlap,  array.get(obConfTotal,  bucket), array.get(obConfHit,  bucket), array.get(obConfHeld,  bucket),
              fvgOverlap, array.get(fvgConfTotal, bucket), array.get(fvgConfHit, bucket), array.get(fvgConfHeld, bucket),
@@ -792,7 +847,7 @@ if useConfluence and barstate.islast
         int fvgOverlap = overlapCount(supTop, supBot, fvgTop, fvgBottom, fvgIsBull, true)
         int liqOverlap = overlapCount(supTop, supBot, liqTop, liqBottom, liqBuySide, false)
         supConfluence := obOverlap + fvgOverlap + liqOverlap
-        int bucket = int(math.min(2, supConfluence))
+        int bucket = int(math.min(confTopBucket, supConfluence))
         [tot, hit, held, repTag] = pickRep(
              obOverlap,  array.get(obConfTotal,  bucket), array.get(obConfHit,  bucket), array.get(obConfHeld,  bucket),
              fvgOverlap, array.get(fvgConfTotal, bucket), array.get(fvgConfHit, bucket), array.get(fvgConfHeld, bucket),
