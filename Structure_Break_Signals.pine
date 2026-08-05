@@ -22,6 +22,12 @@
 //   * To keep the old behaviour: set Confirmation bars back to 0, and set
 //     "Weight · follow-through" (⑩) to 0 so its share redistributes to the
 //     measures that still work rather than sitting inert.
+//   * COMPILE FIX: the retest markers never compiled. plotshape's `size`
+//     argument requires a CONST string, but it was being handed a value
+//     derived from the "Retest marker size" input — an input string. This
+//     has been broken since the setting was added in v7.3, meaning the
+//     script would not load at all with the retest markers present. Now
+//     resolved with one gated plotshape per size constant.
 //   * Internal-structure pivots are computed unconditionally and gated
 //     afterwards, matching the swing engine. A ta.* call behind a condition
 //     is not guaranteed to run every bar; harmless while the toggle is a
@@ -700,7 +706,9 @@ float wSum  = wClear + wDisp + wBody + wVol + wLeg + wFollow
 float wNorm = wSum > 0 ? 100.0 / wSum : 0.0
 
 lblSize = labelSize == "Tiny" ? size.tiny : labelSize == "Normal" ? size.normal : size.small
-retestMarkerSizeVal = retestMarkerSize == "Tiny" ? size.tiny : retestMarkerSize == "Normal" ? size.normal : size.small
+// No retestMarkerSizeVal equivalent here: plotshape's `size` needs a const, so
+// the retest markers resolve the size at their call sites instead (see the
+// six gated plotshape calls near the alerts).
 tablePos = tablePosition == "Top Left" ? position.top_left : tablePosition == "Bottom Right" ? position.bottom_right : tablePosition == "Bottom Left" ? position.bottom_left : position.top_right
 styleOf(s) => s == "Solid" ? line.style_solid : s == "Dashed" ? line.style_dashed : line.style_dotted
 
@@ -1623,10 +1631,29 @@ if barstate.isconfirmed and array.size(retestLevels) > 0
 // itself. These triangles make the event visible without opening the alert
 // log, colored to match the HH/LL/LH/HL palette (retestUp held support =
 // HH/LL colour, retestDown held resistance = LH/HL colour).
-plotshape(showRetestSupportMarker and retestUp, title = "Retest Support Marker",
-     location = location.belowbar, style = shape.triangleup, color = colCont, size = retestMarkerSizeVal)
-plotshape(showRetestResistanceMarker and retestDown, title = "Retest Resistance Marker",
-     location = location.abovebar, style = shape.triangledown, color = colRev, size = retestMarkerSizeVal)
+// plotshape's `size` argument demands a CONST string, and retestMarkerSize is
+// an input — so one call parameterised by it cannot compile, which is why this
+// setting had never worked since it was added in v7.3. Pine's standard
+// workaround is one call per constant, gated on the input. Six calls (three
+// sizes x two sides) is the price of keeping the size adjustable at all;
+// exactly one of each pair is ever live.
+bool retestTiny   = retestMarkerSize == "Tiny"
+bool retestNormal = retestMarkerSize == "Normal"
+bool retestSmall  = not retestTiny and not retestNormal
+
+plotshape(showRetestSupportMarker and retestUp and retestTiny, title = "Retest Support Marker (tiny)",
+     location = location.belowbar, style = shape.triangleup, color = colCont, size = size.tiny)
+plotshape(showRetestSupportMarker and retestUp and retestSmall, title = "Retest Support Marker (small)",
+     location = location.belowbar, style = shape.triangleup, color = colCont, size = size.small)
+plotshape(showRetestSupportMarker and retestUp and retestNormal, title = "Retest Support Marker (normal)",
+     location = location.belowbar, style = shape.triangleup, color = colCont, size = size.normal)
+
+plotshape(showRetestResistanceMarker and retestDown and retestTiny, title = "Retest Resistance Marker (tiny)",
+     location = location.abovebar, style = shape.triangledown, color = colRev, size = size.tiny)
+plotshape(showRetestResistanceMarker and retestDown and retestSmall, title = "Retest Resistance Marker (small)",
+     location = location.abovebar, style = shape.triangledown, color = colRev, size = size.small)
+plotshape(showRetestResistanceMarker and retestDown and retestNormal, title = "Retest Resistance Marker (normal)",
+     location = location.abovebar, style = shape.triangledown, color = colRev, size = size.normal)
 
 alertcondition(retestUp,   title = "Retest Support",   message = "Price retesting broken support level on {{ticker}} @ {{close}}")
 alertcondition(retestDown, title = "Retest Resistance", message = "Price retesting broken resistance level on {{ticker}} @ {{close}}")

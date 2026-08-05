@@ -60,6 +60,11 @@ behaviour.
   transcription. *Export chart data…* now produces a CSV you can join against
   outcomes, and alert messages can interpolate `{{plot("Break score")}}`. See
   [Data export](Structure-Break-Signals.md#data-export).
+- **Compile fix: the retest markers never compiled.** `plotshape`'s `size`
+  argument requires a *const* string, but it was being passed a value derived
+  from the `Retest marker size` input. Broken since the setting was added in
+  v7.3 — the script would not load at all. Now one gated `plotshape` per size
+  constant, so the setting works for the first time.
 - Internal-structure pivots computed unconditionally and gated afterwards,
   matching the swing engine — a `ta.*` call behind a condition isn't guaranteed
   to run every bar.
