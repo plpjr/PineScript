@@ -150,17 +150,37 @@ history. Rushing this is the most common way to get bad results from either.
 
 ### Calibrating the confidence score
 
-1. Run with **`Minimum score to signal` = 0** and **`Show score on label` = ON**
-   for 1–2 weeks on your actual instrument and timeframe.
-2. Log every break — score, direction, type, and what happened next.
-3. At **~20–30 logged events**, look at where outcomes actually separate.
-4. Set `Minimum score to signal` to *that* number.
-5. **Re-check quarterly** — thresholds drift as volatility regimes change.
+As of v7.9 this is a data export, not a transcription exercise. The script
+plots its break data to the Data Window specifically so you can get it out —
+see [Data export](Structure-Break-Signals.md#data-export).
 
-> If almost everything scores 85+, the score isn't discriminating and any
-> cutoff will be arbitrary. Raise `Full marks · clearance` and `Full marks ·
-> candle range` first. Full detail: [Confidence Score →
+1. Set **`Minimum score to signal` = 0** so nothing is filtered out. You are
+   collecting the full distribution, including the breaks you'd normally
+   reject — those are half the evidence.
+2. Let it run on your actual instrument and timeframe. A week or two, or just
+   load enough history.
+3. **Chart menu → *Export chart data…*** → CSV.
+4. In a spreadsheet, filter to rows where `Break score` is non-empty. That's
+   one row per break, with type, level, clearance and ATR alongside.
+5. Add your own **outcome** column. What counts as a win is your definition —
+   "price moved 1×ATR in the break's direction before moving 1×ATR against"
+   is a reasonable mechanical starting point, and `Break level` + `ATR` give
+   you everything needed to compute it.
+6. Bucket by score (0–40, 40–55, 55–70, 70–85, 85+) and compare outcome rates.
+   **The cutoff is wherever the rate actually separates** — not a round number.
+7. Set `Minimum score to signal` to that. **Re-check quarterly**, thresholds
+   drift with volatility regimes.
+
+> **Check the distribution before trusting the cutoff.** If almost everything
+> scores 85+, the score isn't discriminating and any threshold is arbitrary —
+> raise `Full marks · clearance` and `Full marks · candle range` first, then
+> re-export. Full detail: [Confidence Score →
 > Calibration](Confidence-Score.md#calibration).
+
+> **Split by `Break type` too.** Continuation (`≤2`) and reversal (`≥3`) breaks
+> may well have different useful cutoffs — the wiki argues throughout that they
+> are different jobs, and this is how you'd actually find out on your
+> instrument.
 
 ### Calibrating confluence
 

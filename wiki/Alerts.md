@@ -56,6 +56,22 @@ Price retesting broken support level on {{ticker}} @ {{close}}
 You can overwrite the message in the alert dialog and use any TradingView
 placeholder (`{{interval}}`, `{{time}}`, `{{exchange}}`, …).
 
+### Including the score in an alert
+
+The script exposes its break data as named plots, so alert messages can
+interpolate them directly:
+
+```
+{{plot("Break type")}} on {{ticker}} @ {{close}} — score {{plot("Break score")}}, level {{plot("Break level")}}
+```
+
+Available: `Break score`, `Break type` (`1`=HH `2`=LL `3`=LH `4`=HL),
+`Break level`, `Break clearance (ATR)`, `Retest fired`, `ATR`, `Bias`. Full
+table under [Data export](Structure-Break-Signals.md#data-export).
+
+This is the difference between an alert that says something happened and one
+you can act on — or log — without opening the chart.
+
 ---
 
 ## Timing: once per bar close

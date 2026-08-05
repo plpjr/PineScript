@@ -5,7 +5,7 @@
 Both scripts version independently. The authoritative history lives in each
 `.pine` file's header comment; this page is the readable summary.
 
-**Current:** Structure Break Signals **v7.8** · Key Zone Map **v1.6**
+**Current:** Structure Break Signals **v7.9** · Key Zone Map **v1.6**
 
 ---
 
@@ -20,6 +20,7 @@ worth knowing before you trust the output:
 | **Confidence scores shifted** — the leg-size component was frequently returning a neutral half-score instead of measuring, and follow-through was added | v7.6, v7.7 | **Re-check `Minimum score to signal`** if you had tuned it |
 | **Zone hit rates now show a confidence-adjusted `≥` figure** and buckets were split finer | v1.5, v1.6 | Numbers will read lower and take longer to fill. [Why](Confluence-and-Hit-Rates.md#wilson) |
 | **`Reject long-wick breaks` triggers more often** — it was measuring the wrong two quantities | v7.6 | If you had it on, expect more rejections; it's catching cases it used to miss |
+| **Signals arrive one bar later** — `Confirmation bars` now defaults to 1 | v7.9 | Nothing to change, but it is a real cost. Set back to 0 (and zero the follow-through weight) if entry timing matters more |
 
 Two new opt-in features default to the *old* behaviour, so nothing changes
 unless you choose it: the [directional-change swing
@@ -32,6 +33,36 @@ behaviour.
 ---
 
 # Structure Break Signals
+
+## v7.9 — Follow-through actually measures something
+
+- **`Confirmation bars after break` now defaults to `1`** (was `0`). v7.7 added
+  a follow-through score component, but follow-through is measured *across the
+  confirmation window* — and at 0 confirmation bars the break fires on the same
+  bar it happens, so there is structurally no "after" to look at. The component
+  was returning its neutral half-score for **every single break**: a constant,
+  contributing zero ability to tell breaks apart. Anyone on defaults was
+  carrying the weight of a measure that could not do anything.
+  - **Cost:** every signal now arrives one bar later, on every timeframe.
+  - **Also visible:** the pending state machine becomes the default path, so
+    the unconfirmed-break preview (already on by default) starts drawing its
+    faint ghost line — a chart element most users won't have seen.
+  - **Scores shift again**, on top of v7.6/v7.7. Follow-through goes from a
+    flat constant to a real 0–10 varying contribution. **Re-check
+    `Minimum score to signal`.**
+  - **To revert:** set `Confirmation bars` to `0` *and* `Weight ·
+    follow-through` to `0`, so its share redistributes rather than sitting
+    inert.
+- **The score can now leave the chart.** Seven `display.data_window` plots
+  added — break score, type, level, signed clearance, retest flag, ATR, bias.
+  Nothing in this script was ever plotted, which meant the documented
+  calibration workflow ("log every break for two weeks") was manual
+  transcription. *Export chart data…* now produces a CSV you can join against
+  outcomes, and alert messages can interpolate `{{plot("Break score")}}`. See
+  [Data export](Structure-Break-Signals.md#data-export).
+- Internal-structure pivots computed unconditionally and gated afterwards,
+  matching the swing engine — a `ta.*` call behind a condition isn't guaranteed
+  to run every bar.
 
 ## v7.8 — Adaptive swing engine
 

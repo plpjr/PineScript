@@ -142,10 +142,19 @@ that trend hard after breaking; lower on ones that grind.
 > break — the same fallback the volume component uses on feeds without real
 > volume.
 
-This is the most genuinely independent measure in the score, and it is
-switched off by default only in the sense that the default `Confirmation bars
-= 0` makes it unmeasurable. If you already run 1–2 confirmation bars, you are
-getting it for free.
+This is the most genuinely independent measure in the score: the other five all
+read the breaking candle or the structure around it, while this one reads what
+the market did next.
+
+> **v7.9 changed the `Confirmation bars` default from 0 to 1 specifically so
+> this component works.** Between v7.7 and v7.9 it shipped enabled at weight 10
+> but structurally unmeasurable on default settings — a flat constant added to
+> every break, carrying weight it could not use. It now varies per break.
+> **Scores shifted again as a result; re-check `Minimum score to signal`.**
+>
+> Setting `Confirmation bars` back to 0 is a legitimate choice if entry timing
+> matters more to you — but zero this weight at the same time, so its share
+> redistributes rather than sitting inert.
 
 ---
 

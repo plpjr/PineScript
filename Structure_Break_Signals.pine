@@ -1,5 +1,45 @@
 // =============================================================================
-// Structure Break Signals  —  v7.8
+// Structure Break Signals  —  v7.9
+//
+// NEW IN v7.9 — FOLLOW-THROUGH ACTUALLY MEASURES SOMETHING:
+//   * "Confirmation bars after break" now DEFAULTS TO 1 (was 0).
+//     v7.7 added a follow-through score component, but follow-through is
+//     measured across the confirmation window — and at 0 confirmation bars
+//     the break fires on the same bar it happens, so there is structurally
+//     no "after" to look at. The component was returning its neutral
+//     half-score for every single break: a constant, contributing zero
+//     ability to tell breaks apart. Anyone on defaults was carrying the
+//     weight of a measure that could not do anything.
+//   * What this costs: every signal now arrives ONE BAR LATER. That is a
+//     real price and it applies on every timeframe.
+//   * What else changes: the pending state machine becomes the default code
+//     path, so the unconfirmed-break preview (⑤, already on by default)
+//     starts drawing its faint ghost line — a chart element most users will
+//     not have seen before. It marks a break waiting out confirmation.
+//   * Scores shift again, on top of the v7.6/v7.7 shifts: follow-through
+//     goes from a flat constant to a real 0-10 contribution that varies per
+//     break. RE-CHECK "Minimum score to signal" if you had tuned it.
+//   * To keep the old behaviour: set Confirmation bars back to 0, and set
+//     "Weight · follow-through" (⑩) to 0 so its share redistributes to the
+//     measures that still work rather than sitting inert.
+//   * Internal-structure pivots are computed unconditionally and gated
+//     afterwards, matching the swing engine. A ta.* call behind a condition
+//     is not guaranteed to run every bar; harmless while the toggle is a
+//     static input, but Pine warns on it.
+//
+// ALSO NEW IN v7.9 — THE SCORE CAN NOW LEAVE THE CHART:
+//   * Seven data_window plots added: break score, break type (1=HH 2=LL
+//     3=LH 4=HL), break level, signed clearance, retest flag, ATR and bias.
+//     Nothing in this script was ever plotted, so the documented calibration
+//     workflow — "run at minimum score 0 for two weeks and log every break"
+//     — meant transcribing numbers off the chart by hand, which is why it
+//     probably never happened.
+//   * Chart menu -> "Export chart data..." now writes a CSV with those
+//     columns, populated on break bars and na elsewhere. Join against your
+//     own outcome column and the score cutoff falls out of the data.
+//   * Alert messages can interpolate them: {{plot("Break score")}}.
+//   * They are display.data_window, so they stay off the chart and out of
+//     the price scale while remaining exportable and alert-addressable.
 //
 // NEW IN v7.8 — ADAPTIVE SWING ENGINE:
 //   * New SWING ENGINE choice. The pivot detector's confirmation lag is a
@@ -209,7 +249,7 @@
 // (swing 50 -> 100 bars, volume 200), 500 leaves comfortable headroom. The
 // previous value of 100 was below what the inputs already permitted and threw
 // "requested historical offset is beyond the historical buffer's limit".
-indicator("Structure Break Signals v7.8", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500)
+indicator("Structure Break Signals v7.9", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500)
 
 // =============================================================================
 // SENSITIVITY MASTER CONTROLS
@@ -396,12 +436,15 @@ mCooldown = input.int(3, "Min bars between breaks", minval = 0, maxval = 100, gr
        "TRADEOFF: a high cooldown can suppress a genuine fast reversal that legitimately breaks structure twice in quick succession.\n\n" +
        "Only used when Preset = Custom.")
 
-mConfirmBars = input.int(0, "Confirmation bars after break", minval = 0, maxval = 5, group = grpF,
+mConfirmBars = input.int(1, "Confirmation bars after break", minval = 0, maxval = 5, group = grpF,
      tooltip = "Waits N bars after a break and only labels it if price is STILL beyond the level.\n\n" +
        "0 = label immediately on the breaking candle's close.\n" +
-       "1–2 = waits for follow-through. Cuts fakeouts noticeably.\n" +
+       "1 = default. One bar of follow-through required.\n" +
+       "2 = cuts fakeouts noticeably harder.\n" +
        "3–5 = very conservative, but the label arrives well after the move started.\n\n" +
-       "TRADEOFF: this is the most direct quality-vs-lag dial in the indicator. Every bar you add here is a bar of entry you give up. Use it if fakeouts cost you more than late entries do.")
+       "TRADEOFF: this is the most direct quality-vs-lag dial in the indicator. Every bar you add here is a bar of entry you give up. Use it if fakeouts cost you more than late entries do.\n\n" +
+       "ALSO CONTROLS THE FOLLOW-THROUGH SCORE. The waiting period is where follow-through is measured — how far price actually ran past the level after clearing it. At 0 there is no 'after' to look at, so that component returns a flat neutral half-score for every break and contributes nothing to telling breaks apart. This is why the default is 1 rather than 0: at 0 you are paying for a score component that cannot do anything.\n\n" +
+       "Set this to 0 only if entry timing matters more to you than the extra measure, and consider zeroing 'Weight · follow-through' (⑩) at the same time so its share redistributes to measures that still work.")
 
 mStrictBreak = input.bool(false, "Strict: full body beyond level", group = grpF,
      tooltip = "Requires BOTH the open and the close to be beyond the level, not just the close.\n\n" +
@@ -840,9 +883,15 @@ int   phBar = useDC ? dcPhBar : (na(pivPh) ? na : bar_index - swingLen)
 float pl    = useDC ? dcPl : pivPl
 int   plBar = useDC ? dcPlBar : (na(pivPl) ? na : bar_index - swingLen)
 
-// Internal structure pivots
-float iPh = useInternal ? ta.pivothigh(high, intSwingLen, intSwingLen) : na
-float iPl = useInternal ? ta.pivotlow(low, intSwingLen, intSwingLen) : na
+// Internal structure pivots. Computed unconditionally and gated afterwards,
+// for the same reason the swing engine above does: a ta.* call behind a
+// condition is not guaranteed to run every bar, which desynchronises its
+// internal state. Harmless while useInternal is a static input, but Pine warns
+// on it and the pattern is wrong to leave lying around.
+float iPhRaw = ta.pivothigh(high, intSwingLen, intSwingLen)
+float iPlRaw = ta.pivotlow(low, intSwingLen, intSwingLen)
+float iPh = useInternal ? iPhRaw : na
+float iPl = useInternal ? iPlRaw : na
 
 var float watchHigh    = na
 var int   watchHighBar = na
@@ -1581,3 +1630,55 @@ plotshape(showRetestResistanceMarker and retestDown, title = "Retest Resistance 
 
 alertcondition(retestUp,   title = "Retest Support",   message = "Price retesting broken support level on {{ticker}} @ {{close}}")
 alertcondition(retestDown, title = "Retest Resistance", message = "Price retesting broken resistance level on {{ticker}} @ {{close}}")
+
+// =============================================================================
+// MACHINE-READABLE OUTPUT
+// =============================================================================
+// The score is useless for calibration if the only way to collect it is
+// reading numbers off the chart by hand — which is what the documented
+// "run at minimum score 0 for two weeks and log every break" workflow
+// amounted to, because nothing in this script was ever plotted.
+//
+// These series exist to get the data OUT. Two uses:
+//
+//   1. Chart menu -> "Export chart data..." writes a CSV with one row per bar
+//      and these columns populated on break bars. Join that against your own
+//      outcome column in a spreadsheet and the cutoff falls out of the data
+//      instead of being guessed.
+//
+//   2. Alert messages can interpolate them via {{plot("Break score")}}, so a
+//      notification or webhook carries the score without opening the chart.
+//
+// display.data_window keeps them off the chart and out of the price scale
+// (they would wreck it — scores are 0-100, levels are prices) while still
+// exporting and still being addressable from alerts.
+//
+// na on non-break bars rather than 0, so a spreadsheet filter on "score is not
+// empty" gives exactly the break rows and nothing else.
+
+bool anyBreak = fireUp or fireDown
+
+plot(anyBreak ? fireScore : na, "Break score",
+     display = display.data_window)
+
+// 1 = HH, 2 = LL, 3 = LH, 4 = HL. Continuation is odd/even 1-2, reversal 3-4,
+// so `type <= 2` filters continuations and `type >= 3` filters reversals.
+plot(fireIsHH ? 1 : fireIsLL ? 2 : fireIsLH ? 3 : fireIsHL ? 4 : na, "Break type",
+     display = display.data_window)
+
+plot(anyBreak ? fireLevel : na, "Break level",
+     display = display.data_window)
+
+// Signed: positive for up breaks, negative for down, so direction survives the
+// export without needing to cross-reference the type column.
+plot(anyBreak ? (fireUp ? fireClearance : -fireClearance) : na, "Break clearance (ATR)",
+     display = display.data_window)
+
+// 1 = support retest, -1 = resistance retest.
+plot(retestUp ? 1 : retestDown ? -1 : na, "Retest fired",
+     display = display.data_window)
+
+// Context columns — constant per bar, but they make an exported CSV
+// self-describing instead of needing a note about what the settings were.
+plot(atrVal, "ATR", display = display.data_window)
+plot(bias, "Bias", display = display.data_window)

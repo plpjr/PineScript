@@ -1,7 +1,7 @@
 # Structure Break Signals
 
 [← Home](Home.md) · **File:** `Structure_Break_Signals.pine` · **Version:**
-v7.8 · **Companion:** [Key Zone Map](Key-Zone-Map.md)
+v7.9 · **Companion:** [Key Zone Map](Key-Zone-Map.md)
 
 One job: grade individual structure **break events**. It labels continuation
 breaks (**HH** / **LL**) and reversal breaks (**LH** / **HL**) with a 0–100
@@ -145,7 +145,7 @@ missing swings you'd mark by hand. *Custom only.*
 | Merge near-equal levels | `ON` | |
 | Equal-level tolerance (× ATR) | `0.15` | ≥ 0.0 |
 | Min bars between breaks | `3` | 0–100 |
-| Confirmation bars after break | `0` | 0–5 |
+| Confirmation bars after break | `1` | 0–5 |
 | Strict: full body beyond level | `OFF` | |
 
 ### The two highest-value filters
@@ -217,12 +217,19 @@ that legitimately breaks structure twice in quick succession.
 **Confirmation bars after break** — waits N bars and only labels the break if
 price is *still* beyond the level. This is **the most direct quality-vs-lag
 dial in the indicator** — every bar you add is a bar of entry you give up.
-`0` labels immediately; `1–2` cuts fakeouts noticeably; `3–5` is very
-conservative. *Available in every preset, not just Custom.*
+`0` labels immediately; `1` (default) requires one bar of follow-through; `2`
+cuts fakeouts harder; `3–5` is very conservative. *Available in every preset,
+not just Custom.*
 
-> Setting this to 1 or more is also what makes the
-> [follow-through score component](Confidence-Score.md#follow-through)
-> measurable.
+> **This also controls whether the follow-through score component works at
+> all.** Follow-through is measured *across the confirmation window* — at `0`
+> the break fires on the same bar it happens, so there is no "after" to look
+> at and that component returns a flat neutral half-score for every break,
+> contributing nothing. **This is why the default is 1 rather than 0**
+> (changed in v7.9): at `0` you carry the weight of a measure that cannot do
+> anything. If you set it back to `0` for entry timing, also zero
+> `Weight · follow-through` so its share redistributes to measures that still
+> work. See [Confidence Score](Confidence-Score.md#follow-through).
 
 **Strict: full body beyond level** — requires both open and close beyond the
 level. Very restrictive and meaningfully later. Most people should leave this
@@ -453,6 +460,42 @@ high-confidence structure stands out without reading numbers.
 
 Per-measure weights and full-marks thresholds. Covered in full on the
 **[Confidence Score](Confidence-Score.md)** page.
+
+---
+
+<a id="data-export"></a>
+
+## Data export
+
+Seven series are plotted to the **Data Window** (not the chart) purely so break
+data can leave TradingView:
+
+| Column | Populated on | Encoding |
+|---|---|---|
+| `Break score` | Break bars | 0–100 |
+| `Break type` | Break bars | `1`=HH `2`=LL `3`=LH `4`=HL — so `≤2` is continuation, `≥3` is reversal |
+| `Break level` | Break bars | Price of the broken level |
+| `Break clearance (ATR)` | Break bars | Signed: positive up, negative down |
+| `Retest fired` | Retest bars | `1`=support, `-1`=resistance |
+| `ATR` | Every bar | Context |
+| `Bias` | Every bar | `1`/`-1`/`0` |
+
+Non-break bars are `na`, not `0` — so filtering a spreadsheet on "score is not
+empty" gives you exactly the break rows.
+
+**Two uses:**
+
+1. **CSV export.** Chart menu → *Export chart data…* writes these as columns
+   alongside OHLC. This is what makes
+   [calibration](Playbooks.md#calibrating-the-confidence-score) a spreadsheet
+   join rather than manual transcription.
+2. **Alert enrichment.** Alert messages can interpolate them —
+   `{{plot("Break score")}}` — so a notification or webhook carries the score.
+   See [Alerts](Alerts.md).
+
+They're `display.data_window`, which keeps them off the chart and out of the
+price scale (scores are 0–100, levels are prices — plotting both would wreck
+the scale) while still exporting.
 
 ---
 

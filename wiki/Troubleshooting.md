@@ -204,7 +204,7 @@ scripts need history before anything appears.
 Note down:
 
 1. Which script and version (shown in the indicator title, e.g.
-   `Structure Break Signals v7.8`)
+   `Structure Break Signals v7.9`)
 2. Chart symbol and timeframe
 3. Any settings changed from default
 4. What you expected vs. what you see
