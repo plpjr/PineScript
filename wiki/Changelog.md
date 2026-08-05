@@ -71,9 +71,10 @@ behaviour.
   A break of a genuinely *lower* high printed `HH` whenever bias was still
   bullish from an earlier move. The label is now true by construction. Internal
   structure got the same fix.
-- **Alerts read the same decision as the labels.** They previously used bias
-  while labels used pivot ordering, so the alert could contradict the label on
-  the same bar.
+- **Alerts were moved onto the same decision as the labels.** In v7.5 both
+  read the bias flag, so they agreed with each other while both being open to
+  the mislabelling above. Repointing only the labels would have made the two
+  disagree, so both now read one shared classification.
 - **The swing-size filter is no longer bypassed after every break.** Both
   structural references reset to `na` on a break, and an `na` reference
   short-circuits the minimum-swing-size test to true — so the first pivot after

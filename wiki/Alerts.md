@@ -25,9 +25,10 @@ The four break alerts are split by type specifically so you can wire
 people want to be interrupted by one and not the other.
 
 > **The alert always matches the label.** Both read the same classification, so
-> a break drawn as `HH` can never fire the `LH (Reversal Up)` alert. (Before
-> v7.6 the labels used the pivot sequence while the alerts used a running bias
-> flag, and the two could disagree on the same bar.)
+> a break drawn as `HH` can never fire the `LH (Reversal Up)` alert. In v7.5
+> and earlier both were derived from a running bias flag — they agreed with
+> each other, but could jointly mislabel a break. v7.6 moved both onto the
+> pivot sequence together.
 
 ---
 

@@ -45,9 +45,10 @@
 //     bullish from an earlier move. The label is now true by construction:
 //     a break above a high is HH only if that high sits above the swing high
 //     before it. Internal structure (i-HH/i-LL/i-LH/i-HL) got the same fix.
-//   * Alerts read the same decision as the labels. They previously used
-//     `bias` while labels used the pivot sequence, so the alert you received
-//     could contradict the label drawn on that bar.
+//   * Alerts moved onto that same decision. In v7.5 labels and alerts both
+//     read `bias`, so they agreed with each other while both being open to
+//     the mislabelling above; repointing only the labels would have split
+//     them, so both now read one shared classification.
 //   * The swing-size filter is no longer bypassed after every break. Both
 //     refHigh and refLow used to reset to na on a break, and `na(refLow)`
 //     short-circuits the min-swing-size test to true — so the first pivot
@@ -1220,8 +1221,8 @@ else
 // Decided once, here, from the pivot sequence — BEFORE the draw blocks below
 // mutate prevSwingHigh/prevSwingLow. Labels, line colours and alerts all read
 // these same four flags, so a break that draws as "HH" can never fire the
-// "LH (Reversal Up)" alert. (Previously the labels used the pivot sequence and
-// the alerts used `bias`, which are not the same question.)
+// "LH (Reversal Up)" alert. (v7.5 derived both from `bias` instead — they
+// matched each other, but could jointly mislabel the break.)
 bool fireIsHH = fireUp   and not na(fireLevel) and (na(prevSwingHigh) or fireLevel > prevSwingHigh)
 bool fireIsLH = fireUp   and not na(fireLevel) and not fireIsHH
 bool fireIsLL = fireDown and not na(fireLevel) and (na(prevSwingLow)  or fireLevel < prevSwingLow)
