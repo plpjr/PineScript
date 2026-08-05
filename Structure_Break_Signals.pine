@@ -1,5 +1,38 @@
 // =============================================================================
-// Structure Break Signals  —  v7.5
+// Structure Break Signals  —  v7.6
+//
+// NEW IN v7.6 — CORRECTNESS FIXES (no new settings, no new features):
+//   * HH/LL/LH/HL is now decided by the PIVOT SEQUENCE, not by `bias`.
+//     Previously the label came from the direction of the previous break, so
+//     a break of a genuinely LOWER high printed "HH" whenever bias was still
+//     bullish from an earlier move. The label is now true by construction:
+//     a break above a high is HH only if that high sits above the swing high
+//     before it. Internal structure (i-HH/i-LL/i-LH/i-HL) got the same fix.
+//   * Alerts read the same decision as the labels. They previously used
+//     `bias` while labels used the pivot sequence, so the alert you received
+//     could contradict the label drawn on that bar.
+//   * The swing-size filter is no longer bypassed after every break. Both
+//     refHigh and refLow used to reset to na on a break, and `na(refLow)`
+//     short-circuits the min-swing-size test to true — so the first pivot
+//     after every break skipped filtering entirely. Each break now advances
+//     its own side's reference and KEEPS the opposite one.
+//   * The score's leg-size component works in trends again. It reads the
+//     opposite reference, which the reset above kept wiping, so it silently
+//     fell back to a neutral half-score whenever a trend produced
+//     consecutive highs without an intervening pivot low.
+//   * Wick-rejection filter measures the right two quantities. It compared
+//     the ENTIRE upper wick against the close's clearance; it now compares
+//     wick-beyond-the-level against body-beyond-the-level. The old form was
+//     accidentally correct for plain bullish breakout candles and wrong for
+//     candles closing above the level while bearish, or opening above it.
+//   * Internal structure no longer eats main structure. Its lines and labels
+//     were created untracked and never deleted; because max_lines_count is
+//     one shared pool per script, that silently evicted the oldest
+//     HH/LL/LH/HL drawings. They are now tracked and capped separately.
+//   * max_bars_back raised 100 -> 500, and every lookback input capped
+//     (swing 50, ATR 200, volume 200, EMA 500, internal swing 20). Swing
+//     length 60 or volume length 200 were both legal and both threw
+//     "requested historical offset is beyond the historical buffer's limit".
 //
 // NEW IN v7.5 — HH / LL / LH / HL TERMINOLOGY:
 //   * BOS and CHoCH labels/settings renamed throughout to classic Dow
@@ -132,7 +165,13 @@
 //   * Optional internal structure (faster swing length, thinner lines).
 // =============================================================================
 //@version=5
-indicator("Structure Break Signals v7.5", overlay = true, max_bars_back = 100, max_lines_count = 500, max_labels_count = 500)
+// max_bars_back must cover the deepest historical reference any setting can
+// request. The binding constraints are ta.pivothigh(high, n, n) — which needs
+// 2n bars — and ta.sma(volume, n). With every lookback input now capped
+// (swing 50 -> 100 bars, volume 200), 500 leaves comfortable headroom. The
+// previous value of 100 was below what the inputs already permitted and threw
+// "requested historical offset is beyond the historical buffer's limit".
+indicator("Structure Break Signals v7.6", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500)
 
 // =============================================================================
 // SENSITIVITY MASTER CONTROLS
@@ -177,7 +216,7 @@ float dialSwing = math.pow(0.90, sensDial - 5)
 // =============================================================================
 grpS = "② Core structure"
 
-mSwingLen = input.int(5, "Swing pivot length", minval = 1, group = grpS,
+mSwingLen = input.int(5, "Swing pivot length", minval = 1, maxval = 50, group = grpS,
      tooltip = "THE MOST IMPORTANT SETTING.\n\n" +
        "How many bars must sit on each side of a candle for it to count as a swing high/low.\n\n" +
        "LOWER (2–4) = detects small swings. More structure points, more signals, more noise. Also less confirmation lag.\n" +
@@ -185,7 +224,7 @@ mSwingLen = input.int(5, "Swing pivot length", minval = 1, group = grpS,
        "This directly sets your confirmation delay: a swing cannot be confirmed until this many bars after it forms. At 5, labels appear ~5 bars late. That lag is unavoidable with pivot detection.\n\n" +
        "Only used when Preset = Custom.")
 
-mAtrLen = input.int(14, "ATR length", minval = 1, group = grpS,
+mAtrLen = input.int(14, "ATR length", minval = 1, maxval = 200, group = grpS,
      tooltip = "Lookback for the ATR used by every size-based filter below.\n\n" +
        "SHORTER (7–10) = ATR reacts fast to volatility changes, so filters tighten and loosen quickly. Good for sessions with sharp volatility shifts.\n" +
        "LONGER (20–50) = smoother, more stable thresholds. Less reactive to a single volatile bar.\n\n" +
@@ -265,7 +304,7 @@ mVolMult = input.float(1.2, "  Min volume (× average)", minval = 0.1, step = 0.
        "2.0+ = only high-participation breaks. Very restrictive.\n\n" +
        "Only applies when 'Require volume expansion' is ON.")
 
-mVolLen = input.int(20, "  Volume average length", minval = 1, group = grpF,
+mVolLen = input.int(20, "  Volume average length", minval = 1, maxval = 200, group = grpF,
      tooltip = "Lookback for the average volume comparison.\n\n" +
        "SHORTER (10) = compares against very recent activity, adapts quickly within a session.\n" +
        "LONGER (50) = compares against a broader baseline, less affected by a single busy period.\n\n" +
@@ -284,7 +323,7 @@ mEqualTol = input.float(0.15, "  Equal-level tolerance (× ATR)", minval = 0.0, 
        "0.30+ = aggressively merges nearby levels, which can suppress genuine separate breaks.\n\n" +
        "Only used when Preset = Custom.")
 
-mCooldown = input.int(3, "Min bars between breaks", minval = 0, group = grpF,
+mCooldown = input.int(3, "Min bars between breaks", minval = 0, maxval = 100, group = grpF,
      tooltip = "Forces a gap between labelled breaks.\n\n" +
        "0 = no cooldown, breaks can print on consecutive bars.\n" +
        "3–5 = balanced. Stops rapid-fire labelling during chop.\n" +
@@ -316,7 +355,7 @@ mUseTrendFilter = input.bool(false, "Only signal with EMA trend", group = grpX,
        "OFF = all breaks print regardless of trend context.\n\n" +
        "IMPORTANT TRADEOFF: this will suppress the very first LH/HL reversal signal, because that's precisely the signal that fires against the trend. If you trade reversals, leave this OFF.")
 
-mTrendLen = input.int(50, "  EMA length", minval = 1, group = grpX,
+mTrendLen = input.int(50, "  EMA length", minval = 1, maxval = 500, group = grpX,
      tooltip = "Length of the trend EMA used by the filter above.\n\n" +
        "SHORTER (20) = follows price closely, filter flips often.\n" +
        "LONGER (100–200) = defines a slower, more structural trend.\n\n" +
@@ -395,7 +434,7 @@ showInternalCont = input.bool(true, "  Show internal HH/LL", group = grpI,
      tooltip = "Draws internal continuation events (minor break WITH trend, labelled i-HH or i-LL). Only applies when the master switch above is on — this just lets you show one internal event type without the other, the same way the main lines split below.")
 showInternalRev = input.bool(true, "  Show internal LH/HL", group = grpI,
      tooltip = "Draws internal reversal events (minor break AGAINST trend, labelled i-LH or i-HL). Only applies when the master switch above is on.")
-intSwingLen = input.int(3, "Internal swing length", minval = 1, group = grpI,
+intSwingLen = input.int(3, "Internal swing length", minval = 1, maxval = 20, group = grpI,
      tooltip = "Must be smaller than main Swing Pivot Length. 2–3 is typical.")
 intColCont = input.color(#38BDF8, "Internal HH/LL colour", group = grpI,
      tooltip = "Colour for internal continuation (i-HH/i-LL) lines/labels. Independent of the main HH/LL colour (⑦) — set them apart, or match them if you'd rather they read as one family.")
@@ -605,6 +644,15 @@ var float refLow  = na
 var float lastBrokenHigh = na
 var float lastBrokenLow  = na
 
+// The swing that held the watched level's position BEFORE the current one.
+// This is what makes an "HH" label literally true: a break above watchHigh is
+// a Higher High only if watchHigh itself sits above the high before it. The
+// old code inferred this from `bias` (set by the previous break), which could
+// label a break of a genuinely LOWER high as "HH" whenever bias was still
+// bullish from an earlier move.
+var float prevSwingHigh = na
+var float prevSwingLow  = na
+
 // Internal structure vars
 var float iWatchHigh = na
 var int   iWatchHighBar = na
@@ -612,6 +660,11 @@ var float iWatchLow = na
 var int   iWatchLowBar = na
 var float iRefHigh = na
 var float iRefLow = na
+// Internal structure gets its own previous-swing references for the same
+// reason the main structure does — an "i-HH" should mean a genuinely higher
+// minor high, not just "the last main-structure break happened to be up".
+var float iPrevSwingHigh = na
+var float iPrevSwingLow  = na
 
 // =============================================================================
 // HISTORY MANAGEMENT ARRAYS
@@ -629,22 +682,52 @@ deleteOldest() =>
         while array.size(histVertLines) > maxHistory
             line.delete(array.shift(histVertLines))
 
+// Internal structure draws far more often than main structure (smaller swing
+// length), and previously did so with untracked line.new/label.new calls that
+// were never deleted. Because TradingView applies max_lines_count /
+// max_labels_count to ONE shared pool per script, that quietly evicted the
+// oldest MAIN structure drawings to make room for minor internal ones —
+// turning on internal structure silently ate your HH/LL/LH/HL history.
+// Tracking them here keeps the two budgets separate and bounded.
+var array<line>  intLines  = array.new_line(0)
+var array<label> intLabels = array.new_label(0)
+
+// Ties the internal budget to the same "how much history do you want" dial the
+// main structure uses. maxHistory = 0 means unlimited for main structure, but
+// internal still needs a ceiling or it reintroduces the eviction problem.
+int intMaxHistory = maxHistory > 0 ? maxHistory : 100
+
+deleteOldestInternal() =>
+    while array.size(intLines) > intMaxHistory
+        line.delete(array.shift(intLines))
+    while array.size(intLabels) > intMaxHistory
+        label.delete(array.shift(intLabels))
+
 // =============================================================================
 // SWING DETECTION
 // =============================================================================
 if not na(ph)
     bool bigEnough = not useAtrFilter or na(refLow) or (ph - refLow) >= atrMult * atrVal
     if bigEnough
-        watchHigh    := ph
-        watchHighBar := bar_index - swingLen
-        refHigh      := ph
+        // Demote the outgoing swing high before overwriting it — that stored
+        // value is what the next break compares against to decide HH vs. LH.
+        // Guarded: straight after a break watchHigh is na, and the break
+        // handler has already parked the broken level in prevSwingHigh, so an
+        // unguarded demote would erase exactly the reference we need.
+        if not na(watchHigh)
+            prevSwingHigh := watchHigh
+        watchHigh     := ph
+        watchHighBar  := bar_index - swingLen
+        refHigh       := ph
 
 if not na(pl)
     bool bigEnough = not useAtrFilter or na(refHigh) or (refHigh - pl) >= atrMult * atrVal
     if bigEnough
-        watchLow    := pl
-        watchLowBar := bar_index - swingLen
-        refLow      := pl
+        if not na(watchLow)
+            prevSwingLow := watchLow
+        watchLow     := pl
+        watchLowBar  := bar_index - swingLen
+        refLow       := pl
 
 // Anchor to true leg extreme
 if not na(watchHigh) and high > watchHigh and close <= watchHigh
@@ -659,12 +742,16 @@ if useInternal
     if not na(iPh)
         bool iBig = not useAtrFilter or na(iRefLow) or (iPh - iRefLow) >= atrMult * atrVal * 0.5
         if iBig
+            if not na(iWatchHigh)
+                iPrevSwingHigh := iWatchHigh
             iWatchHigh    := iPh
             iWatchHighBar := bar_index - intSwingLen
             iRefHigh      := iPh
     if not na(iPl)
         bool iBig = not useAtrFilter or na(iRefHigh) or (iRefHigh - iPl) >= atrMult * atrVal * 0.5
         if iBig
+            if not na(iWatchLow)
+                iPrevSwingLow := iWatchLow
             iWatchLow    := iPl
             iWatchLowBar := bar_index - intSwingLen
             iRefLow      := iPl
@@ -734,9 +821,27 @@ bool coolOk = cooldownBars == 0 or na(lastBreakBar) or (bar_index - lastBreakBar
 
 float eqTol = useEqualTol ? equalTolMult * atrVal : 0.0
 
-// Wick rejection: wick beyond level larger than body beyond level
-bool wickOkUp   = not mUseWickReject or na(watchHigh) or (high - math.max(open, close)) <= math.max(close - watchHigh, 0.0)
-bool wickOkDown = not mUseWickReject or na(watchLow)  or (math.min(open, close) - low)  <= math.max(watchLow - close, 0.0)
+// Wick rejection: the part of the wick sitting BEYOND the level, versus the
+// part of the BODY sitting beyond the level. Both measurements are clipped at
+// the level itself, which is what makes them comparable.
+//
+// The previous version compared the ENTIRE upper wick against the close's
+// clearance (close - watchHigh). For a plain bullish breakout candle those two
+// happen to coincide, so it looked correct; they diverge whenever the candle
+// closes above the level but bearish (body measured as clearance, not body),
+// or opens already above the level (clearance becomes huge and the filter
+// stops triggering at all). Measuring both quantities against the level fixes
+// all three cases.
+float bodyTop = math.max(open, close)
+float bodyBot = math.min(open, close)
+
+float wickAboveLvl = na(watchHigh) ? 0.0 : math.max(0.0, high - math.max(bodyTop, watchHigh))
+float bodyAboveLvl = na(watchHigh) ? 0.0 : math.max(0.0, bodyTop - math.max(bodyBot, watchHigh))
+float wickBelowLvl = na(watchLow)  ? 0.0 : math.max(0.0, math.min(bodyBot, watchLow) - low)
+float bodyBelowLvl = na(watchLow)  ? 0.0 : math.max(0.0, math.min(bodyTop, watchLow) - bodyBot)
+
+bool wickOkUp   = not mUseWickReject or na(watchHigh) or wickAboveLvl <= bodyAboveLvl
+bool wickOkDown = not mUseWickReject or na(watchLow)  or wickBelowLvl <= bodyBelowLvl
 
 bool trendOkUp   = not mUseTrendFilter or close > emaVal
 bool trendOkDown = not mUseTrendFilter or close < emaVal
@@ -863,6 +968,17 @@ else
         pendClearance := 0.0
         pendScore := 0.0
 
+// ---------------------------- Break classification ---------------------------
+// Decided once, here, from the pivot sequence — BEFORE the draw blocks below
+// mutate prevSwingHigh/prevSwingLow. Labels, line colours and alerts all read
+// these same four flags, so a break that draws as "HH" can never fire the
+// "LH (Reversal Up)" alert. (Previously the labels used the pivot sequence and
+// the alerts used `bias`, which are not the same question.)
+bool fireIsHH = fireUp   and not na(fireLevel) and (na(prevSwingHigh) or fireLevel > prevSwingHigh)
+bool fireIsLH = fireUp   and not na(fireLevel) and not fireIsHH
+bool fireIsLL = fireDown and not na(fireLevel) and (na(prevSwingLow)  or fireLevel < prevSwingLow)
+bool fireIsHL = fireDown and not na(fireLevel) and not fireIsLL
+
 // ---------------------------- State machine ----------------------------------
 var int bias = 0
 
@@ -898,12 +1014,13 @@ drawBreak(bool isUp, float lvl, int lvlBar, float clr, float scr, string txt, co
             array.push(histVertLines, vln)
 
 if fireUp and not na(fireLevel)
-    bool isRev = bias <= 0
+    // A break above a high that sits ABOVE the previous swing high is a Higher
+    // High (continuation); above a high that sits below it, the Lower High
+    // capping a downtrend just gave way (reversal).
+    bool  isRev  = fireIsLH
     color col    = isRev ? colRev : colCont
     bool  drawIt = isRev ? showRevLines : showContLines
-    // Up break: continuation = a new Higher High; reversal = the Lower High
-    // that just broke (the first sign a downtrend is turning).
-    string txt   = isRev ? "LH" : "HH"
+    string txt   = fireIsHH ? "HH" : "LH"
 
     drawBreak(true, fireLevel, fireLevelBar, fireClearance, fireScore, txt, col,
          isRev ? revLineStyle : contLineStyle,
@@ -919,21 +1036,32 @@ if fireUp and not na(fireLevel)
     lastBrokenLow  := na
     bias           := 1
     lastBreakBar   := bar_index
+    // The level just broken becomes the reference the NEXT high is judged
+    // against, and the outgoing swing low is preserved as the low-side
+    // reference — both must survive the reset for the next break to be
+    // classifiable at all.
+    prevSwingHigh  := fireLevel
+    if not na(watchLow)
+        prevSwingLow := watchLow
     watchHigh      := na
     watchHighBar   := na
     watchLow       := na
     watchLowBar    := na
-    // v5 FIX: reset ATR references so next leg is evaluated fresh
-    refHigh        := na
-    refLow         := na
+    // Advance the high-side ATR reference to the level just broken and KEEP
+    // the low-side one. Nulling both (the old behaviour) made na(refLow)
+    // short-circuit the min-swing-size filter to true, so the first pivot
+    // after every break skipped the filter entirely, and left the score's
+    // leg-size component falling back to its neutral 0.5 whenever a trend
+    // produced consecutive highs without an intervening pivot low.
+    refHigh        := math.max(nz(refHigh, fireLevel), fireLevel)
 
 if fireDown and not na(fireLevel)
-    bool isRev = bias >= 0
+    // Mirror: below the previous swing low is a Lower Low (continuation);
+    // above it, the Higher Low supporting an uptrend just gave way (reversal).
+    bool  isRev  = fireIsHL
     color col    = isRev ? colRev : colCont
     bool  drawIt = isRev ? showRevLines : showContLines
-    // Down break: continuation = a new Lower Low; reversal = the Higher Low
-    // that just broke (the first sign an uptrend is turning).
-    string txt   = isRev ? "HL" : "LL"
+    string txt   = fireIsLL ? "LL" : "HL"
 
     drawBreak(false, fireLevel, fireLevelBar, fireClearance, fireScore, txt, col,
          isRev ? revLineStyle : contLineStyle,
@@ -949,55 +1077,72 @@ if fireDown and not na(fireLevel)
     lastBrokenHigh := na
     bias           := -1
     lastBreakBar   := bar_index
+    prevSwingLow   := fireLevel
+    if not na(watchHigh)
+        prevSwingHigh := watchHigh
     watchLow       := na
     watchLowBar    := na
     watchHigh      := na
     watchHighBar   := na
-    // v5 FIX: reset ATR references
-    refHigh        := na
-    refLow         := na
+    // Mirror of the up break: advance the low-side ATR reference to the level
+    // just broken, keep the high-side one.
+    refLow         := math.min(nz(refLow, fireLevel), fireLevel)
 
 // ---------------------------- Internal structure breaks ----------------------
 if useInternal
     if iCandUp and not na(iWatchHigh)
-        bool iIsRev = bias <= 0
+        deleteOldestInternal()
+        float iBrokeLevel = iWatchHigh
+        bool iIsHH = na(iPrevSwingHigh) or iWatchHigh > iPrevSwingHigh
+        bool iIsRev = not iIsHH
         color iCol = iIsRev ? intColRev : intColCont
-        string iTxt = iIsRev ? "i-LH" : "i-HH"
+        string iTxt = iIsHH ? "i-HH" : "i-LH"
         bool iDrawIt = iIsRev ? showInternalRev : showInternalCont
         if showLabels and iDrawIt
-            label.new(bar_index, high + atrVal * 0.3, iTxt,
+            label iLbl = label.new(bar_index, high + atrVal * 0.3, iTxt,
                  style = label.style_label_down, color = color.new(color.black, 15),
                  textcolor = color.new(iCol, intTransparency), size = size.tiny)
+            array.push(intLabels, iLbl)
         if iDrawIt
-            line.new(iWatchHighBar, iWatchHigh, bar_index + effIntExtend, iWatchHigh,
+            line iLn = line.new(iWatchHighBar, iWatchHigh, bar_index + effIntExtend, iWatchHigh,
                  color = color.new(iCol, intTransparency), style = styleOf(intLineStyle),
                  width = intLineWidth)
+            array.push(intLines, iLn)
+        iPrevSwingHigh := iBrokeLevel
+        if not na(iWatchLow)
+            iPrevSwingLow := iWatchLow
         iWatchHigh := na
         iWatchHighBar := na
         iWatchLow := na
         iWatchLowBar := na
-        iRefHigh := na
-        iRefLow := na
+        iRefHigh := math.max(nz(iRefHigh, iBrokeLevel), iBrokeLevel)
 
     if iCandDown and not na(iWatchLow)
-        bool iIsRev = bias >= 0
+        deleteOldestInternal()
+        float iBrokeLevel = iWatchLow
+        bool iIsLL = na(iPrevSwingLow) or iWatchLow < iPrevSwingLow
+        bool iIsRev = not iIsLL
         color iCol = iIsRev ? intColRev : intColCont
-        string iTxt = iIsRev ? "i-HL" : "i-LL"
+        string iTxt = iIsLL ? "i-LL" : "i-HL"
         bool iDrawIt = iIsRev ? showInternalRev : showInternalCont
         if showLabels and iDrawIt
-            label.new(bar_index, low - atrVal * 0.3, iTxt,
+            label iLbl = label.new(bar_index, low - atrVal * 0.3, iTxt,
                  style = label.style_label_up, color = color.new(color.black, 15),
                  textcolor = color.new(iCol, intTransparency), size = size.tiny)
+            array.push(intLabels, iLbl)
         if iDrawIt
-            line.new(iWatchLowBar, iWatchLow, bar_index + effIntExtend, iWatchLow,
+            line iLn = line.new(iWatchLowBar, iWatchLow, bar_index + effIntExtend, iWatchLow,
                  color = color.new(iCol, intTransparency), style = styleOf(intLineStyle),
                  width = intLineWidth)
+            array.push(intLines, iLn)
+        iPrevSwingLow := iBrokeLevel
+        if not na(iWatchHigh)
+            iPrevSwingHigh := iWatchHigh
         iWatchLow := na
         iWatchLowBar := na
         iWatchHigh := na
         iWatchHighBar := na
-        iRefHigh := na
-        iRefLow := na
+        iRefLow := math.min(nz(iRefLow, iBrokeLevel), iBrokeLevel)
 
 // ---------------------------- Unconfirmed preview ----------------------------
 var line pendLine = na
@@ -1091,10 +1236,12 @@ if showTable and barstate.islast
 // =============================================================================
 // ALERTS
 // =============================================================================
-alertcondition(fireUp and bias <= 0,  title = "LH (Reversal Up)",   message = "LH broken — bullish reversal on {{ticker}} @ {{close}}")
-alertcondition(fireUp and bias > 0,   title = "HH (Continuation)",  message = "New HH — bullish continuation on {{ticker}} @ {{close}}")
-alertcondition(fireDown and bias >= 0, title = "HL (Reversal Down)", message = "HL broken — bearish reversal on {{ticker}} @ {{close}}")
-alertcondition(fireDown and bias < 0,  title = "LL (Continuation)",  message = "New LL — bearish continuation on {{ticker}} @ {{close}}")
+// These read the same fireIs* flags the labels do, so the alert you receive
+// always matches the label drawn on the chart for that bar.
+alertcondition(fireIsLH, title = "LH (Reversal Up)",   message = "LH broken — bullish reversal on {{ticker}} @ {{close}}")
+alertcondition(fireIsHH, title = "HH (Continuation)",  message = "New HH — bullish continuation on {{ticker}} @ {{close}}")
+alertcondition(fireIsHL, title = "HL (Reversal Down)", message = "HL broken — bearish reversal on {{ticker}} @ {{close}}")
+alertcondition(fireIsLL, title = "LL (Continuation)",  message = "New LL — bearish continuation on {{ticker}} @ {{close}}")
 
 // Retest alert: price returns to a recently broken level and holds it.
 //

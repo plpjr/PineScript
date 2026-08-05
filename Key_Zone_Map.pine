@@ -1,5 +1,17 @@
 // =============================================================================
-// Key Zone Map  —  v1.3  (formerly "Support / Resistance Zones")
+// Key Zone Map  —  v1.4  (formerly "Support / Resistance Zones")
+//
+// NEW IN v1.4 — CORRECTNESS FIXES (no new settings, no new features):
+//   * FVG midlines are tracked with their gap and deleted with it. They were
+//     drawn with a bare line.new that was never removed, so they outlived
+//     their own gap, accumulated without bound, and — because
+//     max_lines_count is one shared pool — the oldest were silently evicted
+//     while their boxes stayed on the chart. They now also follow the box's
+//     right edge instead of freezing at their creation-time width.
+//   * max_bars_back raised 100 -> 500, and the swing/ATR inputs capped
+//     (swing 50, ATR 200). ta.pivothigh(high, n, n) needs 2n bars and
+//     open[swingLen] is read directly, so a swing length above 50 threw
+//     "requested historical offset is beyond the historical buffer's limit".
 //
 // NEW IN v1.3 — INDEPENDENT ENABLE/DISABLE PER SIDE:
 //   * Every zone type's single on/off toggle split into two: swing zones
@@ -56,17 +68,22 @@
 //     hardcoded — see ⑤ Fair value gaps.
 // =============================================================================
 //@version=5
-indicator("Key Zone Map v1.3", overlay = true, max_bars_back = 100, max_lines_count = 500, max_boxes_count = 500)
+// max_bars_back must cover the deepest historical reference any setting can
+// request: ta.pivothigh(high, n, n) needs 2n bars, and open[swingLen] /
+// close[swingLen] are read directly during swing detection. With the swing
+// input now capped at 50, 500 leaves comfortable headroom. The previous value
+// of 100 was below what the inputs already permitted.
+indicator("Key Zone Map v1.4", overlay = true, max_bars_back = 500, max_lines_count = 500, max_boxes_count = 500)
 
 // =============================================================================
 // SWING DETECTION
 // =============================================================================
 grpS = "① Swing detection"
 
-swingLen = input.int(5, "Swing pivot length", minval = 1, group = grpS,
+swingLen = input.int(5, "Swing pivot length", minval = 1, maxval = 50, group = grpS,
      tooltip = "How many bars must sit on each side of a candle for it to count as a swing high/low.\n\nLOWER (2–4) = more, smaller, faster-forming zones. HIGHER (7–12) = fewer, major zones, more lag (a swing can't confirm until this many bars after it forms).")
 
-atrLen = input.int(14, "ATR length", minval = 1, group = grpS,
+atrLen = input.int(14, "ATR length", minval = 1, maxval = 200, group = grpS,
      tooltip = "Lookback for the ATR used by every size/overlap threshold in this script (swing filter, zone lifecycle margins, confluence overlap). 14 is standard for intraday.")
 
 useAtrFilter = input.bool(true, "Filter minor swings by size", group = grpS,
@@ -260,6 +277,13 @@ var array<float> fvgTop    = array.new_float(0)
 var array<float> fvgBottom = array.new_float(0)
 var array<bool>  fvgIsBull = array.new_bool(0)
 var array<int>   fvgState  = array.new_int(0)
+// The midline belongs to its gap, so it is tracked in lockstep with fvgBox and
+// deleted whenever that box is. Previously midlines were created with a bare
+// line.new and never removed: they outlived their own gap, accumulated without
+// bound, and — because max_lines_count is one shared pool — started silently
+// evicting the oldest ones while their boxes stayed on the chart. A na entry
+// is pushed when the midline is switched off, so indices stay aligned.
+var array<line>  fvgMidLine = array.new_line(0)
 
 var array<float> pivHighVals = array.new_float(0)
 var array<int>   pivHighBars = array.new_int(0)
@@ -485,12 +509,15 @@ if atrVal > 0
         array.push(fvgIsBull, true)
         array.push(fvgState, 0)
         array.push(fvgConfBucket, fvgConf)
+        line bullMid = na
         if fvgShowMidline
-            line.new(bar_index - 2, (gapTop + gapBot) / 2, bar_index + effFvgExtend, (gapTop + gapBot) / 2,
+            bullMid := line.new(bar_index - 2, (gapTop + gapBot) / 2, bar_index + effFvgExtend, (gapTop + gapBot) / 2,
                  color = color.new(zoneBullColor, math.max(0, zoneOpacity - 10)), style = styleOf(fvgMidlineStyle), width = fvgMidlineWidth)
+        array.push(fvgMidLine, bullMid)
         if array.size(fvgBox) > zoneMaxPerType
             logOutcome(fvgConfTotal, fvgConfHit, array.get(fvgConfBucket, 0), array.get(fvgState, 0) >= 1)
             box.delete(array.shift(fvgBox))
+            line.delete(array.shift(fvgMidLine))
             array.shift(fvgTop)
             array.shift(fvgBottom)
             array.shift(fvgIsBull)
@@ -512,12 +539,15 @@ if atrVal > 0
         array.push(fvgIsBull, false)
         array.push(fvgState, 0)
         array.push(fvgConfBucket, fvgConf)
+        line bearMid = na
         if fvgShowMidline
-            line.new(bar_index - 2, (gapTop + gapBot) / 2, bar_index + effFvgExtend, (gapTop + gapBot) / 2,
+            bearMid := line.new(bar_index - 2, (gapTop + gapBot) / 2, bar_index + effFvgExtend, (gapTop + gapBot) / 2,
                  color = color.new(zoneBearColor, math.max(0, zoneOpacity - 10)), style = styleOf(fvgMidlineStyle), width = fvgMidlineWidth)
+        array.push(fvgMidLine, bearMid)
         if array.size(fvgBox) > zoneMaxPerType
             logOutcome(fvgConfTotal, fvgConfHit, array.get(fvgConfBucket, 0), array.get(fvgState, 0) >= 1)
             box.delete(array.shift(fvgBox))
+            line.delete(array.shift(fvgMidLine))
             array.shift(fvgTop)
             array.shift(fvgBottom)
             array.shift(fvgIsBull)
@@ -536,11 +566,15 @@ if (useFVGBull or useFVGBear) and array.size(fvgBox) > 0
         bool touched = bull ? low <= top : high >= bot
         bool heldNow = bull ? close >= top + holdMargin * atrVal : close <= bot - holdMargin * atrVal
 
+        line  mid  = array.get(fvgMidLine, i)
+
         if filled
             if useConfluence
                 logOutcome(fvgConfTotal, fvgConfHit, array.get(fvgConfBucket, i), touched or st >= 1)
             box.delete(b)
+            line.delete(mid)
             array.remove(fvgBox, i)
+            array.remove(fvgMidLine, i)
             array.remove(fvgTop, i)
             array.remove(fvgBottom, i)
             array.remove(fvgIsBull, i)
@@ -558,8 +592,14 @@ if (useFVGBull or useFVGBear) and array.size(fvgBox) > 0
             box.set_border_color(b, color.new(c, math.min(95, zoneOpacity + zoneFadeExtra)))
             box.set_right(b, bar_index)
             box.set_text(b, (bull ? "Bull FVG" : "Bear FVG") + " (tested)")
+            // Freeze the midline with its box, or it keeps running past the
+            // gap's right edge.
+            if not na(mid)
+                line.set_x2(mid, bar_index)
         else if st == 0
             box.set_right(b, bar_index + effFvgExtend)
+            if not na(mid)
+                line.set_x2(mid, bar_index + effFvgExtend)
 
 // ---------------------------- Liquidity zones ---------------------------------
 if useLiqBuySide and not na(ph)

@@ -1,11 +1,11 @@
-# Structure Break Signals v7.5 — Feature Guide
+# Structure Break Signals v7.6 — Feature Guide
 
 *(Formerly "BOS / CHoCH Structure" — renamed, same script. As of v7.5, the
 BOS/CHoCH labels themselves are renamed to classic Dow Theory swing terms —
 HH, LL, LH, HL — see §1 below.)*
 
 **File:** `Structure_Break_Signals.pine` · **TradingView indicator name:**
-"Structure Break Signals v7.5" · **Companion:** `Key_Zone_Map.pine`
+"Structure Break Signals v7.6" · **Companion:** `Key_Zone_Map.pine`
 (`FEATURES_ZONES.md`)
 
 This indicator does one job: grade individual structure **break events**. It
@@ -33,22 +33,32 @@ BOS/CHoCH used to name — a **continuation** break (with the trend) or a
 **reversal** break (against the trend) — just labelled with the classic Dow
 Theory swing term for what actually just broke:
 
-- **HH (Higher High)** — price closes above a swing high *while already in an
-  uptrend*: continuation. A new Higher High just printed.
-- **LL (Lower Low)** — price closes below a swing low *while already in a
-  downtrend*: continuation. A new Lower Low just printed.
-- **LH (Lower High)** — price closes above a swing high *while in a
-  downtrend*: reversal. The Lower High that was capping the downtrend just
-  broke — the first sign it may be turning up.
-- **HL (Higher Low)** — price closes below a swing low *while in an
-  uptrend*: reversal. The Higher Low that was supporting the uptrend just
-  broke — the first sign it may be turning down.
+- **HH (Higher High)** — price closes above a swing high, and that high sits
+  *above the swing high before it*: continuation. A new Higher High.
+- **LL (Lower Low)** — price closes below a swing low, and that low sits
+  *below the swing low before it*: continuation. A new Lower Low.
+- **LH (Lower High)** — price closes above a swing high that sits *below the
+  previous one*: reversal. The Lower High capping the downtrend just broke —
+  the first sign it may be turning up.
+- **HL (Higher Low)** — price closes below a swing low that sits *above the
+  previous one*: reversal. The Higher Low supporting the uptrend just broke —
+  the first sign it may be turning down.
 
 In other words: HH/LL are "the trend did it again," LH/HL are "the level that
-was defining the trend just gave way." Both draw a line at the broken level
-and (optionally) a label. Color and line style are separately configurable
-per type (`⑦ HH/LL lines (continuation)`, `⑧ LH/HL lines (reversal)`) so you
-can tell them apart at a glance without reading text.
+was defining the trend just gave way."
+
+**Which of the four you get is decided by the pivot sequence itself** — the
+indicator compares the level that broke against the swing before it on that
+same side. As of v7.6 that comparison *is* the definition; earlier versions
+inferred it from the direction of the previous break, which could label a
+break of a genuinely lower high as "HH" whenever the prior break had been
+bullish. The alerts read the same comparison, so the alert you receive always
+matches the label drawn on that bar.
+
+Both draw a line at the broken level and (optionally) a label. Color and line
+style are separately configurable per type (`⑦ HH/LL lines (continuation)`,
+`⑧ LH/HL lines (reversal)`) so you can tell them apart at a glance without
+reading text.
 
 ---
 
@@ -178,11 +188,17 @@ All of these are ignored unless Preset = Custom, except where noted.
   their open.
 - **Reject long-wick breaks** — rejects breaks where the candle left a large
   wick beyond the level, which suggests the move was rejected rather than
-  accepted. ON: if the wick past the level is bigger than the body past the
-  level, the break is skipped — useful for filtering liquidity sweeps that
-  get mislabelled as breaks. OFF: wick shape is ignored. Tradeoff: this can
-  filter out genuine sweep-then-reverse setups you may actually want to
-  trade — turn on only if wick-fakeouts are your main problem.
+  accepted. ON: if the part of the wick sitting past the level is bigger than
+  the part of the *body* sitting past the level, the break is skipped —
+  useful for filtering liquidity sweeps that get mislabelled as breaks. OFF:
+  wick shape is ignored. Tradeoff: this can filter out genuine
+  sweep-then-reverse setups you may actually want to trade — turn on only if
+  wick-fakeouts are your main problem. *(v7.6 corrected what this measures:
+  it previously compared the candle's entire upper/lower wick against the
+  close's clearance, which coincides with the intended test for a plain
+  breakout candle but not for one that closes past the level while bearish,
+  or that opens already past it. If you had this on, expect it to trigger
+  somewhat more often now — it is catching cases it used to miss.)*
 - **Require volume expansion** — requires the breaking candle to trade above
   its recent average volume. ON rejects breaks on thin volume, since real
   structure breaks usually come with participation. OFF ignores volume
@@ -475,7 +491,12 @@ shifting every threshold you had tuned.
 - **Weight · size of leg broken** (default 15) — how much the score cares
   that the swing being broken was a large, well-formed leg rather than a
   shallow one. The only component that reads structural context rather than
-  the breaking candle itself.
+  the breaking candle itself. *(v7.6: this component was frequently
+  contributing a flat neutral half-score instead of a real measurement,
+  because the reference it reads was being wiped on every break. It now
+  measures properly, so scores on trending instruments will shift — usually
+  up for breaks of large legs and down for breaks of shallow ones. If you had
+  tuned `Minimum score to signal` against the old behaviour, re-check it.)*
 
 **Thresholds — where each measure earns full marks:**
 

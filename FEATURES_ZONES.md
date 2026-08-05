@@ -1,9 +1,9 @@
-# Key Zone Map v1.3 — Feature Guide
+# Key Zone Map v1.4 — Feature Guide
 
 *(Formerly "Support/Resistance Zones" — renamed, same script.)*
 
 **File:** `Key_Zone_Map.pine` · **TradingView indicator name:** "Key Zone Map
-v1.3" · **Companion:** `Structure_Break_Signals.pine` (`FEATURES_STRUCTURE.md`)
+v1.4" · **Companion:** `Structure_Break_Signals.pine` (`FEATURES_STRUCTURE.md`)
 
 This is the zones half of what used to be one combined indicator with
 **Structure Break Signals** — split out because the two do genuinely
