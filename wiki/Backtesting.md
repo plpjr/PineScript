@@ -57,6 +57,12 @@ Save → Add to chart. The **Strategy Tester** panel appears at the bottom.
 Defaults: 100k capital, 10% of equity per trade, 0.01% commission, 1 tick
 slippage, `process_orders_on_close = true`.
 
+> **Set realistic costs in the Strategy Tester's Properties tab.** Those
+> declaration defaults are placeholders — Pine requires them to be constants, so
+> they cannot be inputs. A percent commission is wrong for futures, where the
+> fee is per contract. Getting this wrong doesn't shade the result slightly; on
+> a high-frequency configuration commission can be larger than the entire PnL.
+
 > That last one matters. The break conditions evaluate against `close`, so
 > filling on the next bar's open would report entries the signal never actually
 > offered — flattering the results for the wrong reason.
@@ -109,7 +115,7 @@ one hardcoded set.
 | Buffer beyond level (× ATR) | `0.25` | |
 | Target | `R multiple` | R multiple / Opposite swing |
 | Target (R) | `2.0` | |
-| Exit on opposite break | `ON` | |
+| On an opposite signal | `Close only` | Close only / Reverse / Ignore |
 
 **Entry trigger** — the wiki argues throughout that a retest is a
 higher-confidence entry than the raw break. Running both settings is how you
@@ -124,8 +130,27 @@ comparable across settings. `Beyond broken level` is more structurally
 meaningful but varies per trade, which makes comparisons noisier. Start with
 ATR.
 
-**Exit on opposite break** — structural invalidation. The thesis is dead, so
-the trade is too.
+**On an opposite signal** — what happens when a break fires against an open
+position. This matters far more than it looks.
+
+- **`Close only`** (default) — flatten and wait. The thesis is dead, but that
+  doesn't automatically make the other side a trade.
+- **`Reverse`** — flip straight into the opposite position. A legitimate style,
+  but know what it does to your statistics: the book is always in the market
+  and flips on every opposite signal, so **the target is almost never reached
+  and the realised payoff collapses toward 1:1** regardless of what you set
+  `Target (R)` to. If you're comparing R multiples, this setting hides the
+  thing you're measuring.
+- **`Ignore`** — hold to stop or target regardless. The cleanest setting for
+  judging whether your configured R multiple is actually achievable.
+
+> **This was a bug until v7.9.** `strategy.entry()` in the opposite direction
+> *reverses* an open position, so with `Trade direction = Both` the strategy was
+> an accidental stop-and-reverse system — and the old `Exit on opposite break`
+> toggle fired a redundant close on top of it. A first backtest showed 144
+> trades over 24 days with average profit and average loss both at 0.05%: a 1:1
+> payoff where 2:1 was configured. If you ran the strategy before this fix,
+> re-run it.
 
 ---
 
@@ -162,6 +187,18 @@ notes](Confidence-Score.md), the two components with known history.
 of anything, whatever the profit factor says — the same small-sample problem
 the [Wilson bound](Confluence-and-Hit-Rates.md#wilson) exists to handle on the
 zone side.
+
+**Check the realised payoff before trusting any row.** Compare *Average profit*
+against *Average loss* in Trades analysis. If you configured `Target (R) = 2.0`
+and they come back roughly equal, the target isn't being reached and the whole
+table is measuring exit mechanics rather than signal quality. Fix that first.
+
+**Sanity-check costs against net PnL.** Commission is
+`trades × position size × commission % × 2`. On a churny configuration it can
+exceed the entire result — a first run here produced −$2.53 net on ≈$2.88 of
+commission, meaning gross was roughly flat and the loss was *entirely* fees.
+That is a trade-frequency problem, not necessarily a signal problem, and it is
+precisely what a score threshold is supposed to fix.
 
 ### Also worth sweeping
 

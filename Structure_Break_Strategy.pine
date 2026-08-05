@@ -1777,8 +1777,12 @@ targetMode = input.string("R multiple", "Target", options = ["R multiple", "Oppo
 targetR = input.float(2.0, "  Target (R)", minval = 0.1, maxval = 20.0, step = 0.1, group = grpBT,
      tooltip = "Target as a multiple of the stop distance. 2.0 means risking 1 to make 2.")
 
-exitOnOpposite = input.bool(true, "Exit on opposite break", group = grpBT,
-     tooltip = "Close the position when a break fires in the opposite direction, rather than waiting for stop or target. Structural invalidation: the thesis is dead, so the trade is too.")
+oppositeAction = input.string("Close only", "On an opposite signal", options = ["Close only", "Reverse", "Ignore"], group = grpBT,
+     tooltip = "What to do when a break fires AGAINST an open position. This matters far more than it looks.\n\n" +
+       "CLOSE ONLY (default) — flatten and wait for the next signal. The thesis is dead, but that does not automatically make the other side a trade.\n\n" +
+       "REVERSE — flip straight into the opposite position. A legitimate style, but be aware of what it does to your statistics: the position is always in the market and flips on every opposite signal, so the target is almost never reached and the realised payoff collapses toward 1:1 no matter what you set Target (R) to. If you are comparing R multiples, this setting will hide the thing you are measuring.\n\n" +
+       "IGNORE — hold to stop or target regardless. The cleanest setting for judging whether the R multiple you configured is actually achievable.\n\n" +
+       "Until v7.9 this was effectively locked to REVERSE by accident: strategy.entry() in the opposite direction reverses an open position, so with Trade direction = Both every opposite break flipped the trade before the target could be hit.")
 
 // --- Signal selection ---------------------------------------------------------
 bool wantCont = tradeDirection != "Reversal only"
@@ -1820,11 +1824,18 @@ stopDistNow := math.max(nz(stopDistNow, atrStop), syminfo.mintick * 2)
 var float entryStopDist = na
 
 // --- Entries ------------------------------------------------------------------
-if goLong and strategy.position_size <= 0
+// Only REVERSE mode may enter while a position is open. In the other two modes
+// entries require a flat book, so strategy.entry() cannot silently reverse the
+// trade -- which is what was collapsing the realised payoff to 1:1 regardless
+// of the configured Target (R).
+bool canEnterLong  = oppositeAction == "Reverse" ? strategy.position_size <= 0 : strategy.position_size == 0
+bool canEnterShort = oppositeAction == "Reverse" ? strategy.position_size >= 0 : strategy.position_size == 0
+
+if goLong and canEnterLong
     entryStopDist := stopDistNow
     strategy.entry("Long", strategy.long)
 
-if goShort and strategy.position_size >= 0
+if goShort and canEnterShort
     entryStopDist := stopDistNow
     strategy.entry("Short", strategy.short)
 
@@ -1843,8 +1854,10 @@ if strategy.position_size != 0 and not na(entryStopDist)
         float tgtPx  = targetMode == "Opposite swing" and not na(watchLow) and watchLow < avg ? watchLow : avg - rTarget
         strategy.exit("Short exit", from_entry = "Short", stop = stopPx, limit = tgtPx)
 
-if exitOnOpposite
+// REVERSE is already handled by the entry block above -- adding a close here
+// too would double-handle the same event. IGNORE deliberately does nothing.
+if oppositeAction == "Close only"
     if strategy.position_size > 0 and (fireIsLL or fireIsHL)
-        strategy.close("Long", comment = "Opposite break")
+        strategy.close("Long", comment = "Opposite signal")
     if strategy.position_size < 0 and (fireIsHH or fireIsLH)
-        strategy.close("Short", comment = "Opposite break")
+        strategy.close("Short", comment = "Opposite signal")
