@@ -63,6 +63,38 @@ slippage, `process_orders_on_close = true`.
 
 ---
 
+## Two warnings you will see, and must not "fix"
+
+The strategy compiles with two warnings:
+
+```
+Warning: Strategies without `calc_on_every_tick = true` only calculate on
+confirmed chart bars. In this case, `barstate.islast` may not initially
+return `true` on realtime bars...
+```
+
+**Both are harmless, and the fix they suggest would corrupt your results.**
+
+The two sites are the live-level lines and the status table — pure chart
+furniture carried over from the indicator. Neither participates in a single
+trade decision. The warning is aimed at indicator authors who need live-bar
+state; a backtest runs on confirmed historical bars, where `barstate.islast`
+behaves exactly as expected.
+
+Setting `calc_on_every_tick = true` would:
+
+- make the strategy evaluate intrabar, so results depend on tick sequences
+  TradingView cannot faithfully replay — a well-known source of backtests that
+  look good and cannot be reproduced;
+- contradict `process_orders_on_close = true`, which is deliberately set so
+  fills happen where the signal actually occurred.
+
+If the visual clutter bothers you, switch off `Live (unbroken) high/low level`
+and `Status table` in the strategy's own settings. The warnings are emitted at
+compile time either way — they are about the code existing, not running.
+
+---
+
 ## Trade logic (`⑫ Backtest`)
 
 Every rule is an input, because the point is to *sweep* them rather than trust

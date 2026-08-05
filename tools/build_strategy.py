@@ -48,6 +48,13 @@ BANNER = """// =================================================================
 // Everything below is the indicator source verbatim except the declaration
 // line and the removal of alertcondition() calls, which Pine rejects in
 // strategy scripts. The trade logic is appended at the end.
+//
+// EXPECTED WARNINGS: two barstate.islast warnings, from the live-level lines
+// and the status table. Both are chart furniture that take no part in any
+// trade decision, and a backtest runs on confirmed bars where barstate.islast
+// behaves normally. Do NOT "fix" them with calc_on_every_tick = true -- that
+// makes the strategy evaluate intrabar, which produces backtests that cannot
+// be reproduced, and contradicts process_orders_on_close = true below.
 // =============================================================================
 """
 
