@@ -99,21 +99,20 @@ script**, so check them:
 | On an opposite signal | `Close only` | |
 | Everything else | **OFF** | Breakeven, trailing, time exit, daily cap. [Why](Backtesting.md#management-off) |
 
-### `④ Context filters`
+### `④ Context filters` and `③ Break quality filters`
 
-| Setting | Value | Why |
+**Nothing to change** as of v7.11 — these already default to futures values:
+
+| Setting | Default | Why it's set that way |
 |---|---|---|
-| Restrict to a session | **`ON`** | |
-| Session window | **`0930-1600`** | MNQ trades nearly 24h, but overnight is thin and produces structure you'd never actually trade. This is the single highest-value indicator setting for futures |
-| Only signal with EMA trend | `OFF` | It suppresses reversal signals by design |
-
-### `③ Break quality filters`
-
-| Setting | Value | Why |
-|---|---|---|
-| Require volume expansion | **`ON`** | **Futures volume is real.** This was worth leaving off on FX, where feeds are synthetic — on MNQ it's genuine information |
+| Restrict to a session | `ON`, `0930-1600` | MNQ trades nearly 24h, but overnight is thin and produces structure you'd never trade. The highest-value context setting on futures |
+| Require volume expansion | `ON` | Futures volume is exchange-reported and real, unlike the synthetic tick counts on CFD/spot-FX feeds |
 | Volume baseline | `Time of day` | Removes the intraday U-shape |
-| Minimum score to signal | **`0`** | Start unfiltered. This is the variable you're about to sweep |
+| Only signal with EMA trend | `OFF` | It suppresses reversal signals by design |
+| Minimum score to signal | `0` | Start unfiltered — this is the variable you're about to sweep |
+
+> Check your **chart timezone** is exchange time, or `0930-1600` won't land on
+> the US cash session.
 
 ---
 

@@ -1,7 +1,7 @@
 # Structure Break Signals
 
 [← Home](Home.md) · **File:** `Structure_Break_Signals.pine` · **Version:**
-v7.10 · **Companion:** [Key Zone Map](Key-Zone-Map.md)
+v7.11 · **Companion:** [Key Zone Map](Key-Zone-Map.md)
 
 One job: grade individual structure **break events**. It labels continuation
 breaks (**HH** / **LL**) and reversal breaks (**LH** / **HL**) with a 0–100
@@ -138,7 +138,7 @@ missing swings you'd mark by hand. *Custom only.*
 | Min candle range (× ATR) | `0.6` | ≥ 0.0 |
 | Also require body > 50% of range | `OFF` | |
 | Reject long-wick breaks | `OFF` | |
-| Require volume expansion | `OFF` | |
+| Require volume expansion | `ON` | |
 | Min volume (× average) | `1.2` | ≥ 0.1 |
 | Volume baseline | `Time of day` | Simple average / Median / Time of day |
 | Volume lookback | `20` | 1–200 |
@@ -250,7 +250,7 @@ lag.
 |---|---|---|
 | Only signal with EMA trend | `OFF` | |
 | EMA length | `50` | 1–500 |
-| Restrict to a session | `OFF` | |
+| Restrict to a session | `ON` | |
 | Session window | `0930-1600` | |
 
 **Only signal with EMA trend** — suppresses breaks that go against a

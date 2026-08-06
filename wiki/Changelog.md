@@ -5,7 +5,7 @@
 Both scripts version independently. The authoritative history lives in each
 `.pine` file's header comment; this page is the readable summary.
 
-**Current:** Structure Break Signals **v7.10** · Key Zone Map **v1.7**
+**Current:** Structure Break Signals **v7.11** · Key Zone Map **v1.7**
 
 ---
 
@@ -33,6 +33,18 @@ behaviour.
 ---
 
 # Structure Break Signals
+
+## v7.11 — Defaults tuned for futures
+
+- **`Require volume expansion` now ON.** Futures volume is exchange-reported
+  and real. Turn it off (and zero the volume score weight) on CFD or spot-forex
+  feeds, which publish broker tick counts rather than traded size.
+- **`Restrict to a session` now ON at `0930-1600`.** Index futures trade nearly
+  24 hours, but the overnight tape is thin and generates a lot of structure
+  nobody would actually trade. Leaving this off was costing signal quality on
+  every overnight bar.
+- No logic changed — both settings already existed, they now default to what
+  these scripts are actually used on.
 
 ## v7.10 — Signal quality diagnostic
 

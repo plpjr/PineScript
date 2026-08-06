@@ -1,5 +1,18 @@
 // =============================================================================
-// Structure Break Signals  —  v7.10
+// Structure Break Signals  —  v7.11
+//
+// NEW IN v7.11 — DEFAULTS TUNED FOR FUTURES:
+//   * "Require volume expansion" (③) now ON. Futures volume is exchange-
+//     reported and real, so this is genuine information rather than the
+//     broker tick-count many CFD and spot-forex feeds publish. Turn it off
+//     (and zero the volume score weight) on those.
+//   * "Restrict to a session" (④) now ON at 0930-1600. Index futures trade
+//     nearly 24 hours, but the overnight tape is thin and generates a lot of
+//     structure nobody would actually trade. This is the highest-value
+//     context setting on futures and leaving it off was costing signal
+//     quality on every overnight bar.
+//   * No logic changed — both are settings that were already there, now
+//     defaulting to what this is actually used on.
 //
 // NEW IN v7.10 — SIGNAL QUALITY DIAGNOSTIC (⑬):
 //   * Answers the one question a backtest structurally cannot: are the BREAKS
@@ -278,7 +291,7 @@
 // (swing 50 -> 100 bars, volume 200), 500 leaves comfortable headroom. The
 // previous value of 100 was below what the inputs already permitted and threw
 // "requested historical offset is beyond the historical buffer's limit".
-indicator("Structure Break Signals v7.10", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500)
+indicator("Structure Break Signals v7.11", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500)
 
 // =============================================================================
 // SENSITIVITY MASTER CONTROLS
@@ -418,11 +431,11 @@ mUseWickReject = input.bool(false, "Reject long-wick breaks", group = grpF,
        "OFF = wick shape is ignored.\n\n" +
        "TRADEOFF: this can filter out genuine sweep-then-reverse setups that you may actually want to trade. Turn on only if wick-fakeouts are your main problem.")
 
-mUseVolume = input.bool(false, "Require volume expansion", group = grpF,
+mUseVolume = input.bool(true, "Require volume expansion", group = grpF,
      tooltip = "Requires the breaking candle to trade above its recent average volume.\n\n" +
        "ON = breaks on thin volume are rejected. Real structure breaks usually come with participation.\n" +
        "OFF = volume ignored.\n\n" +
-       "IMPORTANT: only meaningful on instruments with reliable volume data. On futures this generally works well; on some CFDs and forex feeds volume is synthetic and this filter will behave unpredictably. Verify your feed before trusting it.")
+       "ON BY DEFAULT because these scripts are aimed at futures, where exchange volume is real and genuinely informative.\n\nTURN IT OFF on instruments with synthetic volume — most CFD and spot-forex feeds report broker-side tick counts, not traded size, and this filter behaves unpredictably on them. Set 'Weight · volume participation' (⑩) to 0 as well in that case, so the score redistributes that share instead of scoring noise.")
 
 mVolMult = input.float(1.2, "  Min volume (× average)", minval = 0.1, step = 0.1, group = grpF,
      tooltip = "How much above average volume the breaking candle must be.\n\n" +
@@ -498,11 +511,11 @@ mTrendLen = input.int(50, "  EMA length", minval = 1, maxval = 500, group = grpX
        "LONGER (100–200) = defines a slower, more structural trend.\n\n" +
        "Only applies when 'Only signal with EMA trend' is ON.")
 
-mUseSession = input.bool(false, "Restrict to a session", group = grpX,
+mUseSession = input.bool(true, "Restrict to a session", group = grpX,
      tooltip = "Only detects structure breaks inside a chosen time window.\n\n" +
        "ON = ignores overnight and low-liquidity chop, which produces a lot of low-quality structure.\n" +
        "OFF = analyses all bars.\n\n" +
-       "Useful if you trade a specific window, since breaks outside your session aren't actionable anyway.")
+       "ON BY DEFAULT at 0930-1600 (US regular cash session), because index futures trade nearly 24 hours but the overnight tape is thin and produces a great deal of structure nobody would actually trade. This is the single highest-value context setting on futures.\n\nSet your chart timezone correctly or the window will not land where you expect. Turn it off for genuinely 24-hour instruments or if you trade the overnight session.")
 
 mSession = input.session("0930-1600", "  Session window", group = grpX,
      tooltip = "The time window to analyse, in exchange time.\n\n" +
