@@ -298,14 +298,28 @@
 // (swing 50 -> 100 bars, volume 200), 500 leaves comfortable headroom. The
 // previous value of 100 was below what the inputs already permitted and threw
 // "requested historical offset is beyond the historical buffer's limit".
-// process_orders_on_close matters here: the break conditions evaluate
-// against close, so filling on the next bar's open would systematically
-// report entries the signal never actually offered.
+// Defaults are set for MICRO FUTURES (MNQ and friends), because that is what
+// this is actually being run on. Two of them matter more than they look:
+//
+//   cash_per_contract, not percent -- a percent commission is meaningless on
+//     futures and was catastrophically wrong on the first instrument tried:
+//     0.01% on EUR/USD worked out to 2.3 pips against a 4 pip stop, so 55% of
+//     the risk went to fees and no signal could have survived it.
+//   strategy.fixed at 1 contract -- futures trade in whole contracts, and a
+//     fixed size keeps results readable as dollars per contract instead of
+//     compounding position size into the equity curve.
+//
+// For any other instrument, override order size, commission and slippage in
+// the Strategy Tester PROPERTIES tab. Pine requires these to be constants, so
+// they cannot be inputs.
+//
+// process_orders_on_close: the break conditions evaluate against close, so
+// filling at the next bar's open would report entries the signal never offered.
 strategy("Structure Break Strategy v7.10", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500,
-     initial_capital = 100000,
-     default_qty_type = strategy.percent_of_equity, default_qty_value = 10,
-     commission_type = strategy.commission.percent, commission_value = 0.01,
-     slippage = 1,
+     initial_capital = 10000,
+     default_qty_type = strategy.fixed, default_qty_value = 1,
+     commission_type = strategy.commission.cash_per_contract, commission_value = 0.75,
+     slippage = 2,
      calc_on_every_tick = false, process_orders_on_close = true)
 
 // =============================================================================
@@ -1992,7 +2006,7 @@ maxEntriesPerDay = input.int(0, "Max entries per day (0 = off)", minval = 0, max
 costGuardOn = input.bool(true, "Skip trades when costs exceed a share of risk", group = grpBT,
      tooltip = "Blocks entries where your round-trip cost is too large a fraction of the stop distance, and reports the ratio so you can see it.\n\nThis is a structural check, not a filter on signal quality. If costs are 50% of your risk, the setup cannot be profitable no matter how good the detection is -- and a backtest will not tell you that, it will just lose money and leave you tuning exits.\n\nThe usual fix is a HIGHER TIMEFRAME, where ATR grows but costs do not.")
 
-estCostTicks = input.float(20.0, "  Round-trip cost (ticks)", minval = 0.0, maxval = 10000.0, step = 1.0, group = grpBT,
+estCostTicks = input.float(5.0, "  Round-trip cost (ticks)", minval = 0.0, maxval = 10000.0, step = 1.0, group = grpBT,
      tooltip = "Your actual round-trip cost in ticks: spread plus commission plus expected slippage.\n\nHOW TO FIND IT: take the commission shown on any trade in the List of Trades, divide by position size, and divide by the tick size. On EUR/USD with 5 decimals a pip is 10 ticks, so 2.3 pips = 23 ticks.\n\nThe default is a placeholder. It is instrument-specific and getting it wrong makes this whole check meaningless.")
 
 maxCostShare = input.float(0.15, "  Max cost as share of stop", minval = 0.01, maxval = 1.0, step = 0.01, group = grpBT,

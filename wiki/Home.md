@@ -31,6 +31,7 @@ together](Playbooks.md#using-both-scripts-together)**.
 | Choose between the two swing detection methods | **[Swing Engines](Swing-Engines.md)** |
 | Set up an actual trading routine | **[Playbooks](Playbooks.md)** |
 | Test whether the score actually works | **[Backtesting](Backtesting.md)** |
+| Set it up on MNQ futures | **[Running on MNQ](Running-on-MNQ.md)** |
 | Get notified without watching the chart | **[Alerts](Alerts.md)** |
 | Fix something that looks wrong | **[Troubleshooting](Troubleshooting.md)** |
 | See what changed between versions | **[Changelog](Changelog.md)** |

@@ -90,7 +90,7 @@ maxEntriesPerDay = input.int(0, "Max entries per day (0 = off)", minval = 0, max
 costGuardOn = input.bool(true, "Skip trades when costs exceed a share of risk", group = grpBT,
      tooltip = "Blocks entries where your round-trip cost is too large a fraction of the stop distance, and reports the ratio so you can see it.\n\nThis is a structural check, not a filter on signal quality. If costs are 50% of your risk, the setup cannot be profitable no matter how good the detection is -- and a backtest will not tell you that, it will just lose money and leave you tuning exits.\n\nThe usual fix is a HIGHER TIMEFRAME, where ATR grows but costs do not.")
 
-estCostTicks = input.float(20.0, "  Round-trip cost (ticks)", minval = 0.0, maxval = 10000.0, step = 1.0, group = grpBT,
+estCostTicks = input.float(5.0, "  Round-trip cost (ticks)", minval = 0.0, maxval = 10000.0, step = 1.0, group = grpBT,
      tooltip = "Your actual round-trip cost in ticks: spread plus commission plus expected slippage.\n\nHOW TO FIND IT: take the commission shown on any trade in the List of Trades, divide by position size, and divide by the tick size. On EUR/USD with 5 decimals a pip is 10 ticks, so 2.3 pips = 23 ticks.\n\nThe default is a placeholder. It is instrument-specific and getting it wrong makes this whole check meaningless.")
 
 maxCostShare = input.float(0.15, "  Max cost as share of stop", minval = 0.01, maxval = 1.0, step = 0.01, group = grpBT,

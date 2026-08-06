@@ -29,6 +29,7 @@ slots better than one that does everything.
 | [Confluence & Hit Rates](wiki/Confluence-and-Hit-Rates.md) | The statistics layer, and its limits |
 | [Playbooks](wiki/Playbooks.md) | Timeframe setups and workflows |
 | [Backtesting](wiki/Backtesting.md) | The generated strategy, and the score sweep |
+| [Running on MNQ](wiki/Running-on-MNQ.md) | Step-by-step futures setup |
 | [Alerts](wiki/Alerts.md) | Alert reference |
 | [Troubleshooting](wiki/Troubleshooting.md) | Symptom → cause → fix |
 | [Changelog](wiki/Changelog.md) | Version history and upgrade notes |

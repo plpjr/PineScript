@@ -18,6 +18,7 @@
 **Using them**
 - [Playbooks](Playbooks.md)
 - [Backtesting](Backtesting.md)
+- [Running on MNQ](Running-on-MNQ.md)
 - [Alerts](Alerts.md)
 - [Troubleshooting](Troubleshooting.md)
 

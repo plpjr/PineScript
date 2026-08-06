@@ -1,0 +1,178 @@
+# Running on MNQ
+
+[← Home](Home.md) · [Backtesting](Backtesting.md)
+
+Step-by-step setup for **MNQ** (Micro E-mini Nasdaq-100). The strategy's
+defaults are already set for micro futures, so this is mostly verification plus
+two settings TradingView controls rather than the script.
+
+---
+
+## Why MNQ works where EUR/USD didn't
+
+The first backtest ran on EUR/USD 5-minute and lost on arithmetic, not on
+signal quality: commission was 2.3 pips against a ~4 pip stop, so **55% of the
+risk went to fees before the trade started.**
+
+MNQ is a different proposition entirely:
+
+| | EUR/USD 5M | MNQ 5M |
+|---|---|---|
+| ATR | ~2.8 pips | ~12 points |
+| Stop at 1.5 × ATR | ~4.1 pips | ~18 points = **$36** |
+| Round-turn cost | 2.3 pips | 5 ticks = **$2.50** |
+| **Cost ÷ risk** | **55%** | **6.9%** |
+| Verdict | Not viable | **Workable** |
+
+Cost as a share of risk, by timeframe *(ATR figures are typical, not
+promises — read your actual ATR off the indicator's status table)*:
+
+| Timeframe | ATR (pts) | Stop ($) | Cost ÷ risk |
+|---|---|---|---|
+| 5M | ~12 | $36 | 6.9% |
+| 15M | ~22 | $66 | 3.8% |
+| 1H | ~45 | $135 | 1.9% |
+| 4H | ~95 | $285 | 0.9% |
+
+All workable. **Start on 15M** — enough cost headroom to be forgiving, enough
+trades to reach a meaningful sample inside a few months of history.
+
+---
+
+## Contract spec
+
+| | |
+|---|---|
+| Tick size | 0.25 index points |
+| Tick value | **$0.50** |
+| 1 point | $2.00 |
+| Typical retail commission | ~$0.75/side, **$1.50 round turn** |
+| Intraday margin | ~$2,000–3,000 per contract |
+
+---
+
+## 1. Chart setup
+
+- **Symbol:** `MNQ1!` (continuous front-month) or a specific contract like
+  `MNQZ2026`
+- **Timeframe:** 15M to start
+- **Session:** leave the chart on regular hours or extended — the script has its
+  own session filter, covered below
+
+> **`MNQ1!` splices contracts at each roll**, which leaves an artificial gap in
+> the price series. A handful of signals per quarter will fire off a roll gap
+> rather than real structure. Not enough to invalidate a backtest, but if a
+> single enormous winner or loser sits right on a roll date, discount it.
+
+---
+
+## 2. Strategy Tester → Properties
+
+The script's declaration already sets these, but **Properties overrides the
+script**, so check them:
+
+| Field | Set to | Why |
+|---|---|---|
+| Initial capital | `10000` | ~4× intraday margin for 1 contract |
+| Order size | **`1` Contract** | Futures trade whole contracts. Fixed size keeps results readable as dollars per contract |
+| Commission | **`0.75` Cash per contract** | Your actual per-side rate |
+| Slippage | **`2` ticks** | Conservative for MNQ. Stop fills are market orders |
+| Recalculate | leave both **off** | See [the warnings note](Backtesting.md#two-warnings-you-will-see-and-must-not-fix) |
+
+> **Use your real commission.** If your broker charges $0.35/side, use that.
+> This number decides whether the result means anything.
+
+---
+
+## 3. Indicator settings
+
+### `⑫ Backtest`
+
+| Setting | Value | Why |
+|---|---|---|
+| Round-trip cost (ticks) | **`5`** | $1.50 commission ÷ $0.50/tick = 3, plus 2 slippage |
+| Skip trades when costs exceed a share of risk | `ON` | Should never trigger on MNQ — it's there to catch you if you switch instruments |
+| Entry trigger | `Break` | Baseline. Change this second, not first |
+| Trade direction | `Both` | |
+| Stop placement | `ATR multiple`, `1.5` | Keeps R comparable across runs |
+| Target | `R multiple`, `2.0` | |
+| On an opposite signal | `Close only` | |
+| Everything else | **OFF** | Breakeven, trailing, time exit, daily cap. [Why](Backtesting.md#why-every-management-feature-is-off-by-default) |
+
+### `④ Context filters`
+
+| Setting | Value | Why |
+|---|---|---|
+| Restrict to a session | **`ON`** | |
+| Session window | **`0930-1600`** | MNQ trades nearly 24h, but overnight is thin and produces structure you'd never actually trade. This is the single highest-value indicator setting for futures |
+| Only signal with EMA trend | `OFF` | It suppresses reversal signals by design |
+
+### `③ Break quality filters`
+
+| Setting | Value | Why |
+|---|---|---|
+| Require volume expansion | **`ON`** | **Futures volume is real.** This was worth leaving off on FX, where feeds are synthetic — on MNQ it's genuine information |
+| Volume baseline | `Time of day` | Removes the intraday U-shape |
+| Minimum score to signal | **`0`** | Start unfiltered. This is the variable you're about to sweep |
+
+---
+
+## 4. Run the baseline
+
+Load it and record: **trades, profit factor, win rate, average win, average
+loss, max drawdown.**
+
+Before reading anything into the result, check three things:
+
+1. **The cost label on the chart** should say *workable* at roughly 5–8%. If it
+   says otherwise, your cost input or timeframe is wrong.
+2. **Average win vs. average loss.** With a 2R target these should differ. If
+   they're equal, targets aren't being reached — lower `Target (R)` to 1.5 and
+   note it.
+3. **The Favorable excursion column** in List of Trades. Lots of `0.00%` means
+   entries are landing at the turn — go straight to `Entry trigger = Retest`.
+
+---
+
+## 5. Then sweep the score
+
+The experiment everything else exists to enable. Change **only**
+`Minimum score to signal`:
+
+| `Minimum score` | Trades | Profit factor | Win % | Avg win | Avg loss | Max DD |
+|---|---|---|---|---|---|---|
+| 0 | | | | | | |
+| 40 | | | | | | |
+| 55 | | | | | | |
+| 70 | | | | | | |
+| 85 | | | | | | |
+
+**Rising profit factor** means the score ranks breaks and your cutoff is where
+the curve flattens. **Flat** means the score is decoration. Full reading guide
+in [Backtesting](Backtesting.md#the-experiment-that-matters).
+
+Watch the trade count — six trades at 85 is not evidence of anything.
+
+---
+
+## 6. Sample size
+
+Over roughly a month of 15M data you might get 60–120 trades. That's enough to
+see a trend across the sweep, not enough to trust a specific number.
+
+If you can load more history, do — profit factor computed on 300 trades is
+worth several times one computed on 60. And a good result on one instrument
+over one quarter still isn't validation; see [what a backtest can and cannot
+tell you](Backtesting.md#what-this-can-and-cannot-tell-you).
+
+---
+
+## Troubleshooting
+
+| Symptom | Cause |
+|---|---|
+| Cost label says *NOT VIABLE* | `Round-trip cost (ticks)` is wrong, or you're on a very low timeframe. MNQ should read ~5–8% at 5M |
+| No trades at all | `Minimum score to signal` above 0, or the session window is wrong for your chart's timezone |
+| Far fewer trades than expected | Session filter is working as intended — overnight structure is excluded |
+| Huge outlier trade | Check the date against a contract roll on `MNQ1!` |
+| Results change when you reload | You have `Recalculate on every tick` enabled in Properties. Turn it off |

@@ -54,8 +54,10 @@ stale file is a `git diff`, not a guess.
 Same as the indicators: Pine Editor → paste `Structure_Break_Strategy.pine` →
 Save → Add to chart. The **Strategy Tester** panel appears at the bottom.
 
-Defaults: 100k capital, 10% of equity per trade, 0.01% commission, 1 tick
-slippage, `process_orders_on_close = true`.
+Defaults are set for **micro futures**: 10k capital, 1 contract fixed size,
+$0.75/contract/side commission, 2 ticks slippage,
+`process_orders_on_close = true`. For a step-by-step MNQ setup see
+**[Running on MNQ](Running-on-MNQ.md)**.
 
 > **Set realistic costs in the Strategy Tester's Properties tab.** Those
 > declaration defaults are placeholders — Pine requires them to be constants, so
@@ -222,6 +224,11 @@ factor 0.135 — and no amount of exit tuning could ever have fixed it, because
 the problem was that the trade was arithmetically impossible before it started.
 
 ### How to fix it
+
+**Change instrument.** Cost drag is a property of tick value against
+volatility, and it varies enormously. MNQ 5M sits at ~7% where EUR/USD 5M sits
+at 55% — same logic, same timeframe, completely different verdict. See
+[Running on MNQ](Running-on-MNQ.md).
 
 **Raise the timeframe.** This is almost always the answer. ATR grows roughly
 with the square root of time while costs stay fixed, so moving 5M → 1H turns a
