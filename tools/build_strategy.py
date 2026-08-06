@@ -27,6 +27,7 @@ Usage:  python3 tools/build_strategy.py [--check]
 from __future__ import annotations
 
 import argparse
+import hashlib
 import re
 import sys
 from pathlib import Path
@@ -107,6 +108,13 @@ def generate() -> str:
     src = SOURCE.read_text()
     tail = TAIL.read_text()
 
+    # Fingerprint of everything that goes into this file. Displayed on the
+    # chart so "is TradingView actually running the code I just pasted?" is a
+    # question with an answer. Without it, a stale chart instance and a setting
+    # that had no effect produce identical output, and you cannot tell which
+    # you are looking at -- which cost a full round of testing.
+    build_id = hashlib.sha256((src + tail).encode()).hexdigest()[:8]
+
     lines = src.split("\n")
     out: list[str] = []
     swapped = False
@@ -128,7 +136,13 @@ def generate() -> str:
         print("warning: no alertcondition() calls found to strip", file=sys.stderr)
 
     body = "\n".join(out).rstrip("\n")
-    return f"{BANNER}{body}\n{tail}"
+    stamp = (
+        "\n// Fingerprint of the indicator source plus the trade logic that produced\n"
+        "// this file. Shown on the chart label. If the two disagree, TradingView is\n"
+        "// running an older compiled copy than the one you pasted.\n"
+        f'string BUILD_ID = "{build_id}"\n'
+    )
+    return f"{BANNER}{body}\n{stamp}{tail}"
 
 
 def main() -> int:

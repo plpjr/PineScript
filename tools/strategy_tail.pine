@@ -275,7 +275,8 @@ if barstate.islast
              "\npays more in fees than the position is worth." +
              "\n\nThis result is meaningless. Either switch to a" +
              "\nfutures symbol (MNQ, MES) or set Order size and" +
-             "\nCommission in the Properties tab for this market.",
+             "\nCommission in the Properties tab for this market." +
+             "\n\nbuild " + BUILD_ID,
              style = label.style_label_up, color = color.new(color.red, 10),
              textcolor = color.white, size = size.large)
 
@@ -301,7 +302,8 @@ if barstate.islast
              "\nstop " + str.tostring(stopDistNow / syminfo.mintick, "#") + " ticks" +
              " · 1 contract = $" + str.tostring(contractValue, "#,###") +
              (costShare > maxCostShare ? "\nENTRIES BLOCKED — raise the timeframe" : "") +
-             "\n————————————————\n" + active,
+             "\n————————————————\n" + active +
+             "\nbuild " + BUILD_ID,
              style = label.style_label_up, color = color.new(color.black, 20),
              textcolor = vc, size = size.small)
 

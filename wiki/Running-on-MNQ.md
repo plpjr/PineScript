@@ -271,15 +271,32 @@ tell you](Backtesting.md#what-this-can-and-cannot-tell-you).
 > entry Break  ·  Both  ·  opposite: Close only
 > ```
 >
-> If that says `EMA trend off` after you ticked the box, the setting is not
-> reaching the running script. Fixes, in order:
+> The last line is a **build fingerprint** of the code that produced the file.
+> Check it first:
 >
-> 1. **Check which script you edited.** If both the indicator and the strategy
->    are on the chart they keep entirely separate settings, and only the
->    strategy drives the tester.
-> 2. **Remove the strategy and re-add it.** A saved chart layout or template
->    can pin old input values.
-> 3. **Force a recalculation** by switching timeframe and back.
+> ```bash
+> grep BUILD_ID Structure_Break_Strategy.pine
+> ```
+>
+> **If the chart's build differs from the file's, TradingView is running an
+> older compiled copy** and no setting you change will matter. That is a
+> different problem from a setting having no effect, and the two are otherwise
+> indistinguishable.
+>
+> Fixes, in order:
+>
+> 1. **Force a fresh compile.** In the Pine Editor, paste → **Save** → then
+>    **Add to chart** to create a new instance. Remove the old one. Editing a
+>    script that is already on the chart does not always recompile the running
+>    instance.
+> 2. **Check for duplicate saved scripts.** If you have both
+>    `Structure Break Strategy v7.10` and `v7.11` saved, the chart may hold the
+>    one you are not editing. The names look nearly identical in the list.
+> 3. **Hard-refresh the browser** (`Cmd/Ctrl + Shift + R`). TradingView caches
+>    compiled scripts more aggressively than you would expect.
+> 4. **Check which script you edited.** If both the indicator and the strategy
+>    are loaded they keep entirely separate settings, and only the strategy
+>    drives the tester.
 >
 > When the EMA filter is on, the **trend EMA is drawn on the chart** — if you
 > can't see a grey line, the filter isn't running.
