@@ -19,7 +19,30 @@
 // be reproduced, and contradicts process_orders_on_close = true below.
 // =============================================================================
 // =============================================================================
-// Structure Break Signals  —  v7.9
+// Structure Break Signals  —  v7.10
+//
+// NEW IN v7.10 — SIGNAL QUALITY DIAGNOSTIC (⑬):
+//   * Answers the one question a backtest structurally cannot: are the BREAKS
+//     THEMSELVES any good, separately from how you trade them? A backtest
+//     measures detection, entry timing, exit rules and costs simultaneously,
+//     so a bad result there could come from any of the four and you cannot
+//     see through the stack to find out which.
+//   * Measures forward excursion after each break: how far price travelled in
+//     the signal's favour (MFE) versus against it (MAE) over the next N bars,
+//     in ATR. No entries, stops, targets or fees involved.
+//   * Split into HIGH and LOW score buckets and shown in the status table, so
+//     the question "does the confidence score actually rank breaks?" reads
+//     straight off the chart rather than needing a spreadsheet.
+//       MFE > MAE          -> breaks lead somewhere; losses are a TRADING
+//                             problem (entry timing, exits, costs)
+//       MFE ~= MAE         -> breaks are coin flips; no trade rule fixes that
+//       hi bucket > lo     -> the score ranks correctly, a threshold helps
+//       no difference      -> the score is decoration
+//   * Also exported per-sample for spreadsheet analysis.
+//   * OFF by default — it costs a little performance and is a diagnostic, not
+//     something to leave running.
+//   * Looks at no future data: a break is only recorded once its whole N-bar
+//     window has elapsed, so results lag by that many bars.
 //
 // NEW IN v7.9 — FOLLOW-THROUGH ACTUALLY MEASURES SOMETHING:
 //   * "Confirmation bars after break" now DEFAULTS TO 1 (was 0).
@@ -278,7 +301,7 @@
 // process_orders_on_close matters here: the break conditions evaluate
 // against close, so filling on the next bar's open would systematically
 // report entries the signal never actually offered.
-strategy("Structure Break Strategy v7.9", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500,
+strategy("Structure Break Strategy v7.10", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500,
      initial_capital = 100000,
      default_qty_type = strategy.percent_of_equity, default_qty_value = 10,
      commission_type = strategy.commission.percent, commission_value = 0.01,
@@ -1527,8 +1550,113 @@ bgcolor(tintBias and bias == -1 ? color.new(colRev, 94) : na, title = "Bearish b
 // Candle coloring
 barcolor(colorCandles ? (bias == 1 ? colCont : bias == -1 ? colRev : na) : na)
 
+// =============================================================================
+// SIGNAL QUALITY DIAGNOSTIC
+// =============================================================================
+// Answers one question the backtest cannot: ARE THE BREAKS THEMSELVES ANY
+// GOOD, independent of how you trade them?
+//
+// A backtest measures detection, entry timing, exit rules and costs all at
+// once, and you cannot see through that stack to any single layer. So this
+// measures the raw signal instead: after each break, how far did price travel
+// in the signal's favour (MFE) versus against it (MAE) over the next N bars,
+// both in ATR? No entries, no stops, no targets, no fees.
+//
+// Read it as:
+//   MFE > MAE            -> breaks lead somewhere. Losses are a trading
+//                           problem: entry timing, exits, or costs.
+//   MFE ~= MAE           -> the breaks are coin flips. No trade rule fixes
+//                           this; the detection needs work.
+//   HIGH-score MFE/MAE
+//     better than LOW    -> the confidence score is ranking breaks correctly,
+//                           and a score threshold is worth using.
+//   no difference        -> the score is decoration, whatever the backtest says.
+//
+// Nothing here looks into the future: a break is measured only once its N-bar
+// window has fully elapsed, which is why results lag by that many bars.
+grpDiag = "⑬ Signal quality (diagnostic)"
+
+diagOn = input.bool(false, "Measure forward excursion after each break", group = grpDiag,
+     tooltip = "Tracks what price did AFTER each break, with no trade rules attached.\n\nThis is the only measurement in either script that isolates detection quality from everything else. A backtest cannot do it — it entangles detection with entry timing, exit rules and commission, so a bad result there could come from any of the four.\n\nOFF by default because it costs a little performance and most people do not need it running continuously. Turn it on when you want to know whether the signals themselves have an edge.")
+
+diagBars = input.int(20, "  Bars to measure forward", minval = 1, maxval = 200, group = grpDiag,
+     tooltip = "How long to follow each break before recording the result.\n\nMatch this to your actual holding period — measuring 20 bars forward tells you nothing useful if you normally exit in 3. The default 20 pairs with the ~14-bar average hold a break-entry strategy tends to produce.\n\nLonger windows measure whether the move persists; shorter ones measure the immediate reaction.")
+
+diagSplit = input.int(60, "  High/low score split", minval = 0, maxval = 100, group = grpDiag,
+     tooltip = "Breaks scoring at or above this go in the HIGH bucket, below it in the LOW bucket, and the two are compared in the status table.\n\nThis is the direct test of whether the confidence score means anything: if high-scoring breaks do not show better forward excursion than low-scoring ones, the score is not ranking them and a minimum-score threshold cannot help you.")
+
+// Open measurement windows. One entry per break until its window elapses.
+var array<int>   fxBar   = array.new_int(0)
+var array<float> fxRef   = array.new_float(0)   // price at the signal
+var array<int>   fxDir   = array.new_int(0)     // +1 up, -1 down
+var array<float> fxScore = array.new_float(0)
+var array<float> fxMFE   = array.new_float(0)   // max favourable, price terms
+var array<float> fxMAE   = array.new_float(0)   // max adverse, price terms
+var array<float> fxAtr   = array.new_float(0)   // ATR at signal time, to normalise
+
+// Running aggregates, split by score bucket.
+var int   hiN = 0
+var float hiMFE = 0.0
+var float hiMAE = 0.0
+var int   loN = 0
+var float loMFE = 0.0
+var float loMAE = 0.0
+
+if diagOn and (fireUp or fireDown) and not na(fireLevel) and atrVal > 0
+    // Measured from the CLOSE, not the broken level: the close is where you
+    // could actually have acted, so this reflects a real entry rather than a
+    // price that had already gone.
+    array.push(fxBar, bar_index)
+    array.push(fxRef, close)
+    array.push(fxDir, fireUp ? 1 : -1)
+    array.push(fxScore, fireScore)
+    array.push(fxMFE, 0.0)
+    array.push(fxMAE, 0.0)
+    array.push(fxAtr, atrVal)
+
+if diagOn and array.size(fxBar) > 0
+    for i = 0 to array.size(fxBar) - 1
+        int   d   = array.get(fxDir, i)
+        float ref = array.get(fxRef, i)
+        float fav = d == 1 ? high - ref : ref - low
+        float adv = d == 1 ? ref - low  : high - ref
+        array.set(fxMFE, i, math.max(array.get(fxMFE, i), fav))
+        array.set(fxMAE, i, math.max(array.get(fxMAE, i), adv))
+
+// Retire windows whose measurement period has fully elapsed. Size check and
+// age check are split across while/if because Pine's `and` evaluates both
+// sides regardless, so array.get would still run on an empty array.
+float outMFE   = na
+float outMAE   = na
+float outScore = na
+while array.size(fxBar) > 0
+    if bar_index - array.get(fxBar, 0) >= diagBars
+        float a  = array.get(fxAtr, 0)
+        float sc = array.get(fxScore, 0)
+        if a > 0
+            outMFE   := array.get(fxMFE, 0) / a
+            outMAE   := array.get(fxMAE, 0) / a
+            outScore := sc
+            if sc >= diagSplit
+                hiN   += 1
+                hiMFE += outMFE
+                hiMAE += outMAE
+            else
+                loN   += 1
+                loMFE += outMFE
+                loMAE += outMAE
+        array.shift(fxBar)
+        array.shift(fxRef)
+        array.shift(fxDir)
+        array.shift(fxScore)
+        array.shift(fxMFE)
+        array.shift(fxMAE)
+        array.shift(fxAtr)
+    else
+        break
+
 // ---------------------------- Status table -----------------------------------
-var table st = table.new(tablePos, 2, 8,
+var table st = table.new(tablePos, 2, 10,
      border_width = 1, border_color = color.new(color.gray, 70), frame_width = 0)
 
 // Remember the most recent score so the table can show it between breaks.
@@ -1577,6 +1705,30 @@ if showTable and barstate.islast
                      pendDir == -1 ? "Down (" + str.tostring(bar_index - pendBar) + "/" + str.tostring(confirmBars) + ")" : "—"
     color pendTxtCol = pendDir == 1 ? colCont : pendDir == -1 ? colRev : color.gray
     table.cell(st, 1, 7, pendTxt, text_color = pendTxtCol, text_size = size.tiny, bgcolor = cellBg)
+
+    // Signal-quality rows. MFE/MAE per bucket, in ATR. A ratio above 1 means
+    // breaks in that bucket led somewhere on average; at or below 1 they are
+    // coin flips and no trade rule will rescue them.
+    if diagOn
+        float hiRatio = hiN > 0 and hiMAE > 0 ? hiMFE / hiMAE : na
+        float loRatio = loN > 0 and loMAE > 0 ? loMFE / loMAE : na
+
+        string hiTxt = hiN == 0 ? "—" :
+             str.tostring(hiMFE / hiN, "#.##") + "/" + str.tostring(hiMAE / hiN, "#.##") +
+             " =" + (na(hiRatio) ? "—" : str.tostring(hiRatio, "#.##")) + " (n=" + str.tostring(hiN) + ")"
+        string loTxt = loN == 0 ? "—" :
+             str.tostring(loMFE / loN, "#.##") + "/" + str.tostring(loMAE / loN, "#.##") +
+             " =" + (na(loRatio) ? "—" : str.tostring(loRatio, "#.##")) + " (n=" + str.tostring(loN) + ")"
+
+        // Green only when the bucket is genuinely favourable AND has enough
+        // samples to mean anything. 20 is deliberately conservative.
+        color hiCol = na(hiRatio) or hiN < 20 ? color.gray : hiRatio > 1.15 ? color.lime : hiRatio < 0.9 ? color.red : color.yellow
+        color loCol = na(loRatio) or loN < 20 ? color.gray : loRatio > 1.15 ? color.lime : loRatio < 0.9 ? color.red : color.yellow
+
+        table.cell(st, 0, 8, "Sig MFE/MAE hi", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
+        table.cell(st, 1, 8, hiTxt, text_color = hiCol, text_size = size.tiny, bgcolor = cellBg)
+        table.cell(st, 0, 9, "Sig MFE/MAE lo", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
+        table.cell(st, 1, 9, loTxt, text_color = loCol, text_size = size.tiny, bgcolor = cellBg)
 
 // =============================================================================
 // ALERTS
@@ -1741,6 +1893,13 @@ plot(retestUp or retestDown ? retestLevel : na, "Retest level",
 // self-describing instead of needing a note about what the settings were.
 plot(atrVal, "ATR", display = display.data_window)
 plot(bias, "Bias", display = display.data_window)
+
+// Forward-excursion samples, emitted when each break's measurement window
+// elapses. One row per break: join score against MFE/MAE in a spreadsheet and
+// the question "does the score rank breaks?" answers itself.
+plot(outMFE,   "Fwd MFE (ATR)",   display = display.data_window)
+plot(outMAE,   "Fwd MAE (ATR)",   display = display.data_window)
+plot(outScore, "Fwd sample score", display = display.data_window)
 
 // =============================================================================
 // BACKTEST TRADE LOGIC

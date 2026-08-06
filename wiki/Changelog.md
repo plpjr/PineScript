@@ -5,7 +5,7 @@
 Both scripts version independently. The authoritative history lives in each
 `.pine` file's header comment; this page is the readable summary.
 
-**Current:** Structure Break Signals **v7.9** · Key Zone Map **v1.7**
+**Current:** Structure Break Signals **v7.10** · Key Zone Map **v1.7**
 
 ---
 
@@ -33,6 +33,20 @@ behaviour.
 ---
 
 # Structure Break Signals
+
+## v7.10 — Signal quality diagnostic
+
+- **New `⑬ Signal quality` group.** Answers the one question a backtest
+  structurally cannot: *are the breaks themselves any good, separately from how
+  you trade them?* A backtest measures detection, entry timing, exit rules and
+  costs all at once — a bad result there could come from any of the four.
+- Measures **forward excursion** after each break: how far price travelled in
+  the signal's favour (MFE) versus against it (MAE) over the next N bars, in
+  ATR. No entries, stops, targets or fees.
+- Split into **high and low score buckets** and shown in the status table, so
+  "does the score actually rank breaks?" reads off the chart directly.
+- Uses no future data — a break is recorded only once its full window has
+  elapsed, so results lag by that many bars. OFF by default.
 
 ## v7.9 — Follow-through actually measures something
 

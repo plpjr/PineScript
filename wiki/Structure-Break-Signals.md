@@ -1,7 +1,7 @@
 # Structure Break Signals
 
 [← Home](Home.md) · **File:** `Structure_Break_Signals.pine` · **Version:**
-v7.9 · **Companion:** [Key Zone Map](Key-Zone-Map.md)
+v7.10 · **Companion:** [Key Zone Map](Key-Zone-Map.md)
 
 One job: grade individual structure **break events**. It labels continuation
 breaks (**HH** / **LL**) and reversal breaks (**LH** / **HL**) with a 0–100
@@ -460,6 +460,57 @@ high-confidence structure stands out without reading numbers.
 
 Per-measure weights and full-marks thresholds. Covered in full on the
 **[Confidence Score](Confidence-Score.md)** page.
+
+---
+
+<a id="signal-quality"></a>
+
+## ⑬ Signal quality (diagnostic)
+
+> **Question:** are the breaks themselves any good — separately from how I
+> trade them?
+> **Helps with:** the one thing a backtest structurally cannot isolate.
+
+| Setting | Default | Range |
+|---|---|---|
+| Measure forward excursion after each break | `OFF` | |
+| Bars to measure forward | `20` | 1–200 |
+| High/low score split | `60` | 0–100 |
+
+A backtest measures **detection, entry timing, exit rules and costs at the same
+time**. When it loses money, that could be any of the four, and you cannot see
+through the stack to find out which. This measures the raw signal instead.
+
+After each break it follows price for N bars and records:
+
+- **MFE** — furthest travel *in the signal's direction*, in ATR
+- **MAE** — furthest travel *against it*, in ATR
+
+No entries, no stops, no targets, no commission. Results are split into high-
+and low-score buckets and shown in the status table as
+`MFE/MAE =ratio (n=…)`.
+
+### Reading it
+
+| What you see | What it means |
+|---|---|
+| **MFE > MAE** (ratio > 1) | Breaks lead somewhere. Losses are a *trading* problem — entry timing, exits, or costs |
+| **MFE ≈ MAE** (ratio ≈ 1) | Breaks are coin flips. No trade rule fixes this; the detection needs work |
+| **High bucket beats low** | The confidence score ranks breaks correctly — a score threshold is worth using |
+| **No difference between buckets** | The score is decoration, whatever a backtest says |
+
+The table cell stays grey until a bucket has **20 samples**, then colours by
+ratio. Treat anything below 20 as noise.
+
+> **Match `Bars to measure forward` to your actual holding period.** Measuring
+> 20 bars forward tells you nothing useful if you normally exit in 3.
+
+> **No lookahead.** A break is recorded only once its entire window has
+> elapsed, so results lag by that many bars. Nothing here reads future data.
+
+Per-sample values are also exported (`Fwd MFE (ATR)`, `Fwd MAE (ATR)`,
+`Fwd sample score`) for spreadsheet work — join score against MFE−MAE and the
+ranking question answers itself.
 
 ---
 
