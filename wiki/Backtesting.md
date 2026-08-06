@@ -188,6 +188,54 @@ position. This matters far more than it looks.
 
 ---
 
+<a id="cost-viability"></a>
+
+## Check cost viability before anything else
+
+**If your round-trip cost is a large fraction of your stop distance, no signal
+can save the strategy.** This is arithmetic, not trading opinion, and it is
+invisible in the standard tester output — a backtest just loses money and
+leaves you tuning exits.
+
+The strategy computes it for you. Set `Round-trip cost (ticks)` to your real
+cost and read the label on the chart:
+
+| Cost ÷ stop | Verdict |
+|---|---|
+| ≤ 10% | Workable |
+| 10–20% | Tight — the edge has to be genuinely good |
+| > 20% | **Not viable.** Entries are blocked |
+
+### The case that produced this feature
+
+EUR/USD on 5-minute bars:
+
+| | |
+|---|---|
+| ATR | ~2.8 pips |
+| Stop (1.5 × ATR) | ~4.1 pips |
+| Commission round trip | **2.3 pips** |
+| **Cost ÷ risk** | **55%** |
+
+The signal had to earn **0.83 ATR just to break even.** 56 trades, profit
+factor 0.135 — and no amount of exit tuning could ever have fixed it, because
+the problem was that the trade was arithmetically impossible before it started.
+
+### How to fix it
+
+**Raise the timeframe.** This is almost always the answer. ATR grows roughly
+with the square root of time while costs stay fixed, so moving 5M → 1H turns a
+55% cost drag into something like 15%.
+
+**Check your commission setting is real.** 0.01% on EUR/USD is 2.3 pips —
+roughly 3–5× actual retail cost. In the Properties tab, set what your broker
+genuinely charges.
+
+**Widen the stop** only as a last resort. It reduces the cost share but also
+the number of R your target represents.
+
+---
+
 ## Fixing a losing configuration
 
 In rough order of impact, when the tester comes back negative:
@@ -223,6 +271,15 @@ nowhere and free the capital for the next signal.
 **5. Only then, question the entry.** Switch `Entry trigger` to `Retest`. A
 break entry buys at a local extreme by construction; a retest waits for price
 to come back. The docs assert this is better — this is where you find out.
+
+> **The tell for an entry problem is the Favorable excursion column** in the
+> List of Trades. It records how far price moved in the trade's direction
+> before it closed. **A zero there means price never ticked your way at all.**
+>
+> In the EUR/USD run above, 22 of 49 trades showed exactly 0.00% — nearly half
+> the entries were at the precise turn. That is not an exit problem or a target
+> problem, and no stop placement fixes it. Sort by that column before blaming
+> anything downstream.
 
 > Change **one thing at a time** and write down the result. Changing three
 > settings and seeing improvement tells you nothing about which one mattered.
