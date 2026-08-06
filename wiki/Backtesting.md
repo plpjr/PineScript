@@ -125,6 +125,11 @@ one hardcoded set.
 | Max bars in trade | `0` (off) | 0–500 |
 | Max entries per day | `0` (off) | 0–50 |
 | On an opposite signal | `Close only` | Close only / Reverse / Ignore |
+| Higher-timeframe trend filter | `OFF` | |
+| Higher timeframe | `60` | |
+| HTF EMA length | `50` | |
+| Stop trading after a daily loss limit | `OFF` | |
+| Daily loss limit (R) | `3.0` | |
 
 <a id="management-off"></a>
 
@@ -292,6 +297,48 @@ to come back. The docs assert this is better — this is where you find out.
 
 > Change **one thing at a time** and write down the result. Changing three
 > settings and seeing improvement tells you nothing about which one mattered.
+
+---
+
+<a id="targeted-fixes"></a>
+
+## Two filters aimed at measured problems
+
+Both **OFF by default**. Test one at a time — turning both on and seeing
+improvement tells you nothing about which mattered.
+
+### Higher-timeframe trend filter
+
+**The problem it targets:** on the MNQ 15M baseline the strategy went 4W/2L
+long for +$1,035 and 5W/11L short for −$857, into a market that rose 37%. It
+was fighting the trend.
+
+**Why not the EMA filter in ④?** That compares price to an average of *the same
+bars that produced the signal*. In chop it whipsaws on the same noise, so it
+often removes as many good trades as bad. A higher timeframe is a slower clock
+and harder to fool.
+
+Set `Higher timeframe` to roughly 4–8× your chart — on 15M use `60` or `240`.
+Uses `lookahead_off`, so it reads only closed HTF bars and cannot see the
+future. The cost is that it updates in steps and can lag a real turn by up to
+one HTF bar.
+
+### Daily loss limit
+
+**The problem it targets:** a 38.94% max drawdown on a $10,000 account holding
+one contract. Even a profitable version of that is an account-threatening ride.
+
+Stops opening new positions once the session is down by N × the current trade's
+risk. **This does not improve expectancy** — a losing strategy still loses, just
+more slowly. What it caps is the tail: the day where several full stops land
+back to back.
+
+Open positions are left alone; closing a trade because the *day* is down would
+punish a position for its neighbours' behaviour.
+
+> `3R` is roughly three full stop-outs. A strategy with a 33% win rate has
+> three-loss streaks regularly, so a tighter limit will stop you out of days
+> that would have recovered.
 
 ---
 
