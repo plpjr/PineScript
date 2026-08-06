@@ -4,7 +4,7 @@ Two companion TradingView indicators for reading market structure.
 
 | | Purpose | Version |
 |---|---|---|
-| **`Structure_Break_Signals.pine`** | Grades structure **break events** — labels HH / LL / LH / HL with a 0–100 confidence score | v7.11 |
+| **`Structure_Break_Signals.pine`** | Grades structure **break events** — labels HH / LL / LH / HL with a 0–100 confidence score | v7.12 |
 | **`Key_Zone_Map.pine`** | Maps support/resistance **zones**, how many independent detectors agree on each, and how often that agreement has mattered historically | v1.7 |
 
 They were one script once, split because they answer different halves of the

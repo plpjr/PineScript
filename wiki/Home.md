@@ -11,7 +11,7 @@ badly.
 | **Answers** | *Did structure actually break, and how convincingly?* | *Which level is worth watching, and why?* |
 | **Draws** | Labelled break lines (HH / LL / LH / HL) with a 0–100 score | Shaded zone boxes with confluence counts and hit rates |
 | **File** | `Structure_Break_Signals.pine` | `Key_Zone_Map.pine` |
-| **Version** | v7.11 | v1.7 |
+| **Version** | v7.12 | v1.7 |
 | **Signature feature** | The [confidence score](Confidence-Score.md) | [Confluence + historical hit rates](Confluence-and-Hit-Rates.md) |
 
 They are most useful together — see **[Playbooks → Using both scripts

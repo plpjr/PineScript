@@ -5,7 +5,7 @@
 Both scripts version independently. The authoritative history lives in each
 `.pine` file's header comment; this page is the readable summary.
 
-**Current:** Structure Break Signals **v7.11** · Key Zone Map **v1.7**
+**Current:** Structure Break Signals **v7.12** · Key Zone Map **v1.7**
 
 ---
 
@@ -33,6 +33,16 @@ behaviour.
 ---
 
 # Structure Break Signals
+
+## v7.12 — Signal quality on by default
+
+- **`⑬ Measure forward excursion` now ON.** It answers the question everything
+  else rests on — do high-scoring breaks behave better than low-scoring ones —
+  without trade rules, stops, targets, commission or instrument arithmetic,
+  every one of which has derailed measuring this through the backtest. Leaving
+  the only clean measurement switched off made no sense.
+- Every other default audited and deliberately left alone. See the script
+  header for why each remaining `off` is off.
 
 ## v7.11 — Defaults tuned for futures
 

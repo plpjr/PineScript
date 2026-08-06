@@ -1,7 +1,7 @@
 # Structure Break Signals
 
 [← Home](Home.md) · **File:** `Structure_Break_Signals.pine` · **Version:**
-v7.11 · **Companion:** [Key Zone Map](Key-Zone-Map.md)
+v7.12 · **Companion:** [Key Zone Map](Key-Zone-Map.md)
 
 One job: grade individual structure **break events**. It labels continuation
 breaks (**HH** / **LL**) and reversal breaks (**LH** / **HL**) with a 0–100
@@ -473,7 +473,7 @@ Per-measure weights and full-marks thresholds. Covered in full on the
 
 | Setting | Default | Range |
 |---|---|---|
-| Measure forward excursion after each break | `OFF` | |
+| Measure forward excursion after each break | `ON` | |
 | Bars to measure forward | `20` | 1–200 |
 | High/low score split | `60` | 0–100 |
 

@@ -1,5 +1,29 @@
 // =============================================================================
-// Structure Break Signals  —  v7.11
+// Structure Break Signals  —  v7.12
+//
+// NEW IN v7.12 — SIGNAL QUALITY ON BY DEFAULT:
+//   * "Measure forward excursion after each break" (⑬) now ON. It answers the
+//     question everything else is built on — do high-scoring breaks actually
+//     behave better than low-scoring ones — and it does so without trade
+//     rules, stops, targets, commission or instrument arithmetic, every one
+//     of which has derailed an attempt to measure this via the backtest.
+//     Leaving the only clean measurement switched off made no sense.
+//   * The cost is a short per-bar loop over breaks whose measurement window
+//     is still open, typically one to three entries. Negligible.
+//   * Turn it off if you want the last fraction of performance back.
+//
+// Every other default was audited and left alone. The ones still off are off
+// deliberately, not by oversight:
+//   * Reject long-wick breaks, Strict full body, body > 50% of range — each
+//     narrows the signal for a specific problem you may not have.
+//   * Only signal with EMA trend — suppresses the first reversal of a genuine
+//     turn by design. One quarter of MNQ data suggested counter-trend trades
+//     lost, but that quarter rose 37%, so "shorts lost" and "the market went
+//     up" are the same observation. Not enough to change a default on.
+//   * Internal structure — a separate entry-timing workflow, and visual
+//     clutter if you are not using it.
+//   * Raw pivot markers, verbose labels, background tint, candle colouring —
+//     diagnostics and visual preference.
 //
 // NEW IN v7.11 — DEFAULTS TUNED FOR FUTURES:
 //   * "Require volume expansion" (③) now ON. Futures volume is exchange-
@@ -291,7 +315,7 @@
 // (swing 50 -> 100 bars, volume 200), 500 leaves comfortable headroom. The
 // previous value of 100 was below what the inputs already permitted and threw
 // "requested historical offset is beyond the historical buffer's limit".
-indicator("Structure Break Signals v7.11", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500)
+indicator("Structure Break Signals v7.12", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500)
 
 // =============================================================================
 // SENSITIVITY MASTER CONTROLS
@@ -1567,7 +1591,7 @@ barcolor(colorCandles ? (bias == 1 ? colCont : bias == -1 ? colRev : na) : na)
 // window has fully elapsed, which is why results lag by that many bars.
 grpDiag = "⑬ Signal quality (diagnostic)"
 
-diagOn = input.bool(false, "Measure forward excursion after each break", group = grpDiag,
+diagOn = input.bool(true, "Measure forward excursion after each break", group = grpDiag,
      tooltip = "Tracks what price did AFTER each break, with no trade rules attached.\n\nThis is the only measurement in either script that isolates detection quality from everything else. A backtest cannot do it — it entangles detection with entry timing, exit rules and commission, so a bad result there could come from any of the four.\n\nOFF by default because it costs a little performance and most people do not need it running continuously. Turn it on when you want to know whether the signals themselves have an edge.")
 
 diagBars = input.int(20, "  Bars to measure forward", minval = 1, maxval = 200, group = grpDiag,

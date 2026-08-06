@@ -19,7 +19,31 @@
 // be reproduced, and contradicts process_orders_on_close = true below.
 // =============================================================================
 // =============================================================================
-// Structure Break Signals  —  v7.11
+// Structure Break Signals  —  v7.12
+//
+// NEW IN v7.12 — SIGNAL QUALITY ON BY DEFAULT:
+//   * "Measure forward excursion after each break" (⑬) now ON. It answers the
+//     question everything else is built on — do high-scoring breaks actually
+//     behave better than low-scoring ones — and it does so without trade
+//     rules, stops, targets, commission or instrument arithmetic, every one
+//     of which has derailed an attempt to measure this via the backtest.
+//     Leaving the only clean measurement switched off made no sense.
+//   * The cost is a short per-bar loop over breaks whose measurement window
+//     is still open, typically one to three entries. Negligible.
+//   * Turn it off if you want the last fraction of performance back.
+//
+// Every other default was audited and left alone. The ones still off are off
+// deliberately, not by oversight:
+//   * Reject long-wick breaks, Strict full body, body > 50% of range — each
+//     narrows the signal for a specific problem you may not have.
+//   * Only signal with EMA trend — suppresses the first reversal of a genuine
+//     turn by design. One quarter of MNQ data suggested counter-trend trades
+//     lost, but that quarter rose 37%, so "shorts lost" and "the market went
+//     up" are the same observation. Not enough to change a default on.
+//   * Internal structure — a separate entry-timing workflow, and visual
+//     clutter if you are not using it.
+//   * Raw pivot markers, verbose labels, background tint, candle colouring —
+//     diagnostics and visual preference.
 //
 // NEW IN v7.11 — DEFAULTS TUNED FOR FUTURES:
 //   * "Require volume expansion" (③) now ON. Futures volume is exchange-
@@ -328,7 +352,7 @@
 //
 // process_orders_on_close: the break conditions evaluate against close, so
 // filling at the next bar's open would report entries the signal never offered.
-strategy("Structure Break Strategy v7.11", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500,
+strategy("Structure Break Strategy v7.12", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500,
      initial_capital = 10000,
      default_qty_type = strategy.fixed, default_qty_value = 1,
      commission_type = strategy.commission.cash_per_contract, commission_value = 0.75,
@@ -1609,7 +1633,7 @@ barcolor(colorCandles ? (bias == 1 ? colCont : bias == -1 ? colRev : na) : na)
 // window has fully elapsed, which is why results lag by that many bars.
 grpDiag = "⑬ Signal quality (diagnostic)"
 
-diagOn = input.bool(false, "Measure forward excursion after each break", group = grpDiag,
+diagOn = input.bool(true, "Measure forward excursion after each break", group = grpDiag,
      tooltip = "Tracks what price did AFTER each break, with no trade rules attached.\n\nThis is the only measurement in either script that isolates detection quality from everything else. A backtest cannot do it — it entangles detection with entry timing, exit rules and commission, so a bad result there could come from any of the four.\n\nOFF by default because it costs a little performance and most people do not need it running continuously. Turn it on when you want to know whether the signals themselves have an edge.")
 
 diagBars = input.int(20, "  Bars to measure forward", minval = 1, maxval = 200, group = grpDiag,
@@ -1937,7 +1961,7 @@ plot(outScore, "Fwd sample score", display = display.data_window)
 // Fingerprint of the indicator source plus the trade logic that produced
 // this file. Shown on the chart label. If the two disagree, TradingView is
 // running an older compiled copy than the one you pasted.
-string BUILD_ID = "3ce77b86"
+string BUILD_ID = "a3d0963c"
 
 // =============================================================================
 // BACKTEST TRADE LOGIC
