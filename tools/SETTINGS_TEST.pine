@@ -1,0 +1,69 @@
+// =============================================================================
+// SETTINGS TEST — a throwaway diagnostic, not part of the indicator suite
+// =============================================================================
+// Purpose: find out whether TradingView is applying input changes at all.
+//
+// Every settings change to Structure Break Strategy has produced a byte-
+// identical result — same 52 trades, same 0.855 profit factor. Three causes
+// are indistinguishable from the chart:
+//
+//   1. the setting is not reaching the running script (stale compile, wrong
+//      script instance, cached chart layout)
+//   2. the setting reaches it but genuinely does not bind
+//   3. something in the strategy is broken in a way tracing has not found
+//
+// This script is small enough that (3) is impossible and (2) cannot happen —
+// toggling the filter below MUST change the trade count. So:
+//
+//   trade count CHANGES  -> TradingView is fine, the problem is in the
+//                           strategy, and I will go find it
+//   trade count IDENTICAL -> TradingView is not applying inputs on this chart,
+//                           and no amount of strategy work will help until
+//                           that is fixed
+//
+// Load it on the SAME CHART, same symbol, same timeframe as the strategy.
+// =============================================================================
+//@version=5
+strategy("SETTINGS TEST", overlay = true,
+     initial_capital = 10000,
+     default_qty_type = strategy.fixed, default_qty_value = 1,
+     process_orders_on_close = true)
+
+emaLen    = input.int(50, "EMA length", minval = 2, maxval = 400)
+useFilter = input.bool(false, "◀◀◀ TOGGLE THIS — long only above the EMA")
+
+float ema = ta.ema(close, emaLen)
+
+// Dead-simple system: buy the cross up, sell the cross down. It is not meant to
+// make money — it is meant to produce a trade count that obviously responds to
+// the toggle.
+bool goLong = ta.crossover(close, ema)
+bool exit   = ta.crossunder(close, ema)
+
+// With the filter on, entries also require price above the EMA. On a crossover
+// bar that is nearly always true, so this deliberately uses a SECOND condition
+// that removes a large, unmistakable share of entries: only take crosses that
+// happen while the EMA itself is rising.
+bool emaRising = ema > ema[1]
+bool allowed   = not useFilter or emaRising
+
+if goLong and allowed
+    strategy.entry("L", strategy.long)
+if exit
+    strategy.close("L")
+
+plot(ema, "EMA", color = color.orange, linewidth = 2)
+
+var label lbl = na
+if barstate.islast
+    label.delete(lbl)
+    lbl := label.new(bar_index, low,
+         "SETTINGS TEST" +
+         "\nfilter: " + (useFilter ? "ON — should be FEWER trades" : "off — baseline") +
+         "\nEMA length: " + str.tostring(emaLen) +
+         "\n\nIf the trade count does not change when you" +
+         "\ntoggle the filter, TradingView is not applying" +
+         "\ninputs on this chart.",
+         style = label.style_label_up,
+         color = color.new(color.blue, 15), textcolor = color.white,
+         size = size.normal)
