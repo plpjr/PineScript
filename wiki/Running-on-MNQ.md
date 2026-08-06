@@ -133,6 +133,59 @@ Before reading anything into the result, check three things:
 
 ---
 
+## Recorded baseline — MNQ 15M, Apr 30 – Aug 5 2026
+
+For comparison when you change something. Defaults as shipped in v7.11,
+`Minimum score to signal = 0`:
+
+| | |
+|---|---|
+| Trades | 52 |
+| Profit factor | **0.855** |
+| Win rate | 32.69% |
+| Avg win / avg loss | +0.77% / −0.46% = **1.67 : 1** |
+| Avg bars in trade | 18 |
+| Commission | $78 total — **5.7% of the loss** |
+| Net PnL | −$1,373.50 (−13.73%) |
+| Max drawdown | $4,107.75 (**38.94%**) |
+| Buy and hold, same window | **+37.03%** |
+
+**Read this as close, not as failing.** At a 1.67:1 payoff, breakeven needs a
+37.4% win rate. At 32.69% the gap is **4.7 percentage points** — two or three
+trades out of 52.
+
+The costs are no longer the story: $78 against a $1,373 loss. Compare the same
+strategy on EUR/USD 5M, where profit factor was 0.135 and commission alone
+exceeded the entire loss.
+
+### The direction split
+
+| | Trades | Win rate | Net |
+|---|---|---|---|
+| Long | 6 | 67% | +$1,035 |
+| Short | 16 | 31% | −$857 |
+
+*(partial sample from the visible trade list)*
+
+The strategy was overwhelmingly short into a market that rose 37%.
+
+> **This finding is confounded, and it matters.** "Shorts lost" and "the market
+> went up" are the same fact over a single quarter. Going long-only would look
+> excellent here and be pure curve-fitting to one regime. The principled
+> response is **trend alignment**, which works in both directions — either the
+> EMA filter or trading continuations only.
+
+### Also worth noting
+
+**Max drawdown of 38.94% is too much** for a $10K account holding 1 MNQ
+contract, even if the strategy turns profitable. Budget $15–20K per contract,
+or expect an account-threatening drawdown.
+
+**52 trades is thin.** A 4.7pp win-rate gap is two or three trades. Don't
+over-read a small improvement from any single change.
+
+---
+
 ## 5. Then sweep the score
 
 The experiment everything else exists to enable. Change **only**
@@ -149,6 +202,22 @@ The experiment everything else exists to enable. Change **only**
 **Rising profit factor** means the score ranks breaks and your cutoff is where
 the curve flattens. **Flat** means the score is decoration. Full reading guide
 in [Backtesting](Backtesting.md#the-experiment-that-matters).
+
+### Before the sweep, fix direction first
+
+From the baseline above, the largest single problem is counter-trend trading,
+not signal quality. Test these one at a time — **one change per run**:
+
+| Run | Change | Tests |
+|---|---|---|
+| **A** | `Only signal with EMA trend` → `ON` (④) | Trend alignment via moving average |
+| **B** | `Trade direction` → `Continuation only` (⑫) | Trend alignment via structure: HH/LL only, no LH/HL reversals |
+| **C** | Score sweep, using whichever of A/B won | Whether the score ranks breaks |
+
+> Run A contradicts advice repeated elsewhere in this wiki — that the EMA
+> filter should stay off because it hides reversal setups. That advice assumed
+> reversals were worth catching. On this data they are where the losses are.
+> Believe the measurement over the guidance.
 
 Watch the trade count — six trades at 85 is not evidence of anything.
 
