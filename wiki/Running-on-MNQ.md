@@ -253,9 +253,41 @@ tell you](Backtesting.md#what-this-can-and-cannot-tell-you).
 > **WRONG INSTRUMENT** label instead. If you see it: switch to a futures symbol,
 > or set Order size and Commission in Properties for that market.
 
+> ### I changed a setting and the results are identical
+>
+> Compare **trade count** first. If it hasn't moved, the change didn't apply —
+> a run that silently ignored your change looks exactly like a change that had
+> no effect, and that costs you a whole test.
+>
+> **The on-chart label echoes the settings that actually decide which trades
+> are taken:**
+>
+> ```
+> cost 4.1% of risk — workable
+> stop 66 ticks · 1 contract = $59,140
+> ————————————————
+> EMA trend ON (50)  ·  session ON 0930-1600
+> volume ON  ·  min score 0  ·  confirm 1
+> entry Break  ·  Both  ·  opposite: Close only
+> ```
+>
+> If that says `EMA trend off` after you ticked the box, the setting is not
+> reaching the running script. Fixes, in order:
+>
+> 1. **Check which script you edited.** If both the indicator and the strategy
+>    are on the chart they keep entirely separate settings, and only the
+>    strategy drives the tester.
+> 2. **Remove the strategy and re-add it.** A saved chart layout or template
+>    can pin old input values.
+> 3. **Force a recalculation** by switching timeframe and back.
+>
+> When the EMA filter is on, the **trend EMA is drawn on the chart** — if you
+> can't see a grey line, the filter isn't running.
+
 | Symptom | Cause |
 |---|---|
 | Red **WRONG INSTRUMENT** label, no trades | Non-futures symbol with per-contract sizing. See above |
+| Identical results after a settings change | The change didn't apply. See above |
 | Cost label says *NOT VIABLE* | `Round-trip cost (ticks)` is wrong, or you're on a very low timeframe. MNQ should read ~5–8% at 5M |
 | No trades at all | `Minimum score to signal` above 0, or the session window is wrong for your chart's timezone |
 | Far fewer trades than expected | Session filter is working as intended — overnight structure is excluded |

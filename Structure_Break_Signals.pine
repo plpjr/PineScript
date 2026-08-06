@@ -1529,6 +1529,12 @@ plotshape(showPivots and useDC and not na(ph), title = "Swing High (confirmed)",
 plotshape(showPivots and useDC and not na(pl), title = "Swing Low (confirmed)", location = location.belowbar,
      style = shape.triangleup, color = color.new(color.gray, 40), size = size.tiny)
 
+// The trend EMA was computed but never drawn, so there was no way to see
+// whether the filter that depends on it was doing anything. Only plotted when
+// the filter is actually on — otherwise it is a line with no meaning.
+plot(mUseTrendFilter ? emaVal : na, "Trend EMA (filter active)",
+     color = color.new(color.gray, 35), linewidth = 1)
+
 bgcolor(tintBias and bias ==  1 ? color.new(colCont, 94) : na, title = "Bullish bias")
 bgcolor(tintBias and bias == -1 ? color.new(colRev, 94) : na, title = "Bearish bias")
 

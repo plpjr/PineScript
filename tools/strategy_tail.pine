@@ -282,12 +282,26 @@ if barstate.islast
     else if costGuardOn and not na(costShare)
         string verdict = costShare <= 0.10 ? "workable" : costShare <= 0.20 ? "tight" : "NOT VIABLE"
         color  vc      = costShare <= 0.10 ? color.lime : costShare <= 0.20 ? color.orange : color.red
+
+        // Echo the settings that actually change which trades are taken.
+        // Without this there is no way to confirm from the chart that a
+        // setting you just changed was applied -- and a run that silently
+        // ignored your change is indistinguishable from one where the change
+        // had no effect, which wastes an entire test.
+        string active = "EMA trend " + (mUseTrendFilter ? "ON (" + str.tostring(mTrendLen) + ")" : "off") +
+             "  ·  session " + (mUseSession ? "ON " + mSession : "off") +
+             "\nvolume " + (mUseVolume ? "ON" : "off") +
+             "  ·  min score " + str.tostring(minScore) +
+             "  ·  confirm " + str.tostring(confirmBars) +
+             "\nentry " + entryTrigger + "  ·  " + tradeDirection +
+             "  ·  opposite: " + oppositeAction
+
         costLbl := label.new(bar_index, low,
              "cost " + str.tostring(costShare * 100, "#.#") + "% of risk — " + verdict +
              "\nstop " + str.tostring(stopDistNow / syminfo.mintick, "#") + " ticks" +
-             " · cost " + str.tostring(estCostTicks, "#") + " ticks" +
-             "\n1 contract = $" + str.tostring(contractValue, "#,###") +
-             (costShare > maxCostShare ? "\nENTRIES BLOCKED — raise the timeframe" : ""),
+             " · 1 contract = $" + str.tostring(contractValue, "#,###") +
+             (costShare > maxCostShare ? "\nENTRIES BLOCKED — raise the timeframe" : "") +
+             "\n————————————————\n" + active,
              style = label.style_label_up, color = color.new(color.black, 20),
              textcolor = vc, size = size.small)
 
