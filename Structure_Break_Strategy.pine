@@ -1913,6 +1913,24 @@ plot(outScore, "Fwd sample score", display = display.data_window)
 // improve the results, the score is not measuring what it claims to. Every
 // rule below is an input precisely so you can sweep them rather than trust
 // one hardcoded set.
+//
+// ABOUT THE DEFAULTS: they are reasoned responses to a specific observed
+// failure, NOT optimised values. The first backtest of this strategy produced
+// 144 trades in 24 days where commission ($2.88) exceeded the entire net loss
+// ($2.53), every loser ran the full stop distance, and average win equalled
+// average loss despite a 2R target. The defaults below each target one of
+// those symptoms:
+//
+//   Max entries per day = 3    -> commission exceeded the loss; cap frequency
+//   Breakeven stop ON at 1R    -> losers were running the full stop distance
+//   Trail ON at 2 ATR          -> the 2R target was not being reached, so take
+//                                 what the move gives instead of demanding it
+//   Max bars in trade = 20     -> average hold was 14; cut the stalled tail
+//
+// No parameter here has been optimised against results, because no sweep has
+// been run. Treat them as a sensible starting point that addresses known
+// problems, not as tuned values. The numbers that are actually best for your
+// instrument come out of the sweep, not out of this file.
 grpBT = "⑫ Backtest"
 
 entryTrigger = input.string("Break", "Entry trigger", options = ["Break", "Retest"], group = grpBT,
@@ -1945,16 +1963,16 @@ beTrigger = input.float(1.0, "  Arm after (R)", minval = 0.1, maxval = 10.0, ste
 beOffset = input.float(0.1, "  Lock in (R)", minval = 0.0, maxval = 5.0, step = 0.05, group = grpBT,
      tooltip = "How much profit to lock when the breakeven stop arms. 0 = exactly breakeven; 0.1 covers commission and a tick of slippage so a 'breakeven' exit is not actually a small loss.")
 
-trailEnable = input.bool(false, "Trail the stop", group = grpBT,
+trailEnable = input.bool(true, "Trail the stop", group = grpBT,
      tooltip = "Follow price with an ATR-distance stop instead of sitting at a fixed target.\n\nWorth trying when the fixed target is not being reached: it takes whatever the move gives rather than demanding a specific multiple. Combines with the target — whichever triggers first wins.")
 
 trailATR = input.float(2.0, "  Trail distance (× ATR)", minval = 0.1, maxval = 20.0, step = 0.1, group = grpBT,
      tooltip = "How far behind price the trailing stop sits. Tighter locks in more but exits on noise; wider survives pullbacks but gives back more at the turn.")
 
-maxBarsInTrade = input.int(0, "Max bars in trade (0 = off)", minval = 0, maxval = 500, group = grpBT,
+maxBarsInTrade = input.int(20, "Max bars in trade (0 = off)", minval = 0, maxval = 500, group = grpBT,
      tooltip = "Close the position after this many bars regardless of stop or target.\n\nA trade that has not resolved in a reasonable time is usually not going to. Capital sitting in a stalled position also cannot take the next signal. Set this near your observed average hold to cut the tail of trades that go nowhere.")
 
-maxEntriesPerDay = input.int(0, "Max entries per day (0 = off)", minval = 0, maxval = 50, group = grpBT,
+maxEntriesPerDay = input.int(3, "Max entries per day (0 = off)", minval = 0, maxval = 50, group = grpBT,
      tooltip = "Hard cap on new positions per session.\n\nThe blunt instrument for a commission problem. If fees are eating the result, this caps the damage directly rather than hoping a quality filter reduces frequency enough. Try 2-4 when commission is a large share of net PnL.")
 
 oppositeAction = input.string("Close only", "On an opposite signal", options = ["Close only", "Reverse", "Ignore"], group = grpBT,

@@ -118,11 +118,34 @@ one hardcoded set.
 | Move stop to breakeven | `ON` | |
 | Arm after (R) | `1.0` | |
 | Lock in (R) | `0.1` | |
-| Trail the stop | `OFF` | |
+| Trail the stop | `ON` | |
 | Trail distance (× ATR) | `2.0` | |
-| Max bars in trade | `0` (off) | 0–500 |
-| Max entries per day | `0` (off) | 0–50 |
+| Max bars in trade | `20` | 0–500 (0 = off) |
+| Max entries per day | `3` | 0–50 (0 = off) |
 | On an opposite signal | `Close only` | Close only / Reverse / Ignore |
+
+> ### Where these defaults came from
+>
+> They are **reasoned responses to a specific observed failure, not optimised
+> values.** The first backtest produced 144 trades in 24 days where commission
+> ($2.88) exceeded the entire net loss ($2.53), every loser ran the full stop
+> distance, and average win equalled average loss despite a 2R target.
+>
+> | Default | Symptom it targets |
+> |---|---|
+> | `Max entries per day = 3` | Commission exceeded the loss — cap frequency directly |
+> | `Breakeven ON, arm at 1R` | Losers were running the full stop distance |
+> | `Trail ON at 2 ATR` | The 2R target wasn't being reached — take what the move gives |
+> | `Max bars in trade = 20` | Average hold was 14 — cut the stalled tail |
+>
+> **No parameter here has been optimised, because no sweep has been run.** They
+> are a starting point that addresses known problems. The values that are
+> actually best for your instrument come out of the sweep below, not out of
+> these defaults.
+>
+> `Entry trigger` deliberately stays on `Break`. Switching it to `Retest` is the
+> single most promising untested change — but it *is* untested, and defaulting
+> to it would be a guess dressed as a recommendation.
 
 **Entry trigger** — the wiki argues throughout that a retest is a
 higher-confidence entry than the raw break. Running both settings is how you
