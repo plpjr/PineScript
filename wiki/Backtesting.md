@@ -115,6 +115,13 @@ one hardcoded set.
 | Buffer beyond level (× ATR) | `0.25` | |
 | Target | `R multiple` | R multiple / Opposite swing |
 | Target (R) | `2.0` | |
+| Move stop to breakeven | `ON` | |
+| Arm after (R) | `1.0` | |
+| Lock in (R) | `0.1` | |
+| Trail the stop | `OFF` | |
+| Trail distance (× ATR) | `2.0` | |
+| Max bars in trade | `0` (off) | 0–500 |
+| Max entries per day | `0` (off) | 0–50 |
 | On an opposite signal | `Close only` | Close only / Reverse / Ignore |
 
 **Entry trigger** — the wiki argues throughout that a retest is a
@@ -151,6 +158,47 @@ position. This matters far more than it looks.
 > trades over 24 days with average profit and average loss both at 0.05%: a 1:1
 > payoff where 2:1 was configured. If you ran the strategy before this fix,
 > re-run it.
+
+---
+
+## Fixing a losing configuration
+
+In rough order of impact, when the tester comes back negative:
+
+**1. Is commission a large share of the loss?** Compute
+`trades × position size × commission % × 2` and compare to net PnL. If they're
+the same order of magnitude, you have a *frequency* problem, not a signal
+problem. Attack it directly:
+
+- `Max entries per day` → 2–4
+- `Minimum score to signal` (⑨) → raise it
+- `Min bars between breaks` (③) → 5–8
+- `Restrict to a session` (④) → your actual hours
+
+**2. Is average win ≈ average loss?** Check Trades analysis. If they're equal
+while you configured 2R, the target isn't being reached. Either:
+
+- Lower `Target (R)` to something the instrument actually delivers, or
+- Turn on `Trail the stop` and take what the move gives instead of demanding a
+  fixed multiple.
+
+**3. Are losers running the full stop distance?** That's what
+`Move stop to breakeven` is for, and it's the highest-leverage change available
+to a strategy that is right often enough. It needs no better signal — it only
+stops trades that *were* working from giving it all back. The cost is getting
+shaken out flat on trades that would have recovered, which is what
+`Arm after (R)` trades off.
+
+**4. Are trades stalling?** Average bars in trade tells you. Set
+`Max bars in trade` near that number to cut the tail of positions that go
+nowhere and free the capital for the next signal.
+
+**5. Only then, question the entry.** Switch `Entry trigger` to `Retest`. A
+break entry buys at a local extreme by construction; a retest waits for price
+to come back. The docs assert this is better — this is where you find out.
+
+> Change **one thing at a time** and write down the result. Changing three
+> settings and seeing improvement tells you nothing about which one mattered.
 
 ---
 

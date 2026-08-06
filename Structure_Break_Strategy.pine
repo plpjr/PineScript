@@ -1936,6 +1936,27 @@ targetMode = input.string("R multiple", "Target", options = ["R multiple", "Oppo
 targetR = input.float(2.0, "  Target (R)", minval = 0.1, maxval = 20.0, step = 0.1, group = grpBT,
      tooltip = "Target as a multiple of the stop distance. 2.0 means risking 1 to make 2.")
 
+beEnable = input.bool(true, "Move stop to breakeven", group = grpBT,
+     tooltip = "Once a trade is up by the trigger below, pull the stop to entry (plus a small lock-in) so it can no longer become a full loser.\n\nThis is the highest-leverage change available to a losing strategy that is right often enough. It does not need better entries or a better signal — it only stops the trades that WERE working from giving it all back. The cost is being stopped out flat on trades that would have recovered, which is why the trigger matters.")
+
+beTrigger = input.float(1.0, "  Arm after (R)", minval = 0.1, maxval = 10.0, step = 0.1, group = grpBT,
+     tooltip = "How far in profit, in multiples of the initial risk, before the stop moves.\n\nLOWER (0.5) protects sooner but gets shaken out of trades that were fine.\nHIGHER (1.5+) gives the trade room but leaves more on the table when it turns.")
+
+beOffset = input.float(0.1, "  Lock in (R)", minval = 0.0, maxval = 5.0, step = 0.05, group = grpBT,
+     tooltip = "How much profit to lock when the breakeven stop arms. 0 = exactly breakeven; 0.1 covers commission and a tick of slippage so a 'breakeven' exit is not actually a small loss.")
+
+trailEnable = input.bool(false, "Trail the stop", group = grpBT,
+     tooltip = "Follow price with an ATR-distance stop instead of sitting at a fixed target.\n\nWorth trying when the fixed target is not being reached: it takes whatever the move gives rather than demanding a specific multiple. Combines with the target — whichever triggers first wins.")
+
+trailATR = input.float(2.0, "  Trail distance (× ATR)", minval = 0.1, maxval = 20.0, step = 0.1, group = grpBT,
+     tooltip = "How far behind price the trailing stop sits. Tighter locks in more but exits on noise; wider survives pullbacks but gives back more at the turn.")
+
+maxBarsInTrade = input.int(0, "Max bars in trade (0 = off)", minval = 0, maxval = 500, group = grpBT,
+     tooltip = "Close the position after this many bars regardless of stop or target.\n\nA trade that has not resolved in a reasonable time is usually not going to. Capital sitting in a stalled position also cannot take the next signal. Set this near your observed average hold to cut the tail of trades that go nowhere.")
+
+maxEntriesPerDay = input.int(0, "Max entries per day (0 = off)", minval = 0, maxval = 50, group = grpBT,
+     tooltip = "Hard cap on new positions per session.\n\nThe blunt instrument for a commission problem. If fees are eating the result, this caps the damage directly rather than hoping a quality filter reduces frequency enough. Try 2-4 when commission is a large share of net PnL.")
+
 oppositeAction = input.string("Close only", "On an opposite signal", options = ["Close only", "Reverse", "Ignore"], group = grpBT,
      tooltip = "What to do when a break fires AGAINST an open position. This matters far more than it looks.\n\n" +
        "CLOSE ONLY (default) — flatten and wait for the next signal. The thesis is dead, but that does not automatically make the other side a trade.\n\n" +
@@ -1990,28 +2011,80 @@ var float entryStopDist = na
 bool canEnterLong  = oppositeAction == "Reverse" ? strategy.position_size <= 0 : strategy.position_size == 0
 bool canEnterShort = oppositeAction == "Reverse" ? strategy.position_size >= 0 : strategy.position_size == 0
 
-if goLong and canEnterLong
+// Daily entry cap. ta.change must run every bar, so the day boundary is
+// computed unconditionally and only the counter reset is gated.
+var int entriesToday = 0
+bool newDay = ta.change(time("D")) != 0
+if newDay
+    entriesToday := 0
+bool dayCapOk = maxEntriesPerDay == 0 or entriesToday < maxEntriesPerDay
+
+// Bar the position was opened on, for the time-based exit.
+var int entryBar = na
+// Stop levels that ratchet during the trade. Reset on every new entry so a
+// previous trade's breakeven or trail can never leak into the next one.
+var float beStopPx    = na
+var float trailStopPx = na
+
+if goLong and canEnterLong and dayCapOk
     entryStopDist := stopDistNow
+    entryBar      := bar_index
+    beStopPx      := na
+    trailStopPx   := na
+    entriesToday  += 1
     strategy.entry("Long", strategy.long)
 
-if goShort and canEnterShort
+if goShort and canEnterShort and dayCapOk
     entryStopDist := stopDistNow
+    entryBar      := bar_index
+    beStopPx      := na
+    trailStopPx   := na
+    entriesToday  += 1
     strategy.entry("Short", strategy.short)
 
 // --- Exits --------------------------------------------------------------------
+// The stop is the maximum of three candidates: the initial risk stop, the
+// breakeven stop once armed, and the trailing stop. Taking the max for longs
+// (min for shorts) means the stop only ever ratchets in the trade's favour and
+// can never loosen — which is the whole point of both mechanisms.
 if strategy.position_size != 0 and not na(entryStopDist)
-    float avg = strategy.position_avg_price
+    float avg     = strategy.position_avg_price
     float rTarget = targetR * entryStopDist
 
     if strategy.position_size > 0
+        // Arm breakeven once the trade has earned the trigger in open profit.
+        if beEnable and high >= avg + beTrigger * entryStopDist
+            beStopPx := math.max(nz(beStopPx, -1e10), avg + beOffset * entryStopDist)
+        if trailEnable
+            trailStopPx := math.max(nz(trailStopPx, -1e10), close - trailATR * atrVal)
+
         float stopPx = avg - entryStopDist
-        float tgtPx  = targetMode == "Opposite swing" and not na(watchHigh) and watchHigh > avg ? watchHigh : avg + rTarget
+        stopPx := math.max(stopPx, nz(beStopPx, stopPx))
+        stopPx := math.max(stopPx, nz(trailStopPx, stopPx))
+        // Never place a stop above current price — it would fill instantly.
+        stopPx := math.min(stopPx, close - syminfo.mintick)
+
+        float tgtPx = targetMode == "Opposite swing" and not na(watchHigh) and watchHigh > avg ? watchHigh : avg + rTarget
         strategy.exit("Long exit", from_entry = "Long", stop = stopPx, limit = tgtPx)
 
     if strategy.position_size < 0
+        if beEnable and low <= avg - beTrigger * entryStopDist
+            beStopPx := math.min(nz(beStopPx, 1e10), avg - beOffset * entryStopDist)
+        if trailEnable
+            trailStopPx := math.min(nz(trailStopPx, 1e10), close + trailATR * atrVal)
+
         float stopPx = avg + entryStopDist
-        float tgtPx  = targetMode == "Opposite swing" and not na(watchLow) and watchLow < avg ? watchLow : avg - rTarget
+        stopPx := math.min(stopPx, nz(beStopPx, stopPx))
+        stopPx := math.min(stopPx, nz(trailStopPx, stopPx))
+        stopPx := math.max(stopPx, close + syminfo.mintick)
+
+        float tgtPx = targetMode == "Opposite swing" and not na(watchLow) and watchLow < avg ? watchLow : avg - rTarget
         strategy.exit("Short exit", from_entry = "Short", stop = stopPx, limit = tgtPx)
+
+// Time-based exit. A trade that has not resolved is usually not going to, and
+// capital sitting in it cannot take the next signal.
+if maxBarsInTrade > 0 and strategy.position_size != 0 and not na(entryBar) and bar_index - entryBar >= maxBarsInTrade
+    strategy.close_all(comment = "Time exit")
 
 // REVERSE is already handled by the entry block above -- adding a close here
 // too would double-handle the same event. IGNORE deliberately does nothing.
