@@ -97,7 +97,7 @@ script**, so check them:
 | Stop placement | `ATR multiple`, `1.5` | Keeps R comparable across runs |
 | Target | `R multiple`, `2.0` | |
 | On an opposite signal | `Close only` | |
-| Everything else | **OFF** | Breakeven, trailing, time exit, daily cap. [Why](Backtesting.md#why-every-management-feature-is-off-by-default) |
+| Everything else | **OFF** | Breakeven, trailing, time exit, daily cap. [Why](Backtesting.md#management-off) |
 
 ### `④ Context filters`
 

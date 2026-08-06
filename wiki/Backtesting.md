@@ -126,6 +126,8 @@ one hardcoded set.
 | Max entries per day | `0` (off) | 0–50 |
 | On an opposite signal | `Close only` | Close only / Reverse / Ignore |
 
+<a id="management-off"></a>
+
 > ### Why every management feature is OFF by default
 >
 > Because turning them on made things dramatically worse, in a documented
