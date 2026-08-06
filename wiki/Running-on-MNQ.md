@@ -237,8 +237,25 @@ tell you](Backtesting.md#what-this-can-and-cannot-tell-you).
 
 ## Troubleshooting
 
+> ### Every trade loses, 0 winners, each loss ≈ the commission
+>
+> **You are on the wrong instrument.** The strategy declaration sizes at
+> **1 contract** and charges commission **per contract** — correct for futures,
+> catastrophic anywhere else.
+>
+> On EUR/USD, "1 contract" means **one euro**: a $1.15 position paying $1.50 in
+> commission. Every trade loses 130% of its own notional. A real run of this
+> produced 29 trades, 0 winners, every net PnL exactly −$1.50, and a −79% return
+> per trade — which reads like a catastrophically broken strategy and is
+> actually a units mismatch.
+>
+> The strategy now detects this and refuses to trade, showing a red
+> **WRONG INSTRUMENT** label instead. If you see it: switch to a futures symbol,
+> or set Order size and Commission in Properties for that market.
+
 | Symptom | Cause |
 |---|---|
+| Red **WRONG INSTRUMENT** label, no trades | Non-futures symbol with per-contract sizing. See above |
 | Cost label says *NOT VIABLE* | `Round-trip cost (ticks)` is wrong, or you're on a very low timeframe. MNQ should read ~5–8% at 5M |
 | No trades at all | `Minimum score to signal` above 0, or the session window is wrong for your chart's timezone |
 | Far fewer trades than expected | Session filter is working as intended — overnight structure is excluded |

@@ -164,6 +164,11 @@ float estCostPx  = estCostTicks * syminfo.mintick
 float costShare  = stopDistNow > 0 ? estCostPx / stopDistNow : na
 bool  costOk     = not costGuardOn or na(costShare) or costShare <= maxCostShare
 
+// Same check as the label below, evaluated here so entries can be blocked.
+// One contract worth less than $1,000 means the per-contract commission model
+// in the declaration does not match this instrument.
+bool sizingBrokenGate = close * syminfo.pointvalue < 1000
+
 // Bar the position was opened on, for the time-based exit.
 var int entryBar = na
 // Stop levels that ratchet during the trade. Reset on every new entry so a
@@ -171,7 +176,7 @@ var int entryBar = na
 var float beStopPx    = na
 var float trailStopPx = na
 
-if goLong and canEnterLong and dayCapOk and costOk
+if goLong and canEnterLong and dayCapOk and costOk and not sizingBrokenGate
     entryStopDist := stopDistNow
     entryBar      := bar_index
     beStopPx      := na
@@ -179,7 +184,7 @@ if goLong and canEnterLong and dayCapOk and costOk
     entriesToday  += 1
     strategy.entry("Long", strategy.long)
 
-if goShort and canEnterShort and dayCapOk and costOk
+if goShort and canEnterShort and dayCapOk and costOk and not sizingBrokenGate
     entryStopDist := stopDistNow
     entryBar      := bar_index
     beStopPx      := na
@@ -246,15 +251,46 @@ plot(costShare,                        "Cost / stop",      display = display.dat
 plot(stopDistNow / syminfo.mintick,    "Stop (ticks)",     display = display.data_window)
 plot(atrVal / syminfo.mintick,         "ATR (ticks)",      display = display.data_window)
 
+// --- Instrument sanity check --------------------------------------------------
+// The declaration is sized for MICRO FUTURES: one contract, commission charged
+// per contract. Put that on spot forex and "1 contract" means one euro -- a
+// $1.15 position paying $1.50 in commission, so every trade loses 130% of its
+// own notional and the result says nothing whatsoever about the strategy.
+//
+// This happened. 29 trades, 0 winners, every net PnL exactly the commission.
+// It reads like a catastrophically broken strategy and is actually a units
+// mismatch, so it gets its own loud check rather than being left to inference.
+float contractValue = close * syminfo.pointvalue
+bool  sizingBroken  = contractValue < 1000
+
 var label costLbl = na
-if barstate.islast and costGuardOn and not na(costShare)
+if barstate.islast
     label.delete(costLbl)
-    string verdict = costShare <= 0.10 ? "workable" : costShare <= 0.20 ? "tight" : "NOT VIABLE"
-    color  vc      = costShare <= 0.10 ? color.lime : costShare <= 0.20 ? color.orange : color.red
-    costLbl := label.new(bar_index, low,
-         "cost " + str.tostring(costShare * 100, "#.#") + "% of risk — " + verdict +
-         "\nstop " + str.tostring(stopDistNow / syminfo.mintick, "#") + " ticks" +
-         " · cost " + str.tostring(estCostTicks, "#") + " ticks" +
-         (costShare > maxCostShare ? "\nENTRIES BLOCKED — raise the timeframe" : ""),
-         style = label.style_label_up, color = color.new(color.black, 20),
-         textcolor = vc, size = size.small)
+
+    if sizingBroken
+        costLbl := label.new(bar_index, low,
+             "WRONG INSTRUMENT FOR THESE SETTINGS" +
+             "\n1 contract here = $" + str.tostring(contractValue, "#.##") +
+             "\nCommission is charged PER CONTRACT, so every trade" +
+             "\npays more in fees than the position is worth." +
+             "\n\nThis result is meaningless. Either switch to a" +
+             "\nfutures symbol (MNQ, MES) or set Order size and" +
+             "\nCommission in the Properties tab for this market.",
+             style = label.style_label_up, color = color.new(color.red, 10),
+             textcolor = color.white, size = size.large)
+
+    else if costGuardOn and not na(costShare)
+        string verdict = costShare <= 0.10 ? "workable" : costShare <= 0.20 ? "tight" : "NOT VIABLE"
+        color  vc      = costShare <= 0.10 ? color.lime : costShare <= 0.20 ? color.orange : color.red
+        costLbl := label.new(bar_index, low,
+             "cost " + str.tostring(costShare * 100, "#.#") + "% of risk — " + verdict +
+             "\nstop " + str.tostring(stopDistNow / syminfo.mintick, "#") + " ticks" +
+             " · cost " + str.tostring(estCostTicks, "#") + " ticks" +
+             "\n1 contract = $" + str.tostring(contractValue, "#,###") +
+             (costShare > maxCostShare ? "\nENTRIES BLOCKED — raise the timeframe" : ""),
+             style = label.style_label_up, color = color.new(color.black, 20),
+             textcolor = vc, size = size.small)
+
+// Refuse to trade at all when the sizing is nonsense. A blank tester is a much
+// clearer signal than 29 losing trades that look like a strategy failure.
+plot(sizingBroken ? 1 : 0, "Sizing broken", display = display.data_window)
