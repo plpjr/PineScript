@@ -19,9 +19,18 @@
 // be reproduced, and contradicts process_orders_on_close = true below.
 // =============================================================================
 // =============================================================================
-// Structure Break Signals  —  v7.19
+// Structure Break Signals  —  v7.20
 //
-// NEW IN v7.19 — THIN THE LABELS, KEEP THE SHAPE:
+// NEW IN v7.20 — LABEL EVERY SWING AGAIN:
+//   `Only label swings with a leg of at least (× ATR)` back to 0. Thinning at
+//   the median leg read worse than the full sequence: seeing every HH/HL/LH/LL
+//   in order is the point, and dropping 40% of them broke the run you read the
+//   trend from. The control stays for anyone who wants a quieter chart.
+//
+//   The v7.19 fix that retires labels in step with the drawn chain stays — it
+//   was a genuine bug either way.
+//
+// SUPERSEDED IN v7.19 — THIN THE LABELS, KEEP THE SHAPE:
 //   ⑮ `Only label swings with a leg of at least (× ATR)`, default 3.0.
 //   The zigzag still draws every swing; only the text is thinned.
 //
@@ -480,7 +489,7 @@
 //
 // process_orders_on_close: the break conditions evaluate against close, so
 // filling at the next bar's open would report entries the signal never offered.
-strategy("Structure Break Strategy v7.19", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500,
+strategy("Structure Break Strategy v7.20", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500,
      initial_capital = 10000,
      default_qty_type = strategy.fixed, default_qty_value = 1,
      commission_type = strategy.commission.cash_per_contract, commission_value = 0.75,
@@ -842,7 +851,7 @@ chainWidth = input.int(2, "  Line width", minval = 1, maxval = 3, group = grpCha
 chainStyle = input.string("Solid", "  Line style", options = ["Solid", "Dashed", "Dotted"], group = grpChain)
 chainCount = input.int(20, "  Swings to keep", minval = 4, maxval = 100, group = grpChain,
      tooltip = "How many recent swing-to-swing segments stay drawn.")
-chainMinLeg = input.float(3.0, "  Only label swings with a leg of at least (× ATR)", minval = 0.0, maxval = 15.0, step = 0.5, group = grpChain,
+chainMinLeg = input.float(0.0, "  Only label swings with a leg of at least (× ATR)", minval = 0.0, maxval = 15.0, step = 0.5, group = grpChain,
      tooltip = "Labels are only drawn on swings whose move from the previous swing is at least this large. THE ZIGZAG STILL DRAWS EVERY SWING — only the text is thinned, so the shape of the structure is unchanged.\n\nMeasured over 473 swings on MNQ 15M: median leg 3.43 ATR, 25th percentile 2.46, and only 1% below 1 ATR. So the swings are not noise, they are simply frequent — about one every 10 bars. The default of 3.0 is that median, which removes roughly 40% of the labels.\n\n⚠️ This is a READABILITY control, not a quality one. Tested across swing lengths 3 to 30, bigger swings did NOT produce levels that held better — the hold rate stayed flat at 51-56%. Raising this gives you a calmer chart, not better levels.\n\nSet 0 to label every swing.")
 chainLabels = input.bool(true, "  Label each swing HH / HL / LH / LL", group = grpChain,
      tooltip = "Puts a label on every swing point in the chain, classified against the previous swing on the same side: a high above the last high is HH, below it is LH; a low below the last low is LL, above it is HL.\n\nTHIS IS NOT THE SAME AS THE BREAK LABELS in ⑤. Those sit on the bar where a level was BROKEN, which is a different bar from the swing itself and is often far away from it. These sit on the swing points, on the zigzag, which is what most structure indicators show.\n\nIf you only want one set, turn off 'HH / LL / LH / HL labels' in ⑤ Display and keep these.")
@@ -2619,7 +2628,7 @@ plot(outScore, "Fwd sample score", display = display.data_window)
 // Fingerprint of the indicator source plus the trade logic that produced
 // this file. Shown on the chart label. If the two disagree, TradingView is
 // running an older compiled copy than the one you pasted.
-string BUILD_ID = "1ce761fc"
+string BUILD_ID = "4464bf17"
 
 // =============================================================================
 // BACKTEST TRADE LOGIC

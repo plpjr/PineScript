@@ -5,7 +5,21 @@
 Both scripts version independently. The authoritative history lives in each
 `.pine` file's header comment; this page is the readable summary.
 
-**Current:** Structure Break Signals **v7.19** · Key Zone Map **v1.7**
+**Current:** Structure Break Signals **v7.20** · Key Zone Map **v1.7**
+
+---
+
+## v7.20 — label every swing again
+
+`⑮ Only label swings with a leg of at least (× ATR)` back to **0**.
+
+Thinning at the median leg read worse than the full sequence. Seeing every
+HH/HL/LH/LL in order is the point of the chain, and dropping 40% of them broke
+the run you read the trend from. The control stays for anyone who wants a
+quieter chart — it is just no longer the default.
+
+The v7.19 fix that retires labels in step with the drawn chain **stays**; that
+was a genuine bug regardless of the threshold.
 
 ---
 
