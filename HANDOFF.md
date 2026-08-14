@@ -4,28 +4,38 @@
 this up without re-deriving it. User-facing documentation lives in
 [`wiki/`](wiki/Home.md).
 
-Last updated at commit `6c35b70`.
+Last updated at commit `aae44e0`.
 
 ---
 
 ## 0. Read this first — state at the last handoff
 
-**The MCP is live and was used successfully.** The restart happened; the
-TradingView tools work. Three things came out of that session:
+**The MCP is live, audited, and the strategy tester works.** The two things
+that blocked this project for five sessions — no history, no tester — are both
+solved. What came out of it:
 
-1. **The confidence score looks real, but the sample is too small to bank.**
-   At a high/low split of 80: hi bucket ratio **1.30 (n=27)**, lo bucket
-   **0.76 (n=5)**. Right direction, but the lo bucket is far below the
-   20-sample bar the script itself sets. See §6.
-2. **"Can't parse pine" is reproducible on demand** — and it is caused by the
-   MCP's `indicator_set_inputs`, *not* by the script. The same change made
-   through the normal settings dialog recalculates cleanly. See §4.
-3. **The chart was found completely blank** — no studies, no saved strategy,
-   layout "Unnamed". Whatever setup the frozen-settings symptom was observed
-   on no longer exists.
+1. **`BUILD_ID` on the chart reads `a3d0963c`, matching the repo exactly.**
+   TradingView *is* running the code we generate. The question that motivated
+   building BUILD_ID in the first place is answered, and the whole
+   stale-code theory is dead. The settings echo is readable as data too
+   ([§5a](#s5a)).
+2. **The strategy tester works** — `data_get_strategy_results` returns 19
+   metrics from the internal API. The old note that the tester was unreachable
+   is wrong. See [§5a](#s5a).
+3. **The score result flipped when the sample grew.** On 8 days the hi bucket
+   looked like 1.30; on 93 days it is **1.01** — a coin flip. The score
+   identifies *bad* breaks (lo 0.68) but not good ones. See
+   [§6](#s6-update). **The earlier 1.30 was noise. Do not quote it.**
+4. **History is loaded with the Date Range buttons** (1D/5D/1M/3M/6M/YTD/1Y/
+   5Y/All) in the bottom bar, not `chart_set_visible_range`, which only clamps
+   to what is already loaded. ⚠️ **The Date Range buttons also change the
+   timeframe** — clicking "3M" silently moved the chart from 15M to 1h.
+   Always re-check `chart_get_state` after using them.
+5. **"Can't parse pine" is caused by the MCP's `indicator_set_inputs`**, not by
+   the script. See [§4](#s4-update).
 
 ⚠️ **Do not use `indicator_set_inputs`.** It corrupts the study. Change
-settings through the settings dialog instead (§5 has the working recipe).
+settings through the settings dialog instead ([§5](#s5-gotchas) has the recipe).
 
 ### Decision: TradingView **Desktop**, via MCP. The browser route is dead.
 
@@ -222,6 +232,45 @@ catastrophic failure.
 
 Led to: instrument sanity guard — blocks entries and shows a red
 **WRONG INSTRUMENT** label when contract value < $1,000.
+
+---
+
+### Runs 6 and 7 — MNQ via the strategy tester, read over MCP
+
+First runs read as data rather than from screenshots. Strategy v7.12, build
+`a3d0963c` confirmed on the chart label, defaults except split = 80.
+
+| | Run 6 — **1h** | Run 7 — **15M** | Run 4 baseline (15M) |
+|---|---|---|---|
+| Backtest window | Jan 2025 – Aug 2026 | ~8 days | Apr 30 – Aug 5 2026 |
+| Trades | 111 | 32 | 52 |
+| **Profit factor** | **1.041** | **1.127** | 0.855 |
+| Win rate | 35.14% | 40.63% | 32.69% |
+| Net | +$983.50 (+9.84%) | +$753.50 | −$1,373.50 |
+| Max drawdown | **$7,792.75 (59.04%)** | $2,499.25 (22.53%) | $4,107.75 (38.94%) |
+| Commission | $166.50 | $48 | $78 |
+| Sharpe | 0.076 | 0.046 | — |
+| Buy and hold | +$16,668.50 | −$1,183.50 | +37.03% |
+
+**Profit factor crossed 1.0 for the first time.** Read that carefully before
+celebrating:
+
+- **Run 7's 32 trades is too few to mean anything**, and its window is ~8 days.
+  It is not comparable to Run 4 despite sharing a timeframe.
+- **Run 6 is the substantial one — 111 trades over 19 months — and its max
+  drawdown is 59%.** A 59% drawdown on a 9.84% return is not a tradeable
+  system, whatever the profit factor says. Sharpe 0.076 is ~0.
+- Buy and hold returned **+$16,668** against the strategy's +$983 in the same
+  window. The strategy underperforms doing nothing by 17×.
+- **Direction split reversed.** The tester's "Profits and losses by signals"
+  reads **Short +$4,721 / Long −$3,737** — the *opposite* sign to Run 4, where
+  shorts lost and longs won. Two windows, two opposite answers, which is what
+  a system with no directional edge looks like. It also further undercuts the
+  counter-trend theory in Run 4.
+
+**The cost and instrument guards both pass now**, confirmed from the chart
+label: `cost 2.2% of risk — workable`, `1 contract = $60,159`. The arithmetic
+failures of runs 1–5 are genuinely behind us.
 
 ---
 
@@ -444,6 +493,63 @@ Two dead ends already paid for, do not repeat them:
 - Adding a study is not instant — `chart_get_state` can return `studies: []`
   for a second or two afterwards.
 
+<a id="s5a"></a>
+### 5a. MCP capability audit — what actually works
+
+Tested directly against the live chart. Not inferred from the README.
+
+**Works, and matters to this project:**
+
+| Tool | Note |
+|---|---|
+| `data_get_strategy_results` | **19 metrics from the internal API.** The tester is reachable — the old claim otherwise is wrong |
+| `data_get_trades` | Order-level fills, `total_orders` reported |
+| `data_get_pine_tables` | The ⑬ rows. Primary read for the score work |
+| `data_get_pine_labels` | **Break type + score per break** ("LL 77", "HH 75"), and the **settings-echo + BUILD_ID label as text**. Richest single source we have |
+| `data_get_pine_lines` | 104 lines → 53 deduplicated levels |
+| `tv_health_check`, `chart_get_state`, `chart_get_visible_range` | Reliable |
+| `quote_get`, `symbol_info`, `symbol_search` | Fine |
+| `chart_set_symbol/_timeframe/_type`, `chart_scroll_to_date` | Fine. Timeframe change resets loaded history |
+| `chart_manage_indicator` (remove), `indicator_toggle_visibility` | Fine |
+| `indicator_search` | Searches My scripts + Community |
+| `draw_shape`, `draw_list`, `draw_remove_one` | Fine |
+| `pine_check` | **Server-side compile without touching the chart.** Validate before pasting |
+| `pine_smart_compile`, `pine_get_errors` | Only when the editor dialog is already open |
+| `watchlist_get`, `tab_list`, `pane_list`, `layout_list`, `replay_status` | Fine |
+| `capture_screenshot` | `full` is reliable |
+
+**Broken or degraded:**
+
+| Tool | Problem |
+|---|---|
+| `indicator_set_inputs` | **Corrupts the study** → `Can't parse pine`. Never use ([§4](#s4-update)) |
+| `ui_open_panel('pine-editor')` | Reports success, does nothing. The editor is a **dialog**: `data-name="pine-dialog-button"` |
+| `pine_new`, `pine_get_console` | Fail with "Could not open Pine Editor" whenever the dialog is closed — they cannot open it themselves |
+| `data_get_study_values` | 51KB of encoded blobs for our 37-plot script. **Context hazard, do not call on our indicators** |
+| `data_get_equity` | No per-bar equity curve; returns only the buy-and-hold baseline |
+| `capture_screenshot` region | `strategy_tester` returned the Pine editor when a dialog covered the window. Close dialogs first |
+| `pine_analyze` | Runs, but reported 0 issues on an unguarded `array.get` on an empty array — the exact bug class it advertises. Do not rely on it |
+| `depth_get` | Needs the DOM panel open |
+| `alert_*` | `tv_discover` reports **`alertService` unavailable**. `alert_list` returns empty — cannot distinguish "no alerts" from "not wired" |
+
+**Deliberately not fired**, because they create real artifacts or destroy
+state: `alert_create` / `alert_delete`, `replay_trade`, `draw_clear` (the chart
+has **6 pre-existing user drawings** — only ever remove by ID), `tab_close`,
+`layout_new`, `watchlist_add` / `_remove`, `tv_update`, `tv_launch`,
+`batch_run` (switches symbols).
+
+**Loading history — the thing that was blocking everything.** Use the Date
+Range buttons in the bottom bar:
+
+```js
+[...document.querySelectorAll('button, div')]
+  .find(e => e.offsetParent && /^3M$/.test((e.textContent||'').trim())).click();
+```
+
+8 days → **93 days** in one click. `chart_set_visible_range` cannot do this —
+it clamps to already-loaded data. ⚠️ **It also changes the timeframe** (3M
+forced 1h). Re-check `chart_get_state` afterwards, every time.
+
 ⚠️ The debug port gives any local process full control of the TradingView
 session. Fine while working; relaunch normally afterward.
 
@@ -536,6 +642,36 @@ numbers above will either firm up or dissolve with n in the hundreds, and no
 amount of reasoning over n=5 substitutes. Get the chart to load months of 15M
 data before re-reading these rows.
 
+<a id="s6-n115"></a>
+### UPDATE 2 — with 93 days of history, the result changes
+
+History loaded via the **3M** Date Range button. ⚠️ **That button also moved
+the chart to 1h**, so this reading is **MNQ 1h, not 15M** — a different
+measurement from the one above, not a refinement of it.
+
+| Bucket | MFE | MAE | Ratio | n |
+|---|---|---|---|---|
+| **hi** (score ≥ 80) | 2.36 | 2.34 | **1.01** | 93 |
+| **lo** (score < 80) | 1.77 | 2.60 | **0.68** | 22 |
+
+**Both buckets now clear the 20-sample bar, so for the first time these
+numbers count.** And they say something different from the 8-day sample:
+
+- **The hi bucket collapsed from 1.30 to 1.01.** High-scoring breaks are a
+  coin flip — 2.36 ATR for, 2.34 against. The earlier 1.30 was small-sample
+  noise, exactly as the caveat above warned. **It should not be quoted again.**
+- **The lo bucket is genuinely bad at 0.68**, and now with n=22 to back it.
+
+**So the score half-works, in a specific and limited way: it identifies breaks
+to avoid, not breaks to take.** Filtering to high scores removes losers without
+producing winners, which moves profit factor toward 1.0 and parks it there —
+consistent with what the tester reports ([§5a](#s5a)). That is a real but
+modest edge, and it is not the ranking behaviour the wiki assumes.
+
+**Still open:** this is 1h. The 15M reading at n≥20 per bucket has never been
+taken — the timeframe changed underneath the measurement. Take it before
+concluding anything about 15M specifically.
+
 ---
 
 ## 7. Next steps
@@ -606,16 +742,46 @@ check `BUILD_ID` against `a3d0963c` once it is on the chart.
 It is unreproduced on a fresh setup ([§4](#s4-update)). Chasing a symptom whose
 chart no longer exists is how the last two sessions went.
 
+### 7b. Revised plan after the capability audit
+
+Steps 1 and 2 of §7a are **done** — history loads (Date Range buttons) and the
+tester works. What is actually next:
+
+**1. Take the 15M reading at full history.** The n=115 result is 1h; the
+timeframe moved underneath it. Load history *then* confirm the timeframe, and
+re-read both the ⑬ rows and the tester. Until this exists there is no valid
+15M comparison to the 0.855 baseline.
+
+**2. Sweep `Minimum score to signal` — now worth doing.** [§6](#s6-n115) says
+the score removes bad breaks without finding good ones. The sweep
+(0/40/55/70/85) tests that directly: profit factor should rise toward ~1 and
+then flatten rather than climb. Use the dialog recipe, never
+`indicator_set_inputs`.
+
+**3. Treat drawdown as the target, not profit factor.** Run 6 has PF > 1 and a
+59% drawdown. Optimising PF further is measuring the wrong thing.
+
+**4. Pull the per-break dataset from `data_get_pine_labels`.** It returns type
+and score per break ("LL 77", "HH 75"). Joined against outcomes this gives a
+proper score-vs-result table instead of two coarse buckets — the analysis the
+plot exports were built for and that the 412-bar study cache could not supply.
+
 ### State the chart was left in
 
-- Layout **"Unnamed"**, `CME_MINI_DL:MNQ1!`, 15M.
-- One study: **Structure Break Signals v7.12**, with **High/low score split =
-  80** (not the shipped 60 — set deliberately, it is the only value that
-  populates both buckets).
-- A new saved script, **"Structure Break Signals v7.12"**
-  (`USER;46b1f109…`), created to test the saved/unsaved theory. The older
-  **"Structure Break Signals"** (v7.9) was **not** touched. Delete the new one
-  freely; it proved nothing.
+- Layout **"Unnamed"**, `CME_MINI_DL:MNQ1!`, back on **15M**, strategy tester
+  panel open.
+- One study: **Structure Break Strategy v7.12** (the indicator was replaced by
+  "Update on chart" when the strategy was pasted into the same buffer). Split
+  = 80. Re-add the indicator from the saved script when needed.
+- A saved script, **"Structure Break Signals v7.12"** (`USER;46b1f109…`).
+  ⚠️ **Its editor buffer now holds strategy code, unsaved.** The saved
+  server-side copy is still the indicator — do not hit Save in that buffer or
+  it becomes a strategy under an indicator's name. The older **"Structure
+  Break Signals"** (v7.9) was never touched.
+- **The symbol is `CME_MINI_DL:` — the `_DL` suffix means delayed data.** Fine
+  for backtests, worth knowing before trusting anything live.
+- 6 pre-existing user drawings on the chart. A test drawing was added and
+  removed by ID; `draw_clear` was never called.
 - Magnet mode was toggled on by a mis-aimed click and toggled back off.
 
 ---
