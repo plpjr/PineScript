@@ -19,7 +19,26 @@
 // be reproduced, and contradicts process_orders_on_close = true below.
 // =============================================================================
 // =============================================================================
-// Structure Break Signals  —  v7.20
+// Structure Break Signals  —  v7.21
+//
+// NEW IN v7.21 — PUT THE WEIGHT ON THE LIVE LEVELS:
+//   The hierarchy was inverted. The two levels still in play were drawn
+//   dotted at width 1, while the thirty-two already resolved were solid or
+//   dashed at width 2 — so the chart shouted about history and whispered
+//   about the present. Two lines out of roughly seventy-four were the ones
+//   being waited on, and they were the faintest things on it.
+//
+//     live level width      1  -> 2
+//     HH/LL, LH/HL width    2  -> 1
+//     LH/HL right extend    50 -> 20   (was out-projecting the live levels)
+//     Max breaks to draw    50 -> 15
+//
+//   ⚠️ A TRADE, NOT A FREE WIN. Capping history at 15 means older levels
+//   disappear: if price returns to one from days ago it will not be drawn.
+//   That is the gap ⑭ Level map exists to cover. Raise `Max breaks to draw`
+//   back up if the history matters more than the clarity.
+//
+//   Readability only. Nothing about detection, accuracy or signal changed.
 //
 // NEW IN v7.20 — LABEL EVERY SWING AGAIN:
 //   `Only label swings with a leg of at least (× ATR)` back to 0. Thinning at
@@ -489,7 +508,7 @@
 //
 // process_orders_on_close: the break conditions evaluate against close, so
 // filling at the next bar's open would report entries the signal never offered.
-strategy("Structure Break Strategy v7.20", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500,
+strategy("Structure Break Strategy v7.21", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500,
      initial_capital = 10000,
      default_qty_type = strategy.fixed, default_qty_value = 1,
      commission_type = strategy.commission.cash_per_contract, commission_value = 0.75,
@@ -743,7 +762,7 @@ showLiveHigh = input.bool(true, "Live (unbroken) high level", group = grpD,
      tooltip = "Dotted line showing the swing HIGH price is CURRENTLY working against, before any break.\n\nThis is the most useful setting for live trading: it shows what needs to break for a signal to fire, so you can plan the trade before the label appears.")
 showLiveLow = input.bool(true, "Live (unbroken) low level", group = grpD,
      tooltip = "Same as the high level above, mirrored for the current watched swing LOW.")
-liveLineWidth = input.int(1, "  Live level line width", minval = 1, maxval = 4, group = grpD,
+liveLineWidth = input.int(2, "  Live level line width", minval = 1, maxval = 4, group = grpD,
      tooltip = "Thickness of the live (unbroken) level lines.")
 liveLineStyle = input.string("Dotted", "  Live level line style", options = ["Solid", "Dashed", "Dotted"], group = grpD,
      tooltip = "Line style for the live level lines. Dotted by default so they read as 'not confirmed yet,' distinct from the solid/dashed HH/LL/LH/HL break lines.")
@@ -774,7 +793,7 @@ showTable  = input.bool(true, "Status table", group = grpD,
      tooltip = "Corner panel showing current bias, the exact watched levels, bars since the last break, ATR, and active preset.\n\nThe numeric levels are the useful part: copy them straight into your trade journal rather than reading them off the chart.")
 tablePosition = input.string("Top Right", "  Table position", options = ["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group = grpD,
      tooltip = "Corner of the chart the status table is anchored to. Move it if it overlaps another indicator's panel or the price scale.")
-maxHistory = input.int(50, "Max breaks to draw (0 = unlimited)", minval = 0, maxval = 200, group = grpD,
+maxHistory = input.int(15, "Max breaks to draw (0 = unlimited)", minval = 0, maxval = 200, group = grpD,
      tooltip = "Limits how many historical HH/LL/LH/HL lines and labels remain on chart. Oldest auto-delete when exceeded.\n\n0 = no limit (may hit TradingView's 500 cap on busy charts).\n50 = keeps chart clean on intraday timeframes.\n\nLive levels and pivot markers are not counted.")
 
 showUnconfirmed = input.bool(true, "Show unconfirmed break preview", group = grpD,
@@ -887,7 +906,7 @@ colCont       = input.color(#38BDF8, "HH/LL colour", group = grpB,
      tooltip = "Colour for continuation lines and labels — HH (Higher High) on an up break, LL (Lower Low) on a down break. A break WITH the existing trend, confirming it's still intact.")
 contLineStyle = input.string("Solid", "HH/LL line style", options = ["Solid", "Dashed", "Dotted"], group = grpB,
      tooltip = "Line style for HH/LL levels. Solid reads as more definitive, which suits continuation signals.")
-contLineWidth = input.int(2, "HH/LL line width", minval = 1, maxval = 4, group = grpB,
+contLineWidth = input.int(1, "HH/LL line width", minval = 1, maxval = 4, group = grpB,
      tooltip = "Thickness of HH/LL lines. Raise if you're on a large monitor or find them hard to see.")
 contExtendBars = input.int(0, "Extend HH/LL lines right (bars)", minval = 0, maxval = 500, group = grpB,
      tooltip = "How many bars to draw the HH/LL line forward from the break bar.\n\n0 = line stops at the break bar (cleanest).\n20 = extends 20 bars forward.\n100 = extends 100 bars forward.\n\nUnlike 'extend.right' which runs forever, this keeps your chart clean on the right edge while still showing relevant levels ahead.")
@@ -905,9 +924,9 @@ colRev       = input.color(#FB923C, "LH/HL colour", group = grpC,
      tooltip = "Colour for reversal lines and labels — LH (Lower High) breaking on an up move, HL (Higher Low) breaking on a down move. A break AGAINST the existing trend, signalling a possible reversal — this is the level that just failed.")
 revLineStyle = input.string("Dashed", "LH/HL line style", options = ["Solid", "Dashed", "Dotted"], group = grpC,
      tooltip = "Line style for LH/HL levels. Dashed distinguishes them from HH/LL at a glance.")
-revLineWidth = input.int(2, "LH/HL line width", minval = 1, maxval = 4, group = grpC,
+revLineWidth = input.int(1, "LH/HL line width", minval = 1, maxval = 4, group = grpC,
      tooltip = "Thickness of LH/HL lines.")
-revExtendBars = input.int(50, "Extend LH/HL lines right (bars)", minval = 0, maxval = 500, group = grpC,
+revExtendBars = input.int(20, "Extend LH/HL lines right (bars)", minval = 0, maxval = 500, group = grpC,
      tooltip = "How many bars to draw the LH/HL line forward from the break bar.\n\n0 = line stops at the break bar.\n50 = extends 50 bars forward (default — enough to see retests without clutter).\n200 = extends 200 bars.\n\nLH/HL levels often act as support/resistance, so some extension is useful. But 'forever' clutters the chart. Adjust to your timeframe: lower on 1M, higher on 1H+.")
 revVertical  = input.bool(true, "Vertical marker on LH/HL bar", group = grpC,
      tooltip = "ON (default) = marks the exact LH/HL bar. Reversal signals are the easiest to misread in real time, so the precise bar is worth showing.")
@@ -2628,7 +2647,7 @@ plot(outScore, "Fwd sample score", display = display.data_window)
 // Fingerprint of the indicator source plus the trade logic that produced
 // this file. Shown on the chart label. If the two disagree, TradingView is
 // running an older compiled copy than the one you pasted.
-string BUILD_ID = "4464bf17"
+string BUILD_ID = "4a5ce629"
 
 // =============================================================================
 // BACKTEST TRADE LOGIC

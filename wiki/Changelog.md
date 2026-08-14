@@ -5,7 +5,32 @@
 Both scripts version independently. The authoritative history lives in each
 `.pine` file's header comment; this page is the readable summary.
 
-**Current:** Structure Break Signals **v7.20** · Key Zone Map **v1.7**
+**Current:** Structure Break Signals **v7.21** · Key Zone Map **v1.7**
+
+---
+
+## v7.21 — put the weight on the live levels
+
+**The hierarchy was inverted.** The two levels still in play were drawn dotted
+at width 1, while the thirty-two already resolved were solid or dashed at width
+2. Two lines out of roughly seventy-four were the ones being waited on, and they
+were the faintest things on the chart.
+
+| Setting | Was | Now |
+|---|---|---|
+| Live level width | 1 | **2** |
+| HH/LL and LH/HL width | 2 | **1** |
+| LH/HL right extension | 50 | **20** |
+| `Max breaks to draw` | 50 | **15** |
+
+Measured on chart: **74 lines down to 54**, horizontal levels **34 down to 18**.
+
+⚠️ **A trade, not a free win.** Capping history at 15 means older levels
+disappear — if price returns to one from days ago it will not be drawn. That is
+the gap `⑭ Level map` exists to cover. Raise `Max breaks to draw` if the history
+matters more to you than the clarity.
+
+**Readability only.** Nothing about detection, accuracy or signal changed.
 
 ---
 
