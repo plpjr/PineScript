@@ -219,30 +219,56 @@ shadowed, not reassigned.
 
 ---
 
-## 5. TradingView MCP — installed, needs a restart to activate
+## 5. TradingView MCP — registered, activates on next restart
 
-Installed this session to make the feedback loop debuggable.
+Installed to make the feedback loop debuggable.
 
 | | |
 |---|---|
 | Repo | [`tradesdontlie/tradingview-mcp`](https://github.com/tradesdontlie/tradingview-mcp) — 5.6k stars |
 | Location | `~/Documents/tradingview-mcp` |
-| Registered at | `~/.claude/.mcp.json` |
+| Registered at | `~/.claude.json`, user scope |
 | Dependencies | Installed. **7 vulnerabilities found, all patched** via `npm audit fix` — clean |
 
-### Remaining steps
+### The registration was in the wrong file for two sessions
 
-1. **User must run** (Claude Code's classifier blocks it — it kills processes
-   and launches an app):
-   ```
-   ! ~/Documents/tradingview-mcp/scripts/launch_tv_debug_mac.sh
-   ```
-   Kills TradingView, relaunches with `--remote-debugging-port=9222`.
-   ⚠️ **Unsaved Pine editor work is lost** — warn first.
+It was originally written to **`~/.claude/.mcp.json`, which Claude Code does not
+read.** The server was never loading, and the handoff blamed a missing restart —
+so restarting could never have fixed it. Fixed with:
 
-2. **Restart Claude Code** — MCP servers only load at startup.
+```bash
+claude mcp add tradingview --scope user -- node /Users/plpjr/Documents/tradingview-mcp/src/server.js
+```
 
-3. Verify with `tv_health_check`.
+Valid locations are `~/.claude.json` (user scope) or a `.mcp.json` at a project
+root. **Verify with `claude mcp list`, never by reading a config file** — that
+is exactly what hid this.
+
+### State as of this session
+
+| Precondition | Status |
+|---|---|
+| Registered and connecting | ✅ `claude mcp list` shows `tradingview … ✔ Connected` |
+| TradingView on the debug port | ✅ already running with `--remote-debugging-port=9222`; port 9222 answers |
+| Tools visible in-session | ❌ **needs a Claude Code restart** — MCP servers load only at startup |
+
+So the one remaining step is a restart. The launch script is **not** needed
+unless the port stops answering; check it without disturbing the app:
+
+```bash
+curl -s --max-time 3 http://127.0.0.1:9222/json/version
+```
+
+If that fails, the user runs (Claude Code's classifier blocks it — it kills
+processes and launches an app):
+
+```
+! ~/Documents/tradingview-mcp/scripts/launch_tv_debug_mac.sh
+```
+
+⚠️ **Unsaved Pine editor work is lost** — warn first.
+
+Then verify with `tv_health_check`.
 
 ### Tools that matter for our problem
 
@@ -309,7 +335,7 @@ Table template in [`wiki/Backtesting.md`](wiki/Backtesting.md).
 
 ## 7. Next steps, prioritized
 
-1. **Get the MCP live** (user runs launch script, restart Claude Code)
+1. **Restart Claude Code** — that is all that is left to get the MCP live (§5)
 2. **`tv_health_check`**, then read the chart state
 3. **Solve the frozen-settings problem.** Read the ① badge first. Then
    `data_get_pine_tables` to see what the script thinks its settings are
@@ -344,6 +370,12 @@ version history.**
 
 **Ask for the obvious diagnostic sooner.** The "Script execution ①" badge was
 in every screenshot from the start. I asked on round four.
+
+**Verify a tool is wired up, don't trust that you wired it.** I wrote the MCP
+registration to a file Claude Code never reads, recorded "registered" in the
+handoff and in memory, and attributed the resulting silence to a pending
+restart. That misdiagnosis would have survived any number of restarts.
+`claude mcp list` answers in one second and is the only thing that counts.
 
 ---
 
