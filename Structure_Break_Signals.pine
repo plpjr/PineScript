@@ -1,5 +1,18 @@
 // =============================================================================
-// Structure Break Signals  —  v7.16
+// Structure Break Signals  —  v7.17
+//
+// NEW IN v7.17 — THE SWING CHAIN WAS BROKEN, AND IS NOW THE MAIN LINE:
+//   The zigzag came apart wherever two highs (or two lows) confirmed in a
+//   row: the marker moved to the new pivot but the segment already drawn kept
+//   ending at the old one, leaving a gap. Verified on chart — one segment
+//   ended at bar 84 / 29924.50 while the next began at bar 85 / 29928.75.
+//   The gaps appeared precisely where structure was strongest, which is the
+//   worst place for a trend line to fall apart.
+//
+//   A same-side repeat now STRETCHES the drawn segment to the more extreme
+//   pivot, and a less extreme repeat is ignored — which is what makes it a
+//   zigzag rather than a scribble. Default width 1 → 2 so the chain reads as
+//   the primary structure line against the horizontal levels.
 //
 // NEW IN v7.16 — STRUCTURE FIRST; THE LEVEL MAP IS OPT-IN:
 //   v7.15 put eight tagged bands on the chart by default and buried the
@@ -401,7 +414,7 @@
 // (swing 50 -> 100 bars, volume 200), 500 leaves comfortable headroom. The
 // previous value of 100 was below what the inputs already permitted and threw
 // "requested historical offset is beyond the historical buffer's limit".
-indicator("Structure Break Signals v7.16", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500)
+indicator("Structure Break Signals v7.17", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500)
 
 // =============================================================================
 // SENSITIVITY MASTER CONTROLS
@@ -753,7 +766,8 @@ grpChain = "⑮ Structure chain"
 
 showChain = input.bool(true, "Connect swings with a zigzag", group = grpChain,
      tooltip = "Draws a line from each confirmed swing to the next, so the sequence of highs and lows reads at a glance.\n\nThe HH/LL/LH/HL labels tell you what each individual break was. The chain tells you what the sequence adds up to — higher highs and higher lows, or lower highs and lower lows — which is the thing you actually mean by 'the trend'.")
-chainWidth = input.int(1, "  Line width", minval = 1, maxval = 3, group = grpChain)
+chainWidth = input.int(2, "  Line width", minval = 1, maxval = 3, group = grpChain,
+     tooltip = "Thickness of the zigzag. Defaults to 2 so the chain reads as the primary structure line rather than getting lost among the horizontal level lines.")
 chainStyle = input.string("Solid", "  Line style", options = ["Solid", "Dashed", "Dotted"], group = grpChain)
 chainCount = input.int(20, "  Swings to keep", minval = 4, maxval = 100, group = grpChain,
      tooltip = "How many recent swing-to-swing segments stay drawn.")
@@ -1950,6 +1964,7 @@ if barstate.islast and showMap and atrVal > 0
 // The labels say what each break was. The chain says what the sequence adds
 // up to, which is what "the trend" actually means.
 var array<line> chainLines = array.new_line(0)
+var line  chainLastLine = na
 var float chainLastP = na
 var int   chainLastB = na
 var int   chainLastK = 0
@@ -1966,20 +1981,42 @@ if showChain
         newP := pl
         newB := plBar
         newK := -1
+
     if not na(newP)
-        if newK == chainLastK
-            // Same side twice running — carry the marker forward rather than
-            // drawing a segment that doubles back on itself.
+        if chainLastK == 0
+            // Nothing to join to yet — seed the chain.
             chainLastP := newP
             chainLastB := newB
+            chainLastK := newK
+
+        else if newK == chainLastK
+            // Two highs (or two lows) in a row. A zigzag keeps only the more
+            // extreme of them, and the segment already drawn has to be
+            // STRETCHED to the new point.
+            //
+            // Carrying the marker forward without moving the line — which is
+            // what v7.15 did — left the drawn segment ending at the old pivot
+            // while the next one began at the new one, so the chain came apart
+            // at exactly the points where structure was strongest. A less
+            // extreme repeat is ignored outright, which is what makes this a
+            // zigzag rather than a scribble.
+            bool moreExtreme = newK == 1 ? newP > chainLastP : newP < chainLastP
+            if moreExtreme
+                chainLastP := newP
+                chainLastB := newB
+                if not na(chainLastLine)
+                    line.set_xy2(chainLastLine, newB, newP)
+
         else
-            if not na(chainLastP)
-                color cc = chainColorBy ? (newP > chainLastP ? colCont : colRev) : color.new(color.gray, 35)
-                line cl = line.new(chainLastB, chainLastP, newB, newP,
-                     color = cc, width = chainWidth, style = styleOf(chainStyle))
-                array.push(chainLines, cl)
-                while array.size(chainLines) > chainCount
-                    line.delete(array.shift(chainLines))
+            color cc = chainColorBy ? (newP > chainLastP ? colCont : colRev) : color.new(color.gray, 35)
+            line cl = line.new(chainLastB, chainLastP, newB, newP,
+                 color = cc, width = chainWidth, style = styleOf(chainStyle))
+            array.push(chainLines, cl)
+            chainLastLine := cl
+            // chainCount is at least 4, so the line just pushed can never be
+            // the one shifted off — chainLastLine stays valid to stretch.
+            while array.size(chainLines) > chainCount
+                line.delete(array.shift(chainLines))
             chainLastP := newP
             chainLastB := newB
             chainLastK := newK

@@ -5,7 +5,27 @@
 Both scripts version independently. The authoritative history lives in each
 `.pine` file's header comment; this page is the readable summary.
 
-**Current:** Structure Break Signals **v7.16** · Key Zone Map **v1.7**
+**Current:** Structure Break Signals **v7.17** · Key Zone Map **v1.7**
+
+---
+
+## v7.17 — the swing chain was broken, and is now the main line
+
+**Bug.** The ⑮ zigzag came apart wherever two highs (or two lows) confirmed in
+a row. The marker moved to the new pivot, but the segment already drawn kept
+ending at the old one — so the chain had gaps, and they appeared precisely
+where structure was strongest.
+
+Caught on a live chart: one segment ended at bar 84 / `29924.50` while the next
+began at bar 85 / `29928.75`.
+
+**Fix.** A same-side repeat now *stretches* the drawn segment to the more
+extreme pivot; a less extreme repeat is ignored outright, which is what makes
+it a zigzag rather than a scribble. Verified across all 20 segments — every
+endpoint is now the next segment's start.
+
+**Default width 1 → 2**, so the chain reads as the primary structure line
+rather than getting lost among the horizontal level lines.
 
 ---
 
