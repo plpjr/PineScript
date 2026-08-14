@@ -7,9 +7,9 @@
 // Why it computes pivots in JS instead of reading them from the indicator:
 //   * swingLen is derived from the preset dials, so sweeping it in Pine means
 //     a re-paste and a full recalculation per value. Here a sweep is one pass.
-//   * The study stops drawing entirely past ~5,000 bars (HANDOFF §5a), so the
-//     lines/labels are not readable at the sample sizes that give power.
-//     Bars always are.
+//   * It measures every pivot, not just the ones the indicator's filters let
+//     through, so it tests the level concept itself rather than the current
+//     filter settings.
 //
 // No look-ahead: a pivot at bar k is only known at k + L, and every scan
 // starts at k + L + 1. When a bar hits both stop and target, it is scored a

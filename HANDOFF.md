@@ -23,9 +23,16 @@ say:
   below 60 — the exact failure the wiki predicted.
 - **Only 32 breaks in 5,020 bars.** One per 157. MNQ alone cannot supply
   enough events; pooling across symbols is the plan.
-- **At 5,020 bars the script draws nothing** — no labels, lines or table,
-  while plots stay correct. Control-tested against unmodified v7.12, which
-  fails identically. Read the plot cache, never the table, at full history.
+- ⚠️ **RETRACTED: "at 5,020 bars the script draws nothing."** That claim was
+  committed to this repo and is **false**. It came from walking
+  `_primitivesCollection` by hand, which returns zero even at 400 bars where
+  the table is plainly on screen; the v7.12 "control" agreed only because it
+  used the same broken method. Verified with `data_get_pine_tables`: the
+  indicator **renders correctly at 5,024 bars**. Use that tool, never
+  hand-rolled DOM traversal. See [`PLAN.md` §1.5](PLAN.md).
+- **v7.13's fixed rows are verified against an independent computation** —
+  the chart shows `med 1.27 · win 59% · agg 1.22 (n=32)`, matching the Python
+  analysis of the same 32 breaks exactly.
 - **The levels are good; the way they are traded is not.** At **n = 477**,
   entering *at* a swing level with a 0.5 ATR stop returns **+0.184 R** net of
   commission, against **+0.064 R** for the shipped break-entry/1.5-ATR-stop

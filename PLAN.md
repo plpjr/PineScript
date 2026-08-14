@@ -99,34 +99,42 @@ needs hundreds of events, and:
 - Reaching n ≈ 300 on one symbol would need ~2 years of 15M history.
 - Therefore **no amount of patience on MNQ alone will validate the score.**
 
-### 1.5 At full history the script stops drawing — read the plots, not the table
+### 1.5 ~~At full history the script stops drawing~~ — RETRACTED, this was a measurement error
 
-Discovered while verifying v7.13, and **confirmed not to be caused by it**:
+**This section previously claimed the script renders no labels, lines or table
+once ~5,000 bars are loaded. That is false and the claim was committed to this
+repo before it was checked properly.**
 
-| Bars loaded | Plot output | Labels / lines / **status table** |
-|---|---|---|
-| ~412 | ✅ | ✅ |
-| **5,020** | ✅ all 5,020 rows | ❌ **zero** |
+What went wrong: drawing counts were read by walking
+`_graphics._primitivesCollection[...].get(false)` directly. That path returns
+zero for a study whose drawings live elsewhere, and it returned zero **at 400
+bars too** — a bar count where the table was demonstrably on screen. The
+method was broken, not the script. A "control test" against v7.12 appeared to
+confirm the bug because it used the same broken method.
 
-A control test re-pasting **v7.12 unchanged** produced the same zero drawings
-at 5,020 bars, so this is an environmental limit — almost certainly the script
-exhausting its drawing budget over 75 days of structure — not a regression.
-The study reports no error; it simply renders nothing and the last good frame
-stays on the canvas, which looks exactly like frozen output.
+Verified afterwards with `data_get_pine_tables`, which reads drawings the way
+TradingView does:
 
-**Two consequences, both important:**
+| Bars loaded | Status table |
+|---|---|
+| 400 | ✅ renders |
+| **5,024** | ✅ **renders** |
 
-1. **The ⑬ status rows cannot be read at the bar counts that give statistical
-   power.** The table works only on short history — precisely where n is too
-   small to mean anything. The rows are a chart convenience, not the
-   measurement channel.
-2. **The measurement channel is the plot data cache** (§4), which stays
-   correct at 5,020 bars. Every number in §1.1–1.3 came from there. All
-   pooled collection in §2.2 must use it.
+**The indicator draws correctly at full history.** No drawing budget is being
+exhausted and nothing needs fixing here.
 
-This also retro-explains a stale-looking reading earlier in the session: a
-table showing v7.12 row labels under a study named v7.13 was leftover canvas,
-not a stale computation.
+Two things that did survive from the wreckage of this section:
+
+- **Use `data_get_pine_tables`, not raw primitive walking.** The MCP tool knows
+  where drawings live; hand-rolled DOM traversal does not.
+- **A study mid-recalculation returns nothing and the previous frame stays on
+  the canvas.** That genuinely does look like frozen output, and it is what
+  produced the "v7.12 row labels under a v7.13 study" reading. Wait for the
+  recalculation before concluding anything.
+
+**Lesson worth keeping:** two independent-looking observations agreed because
+they shared one broken instrument. Agreement between measurements is not
+evidence when both run through the same faulty path.
 
 ### 1.6 What the backtest says, for context
 
@@ -229,9 +237,10 @@ divide-by-zero guard for breaks that never traded against you.
 **Why first:** §1.3. Tuning against a statistic that flips sign on one outlier
 generates confident nonsense.
 
-⚠️ **Caveat from §1.5:** these rows only render on short history, where n is
-too small to act on. The fix makes the *chart* honest; it does not make the
-chart the place to measure. Analysis runs off the plot cache.
+**Verified on the chart at full history** (§1.5 retraction): the rows read
+`med 1.27 · win 59% · agg 1.22 (n=32)`, matching an independent Python
+analysis of the same 32 breaks to the decimal. The instrument now agrees with
+an outside calculation, which is the only reason to trust it.
 
 **Still to do here:** the same median/win-rate treatment should be applied to
 whatever reports pooled results in §2.2 — that is where it will actually be
