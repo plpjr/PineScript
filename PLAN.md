@@ -223,6 +223,92 @@ do, and a reason to check whether those filters help or hurt.
 
 ---
 
+## 1.8 Goal audit — does the indicator do its four jobs?
+
+Scope corrected here: **the indicator only.** The strategy is out of scope, and
+so is score-as-predictor work. The four jobs are (1) detect swing structure
+correctly, (2) mark the levels those pivots create, (3) describe each break
+well enough to judge it, (4) show the context needed to act.
+
+Measured on MNQ 15M, 5,027 bars (~75 days), v7.14 on defaults.
+
+### Goal 1 — Detect swing structure · **PASS**
+
+| | |
+|---|---|
+| Swing highs picked up as watch levels | **275 / 281 = 98%** |
+| Swing lows picked up | **278 / 286 = 97%** |
+| Detection lag | **median 5 bars, max 5** |
+
+5 bars is `swingLen` — the theoretical minimum for a pivot(5,5), which cannot
+be known until 5 bars after it forms. **There is no avoidable lag.**
+
+The indicator also tracks levels my strict-pivot reference did not count (434
+distinct watch highs vs 281 reference pivots), consistent with a more
+permissive pivot definition. More inclusive, not less — not a miss.
+
+### Goal 2 — Mark the levels · **PASS, with a relevance gap**
+
+Levels are correct and independently validated (§1.7: 53% hold, positive
+expectancy at n=477). But **how often is a marked level anywhere near price?**
+
+| | Watch high | Watch low |
+|---|---|---|
+| Median distance | 1.71 ATR | 2.25 ATR |
+| Within 1 ATR | **26%** | **18%** |
+| Beyond 3 ATR | **29%** | **38%** |
+
+**Roughly a third of the time neither live level is near price.** The levels
+are right; they are just not always the relevant ones. Only two are shown, and
+`Show internal structure` — the feature that would fill the gap — **ships
+off**.
+
+### Goal 3 — Describe each break · **MIXED**
+
+- **Clearance is correct.** It is captured at the break bar, not the
+  confirmation bar, so it differs from a naive recomputation at the label bar
+  by ~0.36 ATR median. That is by design — clearance describes the break
+  event — not an error.
+- **The score is still the weak part** (§1.1–1.3). v7.14 spread it from
+  64–100 to 57–100, but 78% still sit above 80.
+- Break split over the window: **HH 3 · LL 9 · LH 8 · HL 12**.
+
+### Goal 4 — Show context to act · **PASS since v7.14**
+
+Price, test count, live distance, zones and approach alerts all present and
+verified. Remaining gap is breadth, not depth: only one level each side.
+
+---
+
+## 1.9 Concerns, ranked
+
+**1. Possible directional skew — the top watch item.** The indicator fired
+**11 up / 21 down** (34% up-share) over a window whose *raw* structure is
+balanced: 231 up-breaks vs 229 down-breaks, ratio 1.01, net move −0.91%.
+
+⚠️ **Not significant: binomial p = 0.110 at n=32.** This is a suspicion, not a
+finding, and it must not be treated as one. It is worth stating because it is
+cheaply falsifiable — **if the same 34% up-share persists to n=60, p = 0.027
+and it is real.** Check it before touching any filter.
+
+**2. The relevance gap** (Goal 2 above): a third of the time nothing marked is
+near price.
+
+**3. Overnight breaks are never labelled.** The session filter ships on at
+`0930-1600`, and **only 28% of MNQ bars fall inside it.** Levels still update
+outside the session — detection is not gated — but a break that happens
+overnight produces no label. The level silently changes. For futures, the
+overnight high and low are exactly the levels people watch.
+
+**4. The score still is not informative** and now carries a warning in the
+wiki rather than a fix.
+
+**5. Everything above is one symbol, one 75-day window.** Every count here is
+small — 32 breaks. The level statistics (n=477) are the only well-powered
+numbers in this document.
+
+---
+
 ## 2. The plan
 
 Ordered so that each step is only attempted once the thing it depends on is
