@@ -353,6 +353,56 @@ The same three values appear in the status table, and `Watch high level`,
 `Tests · watch high` and `Tests · watch low` are exported to the data window
 for CSV export and alert interpolation.
 
+<a id="level-map"></a>
+## ⑭ Level map
+
+**The problem it solves.** The script detects roughly 560 swing levels over 75
+days of MNQ 15M — at 98% accuracy, with a lag of exactly `swingLen` bars, which
+is the theoretical minimum. Before v7.15 it drew **two** of them.
+
+Measured over that window, price sat more than 3 ATR from the watch high **29%
+of the time** and from the watch low **38%** — so about a third of the session
+the nearest marked level was roughly a hundred MNQ points away, with unmarked
+structure in between. Detection was never the weak part. Display was.
+
+**Show nearby levels** *(on)* — draws the swing levels closest to price, above
+and below, in addition to the two live watch levels.
+
+| Setting | Default | What it does |
+|---|---|---|
+| **Levels each side** | 3 | How many to draw above and below. TradingView caps a script at 500 boxes, so this is deliberately bounded |
+| **Ignore levels further than** | 6 ATR | Stops the map reaching for irrelevant structure when price is in open space |
+| **Draw as zones** | on | Bands rather than lines, same half-width as the live levels |
+| **Label with price, tests and age** | on | `30141.00 · 7 tests · 95b` |
+| **Fade by strength** | on | More tests and greater age draw more solidly |
+| **Keep levels after they break** | on | A broken level stays in the opposite role — broken resistance becomes support |
+| **Levels tracked internally** | 60 | Registry depth. Every tracked level is checked for a test each bar, so lower it if the script feels slow |
+
+**Fade by strength is the setting to understand.** It means the level that
+matters is the one that *looks* solid — you read the chart, not the numbers. A
+level tested seven times over 95 bars renders firmly; one that formed twenty
+bars ago and has never been touched is barely there.
+
+**Keeping broken levels** is on because polarity flip is the most common reason
+a level still matters after it gives way. In practice most levels near price
+*are* broken ones — the unbroken levels are, by definition, the two live ones
+further out.
+
+<a id="structure-chain"></a>
+## ⑮ Structure chain
+
+**Connect swings with a zigzag** *(on)* — a line from each confirmed swing to
+the next.
+
+The HH/LL/LH/HL labels tell you what each individual break was. The chain tells
+you what the sequence *adds up to* — higher highs and higher lows, or lower
+highs and lower lows — which is what people actually mean by "the trend". That
+was the one thing the script measured internally (`bias`) but never drew.
+
+**Colour by direction** *(on)* gives rising segments the continuation colour
+and falling ones the reversal colour, so an uptrend reads as mostly one colour
+at a glance. **Swings to keep** *(20)* bounds how far back it draws.
+
 ### Diagnosis
 
 **Raw pivot markers** — triangles on every detected swing, *including ones the

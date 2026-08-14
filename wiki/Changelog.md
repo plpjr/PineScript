@@ -5,7 +5,28 @@
 Both scripts version independently. The authoritative history lives in each
 `.pine` file's header comment; this page is the readable summary.
 
-**Current:** Structure Break Signals **v7.14** · Key Zone Map **v1.7**
+**Current:** Structure Break Signals **v7.15** · Key Zone Map **v1.7**
+
+---
+
+## v7.15 — show what we already know
+
+Detection was never the weak part. Over 75 days of MNQ 15M the script finds
+**98%** of swing highs and **97%** of lows, with a lag of exactly `swingLen`
+bars — the theoretical minimum. It then drew two of them, and price sat more
+than 3 ATR from the nearest marked level about a third of the session.
+
+Five additions, all display. **Nothing about detection changed.**
+
+| Change | What it gives you |
+|---|---|
+| **[⑭ Level map](Structure-Break-Signals.md#level-map)** | The nearest few levels either side of price, with price, test count and age. Strength drives opacity, so the level that matters looks solid |
+| **[⑮ Structure chain](Structure-Break-Signals.md#structure-chain)** | A zigzag joining confirmed swings — the sequence, not just the individual breaks |
+| **Break tooltips** | Hover any break label for clearance, candle range, body %, volume multiple, leg size, ATR, session and time |
+| **Live levels on the price scale** | The watch high and low print their price up the right-hand axis |
+| **Age and tests drive appearance** | On every mapped level |
+
+Box budget raised 100 → 500 to make room for the map.
 
 ---
 
