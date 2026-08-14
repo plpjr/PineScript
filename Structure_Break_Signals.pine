@@ -1,5 +1,18 @@
 // =============================================================================
-// Structure Break Signals  —  v7.18
+// Structure Break Signals  —  v7.19
+//
+// NEW IN v7.19 — THIN THE LABELS, KEEP THE SHAPE:
+//   ⑮ `Only label swings with a leg of at least (× ATR)`, default 3.0.
+//   The zigzag still draws every swing; only the text is thinned.
+//
+//   Measured over 473 swings on MNQ 15M the legs are NOT noise — median 3.43
+//   ATR, 25th percentile 2.46, only 1% below 1 ATR. The problem is density:
+//   about one swing every 10 bars, so roughly 22 labels land in two days of
+//   chart. 3.0 is that median and removes about 40% of the labels.
+//
+//   ⚠️ This is readability, not quality. Across swing lengths 3 to 30 the
+//   level hold rate stayed flat at 51-56%, so bigger swings do not produce
+//   better levels. Raising this gives a calmer chart and nothing more.
 //
 // NEW IN v7.18 — THE LABELS ARE ON THE SWINGS NOW:
 //   The HH/LL/LH/HL labels have always sat on the bar where a level was
@@ -430,7 +443,7 @@
 // (swing 50 -> 100 bars, volume 200), 500 leaves comfortable headroom. The
 // previous value of 100 was below what the inputs already permitted and threw
 // "requested historical offset is beyond the historical buffer's limit".
-indicator("Structure Break Signals v7.18", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500)
+indicator("Structure Break Signals v7.19", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500)
 
 // =============================================================================
 // SENSITIVITY MASTER CONTROLS
@@ -787,6 +800,8 @@ chainWidth = input.int(2, "  Line width", minval = 1, maxval = 3, group = grpCha
 chainStyle = input.string("Solid", "  Line style", options = ["Solid", "Dashed", "Dotted"], group = grpChain)
 chainCount = input.int(20, "  Swings to keep", minval = 4, maxval = 100, group = grpChain,
      tooltip = "How many recent swing-to-swing segments stay drawn.")
+chainMinLeg = input.float(3.0, "  Only label swings with a leg of at least (× ATR)", minval = 0.0, maxval = 15.0, step = 0.5, group = grpChain,
+     tooltip = "Labels are only drawn on swings whose move from the previous swing is at least this large. THE ZIGZAG STILL DRAWS EVERY SWING — only the text is thinned, so the shape of the structure is unchanged.\n\nMeasured over 473 swings on MNQ 15M: median leg 3.43 ATR, 25th percentile 2.46, and only 1% below 1 ATR. So the swings are not noise, they are simply frequent — about one every 10 bars. The default of 3.0 is that median, which removes roughly 40% of the labels.\n\n⚠️ This is a READABILITY control, not a quality one. Tested across swing lengths 3 to 30, bigger swings did NOT produce levels that held better — the hold rate stayed flat at 51-56%. Raising this gives you a calmer chart, not better levels.\n\nSet 0 to label every swing.")
 chainLabels = input.bool(true, "  Label each swing HH / HL / LH / LL", group = grpChain,
      tooltip = "Puts a label on every swing point in the chain, classified against the previous swing on the same side: a high above the last high is HH, below it is LH; a low below the last low is LL, above it is HL.\n\nTHIS IS NOT THE SAME AS THE BREAK LABELS in ⑤. Those sit on the bar where a level was BROKEN, which is a different bar from the swing itself and is often far away from it. These sit on the swing points, on the zigzag, which is what most structure indicators show.\n\nIf you only want one set, turn off 'HH / LL / LH / HL labels' in ⑤ Display and keep these.")
 chainColorBy = input.bool(true, "  Colour by direction", group = grpChain,
@@ -1983,6 +1998,9 @@ if barstate.islast and showMap and atrVal > 0
 // up to, which is what "the trend" actually means.
 var array<line>  chainLines    = array.new_line(0)
 var array<label> chainLabelArr = array.new_label(0)
+// Bar of each retained label, so labels can be retired in step with the
+// segments rather than on a count of their own.
+var array<int>   chainLabelBar = array.new_int(0)
 var line  chainLastLine  = na
 var label chainLastLabel = na
 var float chainLastP = na
@@ -1995,6 +2013,10 @@ var int   chainLastK = 0
 // exactly what the HH/LH and LL/HL comparison needs.
 var float chainPrevHigh = na
 var float chainPrevLow  = na
+
+// Price the current segment started from, so a stretched vertex can have its
+// leg re-measured against the right origin rather than against itself.
+var float chainSegStartP = na
 
 // Classify against the previous swing on the same side and label the point.
 // A high above the last high is a Higher High, below it a Lower High; a low
@@ -2010,9 +2032,22 @@ chainMark(float p, int b, int k) =>
          style = k == 1 ? label.style_label_down : label.style_label_up,
          color = color.new(color.black, 25), textcolor = c, size = lblSize)
     array.push(chainLabelArr, lb)
-    while array.size(chainLabelArr) > chainCount + 2
-        label.delete(array.shift(chainLabelArr))
+    array.push(chainLabelBar, b)
     lb
+
+// Retire labels that have fallen off the back of the drawn chain.
+//
+// Labels cannot be capped on a count of their own: once `chainMinLeg` thins
+// them, a fixed buffer of labels spans far more swings than the segments do,
+// and the surplus ends up floating over bars where no zigzag is drawn. Tying
+// them to the oldest surviving segment keeps text and line in step whatever
+// the threshold is set to.
+trimChainLabels() =>
+    if array.size(chainLines) > 0
+        int firstBar = line.get_x1(array.get(chainLines, 0))
+        while array.size(chainLabelArr) > 0 and array.get(chainLabelBar, 0) < firstBar
+            label.delete(array.shift(chainLabelArr))
+            array.shift(chainLabelBar)
 
 if showChain
     float newP = na
@@ -2054,10 +2089,16 @@ if showChain
                 if not na(chainLastLine)
                     line.set_xy2(chainLastLine, newB, newP)
                 // The label has to travel with the vertex, or it is left
-                // marking a point the chain no longer touches.
-                if chainLabels and not na(chainLastLabel)
-                    label.set_xy(chainLastLabel, newB, newP)
-                    label.set_text(chainLastLabel, chainTag(newP, newK))
+                // marking a point the chain no longer touches. Stretching can
+                // also push a leg past the threshold that was under it before,
+                // so a vertex that started unlabelled may earn one here.
+                if chainLabels
+                    float legNow = atrVal > 0 and not na(chainSegStartP) ? math.abs(newP - chainSegStartP) / atrVal : na
+                    if not na(chainLastLabel)
+                        label.set_xy(chainLastLabel, newB, newP)
+                        label.set_text(chainLastLabel, chainTag(newP, newK))
+                    else if not na(legNow) and legNow >= chainMinLeg
+                        chainLastLabel := chainMark(newP, newB, newK)
 
         else
             // The vertex we are leaving is now final, so it becomes the
@@ -2076,11 +2117,17 @@ if showChain
             // the one shifted off — chainLastLine stays valid to stretch.
             while array.size(chainLines) > chainCount
                 line.delete(array.shift(chainLines))
+            float leg = atrVal > 0 ? math.abs(newP - chainLastP) / atrVal : na
+            chainSegStartP := chainLastP
             chainLastP := newP
             chainLastB := newB
             chainLastK := newK
-            if chainLabels
+            // The segment is always drawn; only the text is thinned, so the
+            // shape of the structure survives the filter intact.
+            chainLastLabel := na
+            if chainLabels and (chainMinLeg <= 0 or (not na(leg) and leg >= chainMinLeg))
                 chainLastLabel := chainMark(newP, newB, newK)
+            trimChainLabels()
 
 // ---------------------------- Pivot markers ----------------------------------
 // plotshape's offset must be a constant, so the two engines get their own

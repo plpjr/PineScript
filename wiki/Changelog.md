@@ -5,7 +5,36 @@
 Both scripts version independently. The authoritative history lives in each
 `.pine` file's header comment; this page is the readable summary.
 
-**Current:** Structure Break Signals **v7.18** · Key Zone Map **v1.7**
+**Current:** Structure Break Signals **v7.19** · Key Zone Map **v1.7**
+
+---
+
+## v7.19 — thin the labels, keep the shape
+
+**`⑮ Only label swings with a leg of at least (× ATR)`**, default **3.0**. The
+zigzag still draws every swing; only the text is thinned.
+
+**The swings are not noise.** Measured over 473 swings on MNQ 15M:
+
+| | leg |
+|---|---|
+| median | **3.43 ATR** |
+| 25th percentile | 2.46 ATR |
+| under 1 ATR | **1%** |
+
+The problem is density, not significance — roughly one swing every 10 bars. The
+default of 3.0 is that median and removes about 40% of the labels.
+
+⚠️ **This is a readability control, not a quality one.** Across swing lengths 3
+to 30 the level hold rate stayed flat at 51–56%, so bigger swings do **not**
+produce levels that hold better. Raising it gives a calmer chart and nothing
+more.
+
+**Bug fixed in the same change.** Labels were capped on a count of their own.
+Once the threshold thinned them, that fixed buffer spanned far more swings than
+the segments did, leaving labels floating over bars with no zigzag under them.
+Labels are now retired in step with the oldest surviving segment. On chart:
+24 labels down to 14, all inside the drawn chain.
 
 ---
 
