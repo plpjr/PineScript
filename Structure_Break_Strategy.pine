@@ -19,7 +19,23 @@
 // be reproduced, and contradicts process_orders_on_close = true below.
 // =============================================================================
 // =============================================================================
-// Structure Break Signals  —  v7.17
+// Structure Break Signals  —  v7.18
+//
+// NEW IN v7.18 — THE LABELS ARE ON THE SWINGS NOW:
+//   The HH/LL/LH/HL labels have always sat on the bar where a level was
+//   BROKEN, which is a different bar from the swing itself and often a long
+//   way from it. So the chain joined the swings while the labels sat off it,
+//   and the two never read as one picture.
+//
+//   ⑮ now labels every swing point on the chain, classified against the
+//   previous swing on the same side: a high above the last high is HH, below
+//   it LH; a low below the last low is LL, above it HL. The label travels
+//   with the vertex when a same-side extreme replaces it.
+//
+//   Both sets are on by default because they say different things — the swing
+//   labels describe structure, the break labels describe an event with its
+//   clearance and score. For the plain zigzag-and-labels chart, turn off
+//   `HH / LL / LH / HL labels` in ⑤ and keep these.
 //
 // NEW IN v7.17 — THE SWING CHAIN WAS BROKEN, AND IS NOW THE MAIN LINE:
 //   The zigzag came apart wherever two highs (or two lows) confirmed in a
@@ -451,7 +467,7 @@
 //
 // process_orders_on_close: the break conditions evaluate against close, so
 // filling at the next bar's open would report entries the signal never offered.
-strategy("Structure Break Strategy v7.17", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500,
+strategy("Structure Break Strategy v7.18", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500,
      initial_capital = 10000,
      default_qty_type = strategy.fixed, default_qty_value = 1,
      commission_type = strategy.commission.cash_per_contract, commission_value = 0.75,
@@ -695,8 +711,8 @@ mSession = input.session("0930-1600", "  Session window", group = grpX,
 // =============================================================================
 grpD = "⑤ Display & history"
 
-showLabels = input.bool(true, "HH / LL / LH / HL labels", group = grpD,
-     tooltip = "Text labels on each break. Turn off for a cleaner chart if the coloured lines are enough.")
+showLabels = input.bool(false, "HH / LL / LH / HL labels on break bars", group = grpD,
+     tooltip = "Text labels on the bar where a level was BROKEN, carrying the ATR clearance and score.\n\nDEFAULTED OFF IN v7.18. ⑮ now labels the swing points themselves, and two sets of HH/LL/LH/HL labels sitting on different bars read as duplicates rather than as two different facts. Turn this back on when you want the clearance and score on the chart; the level LINES are unaffected either way.")
 labelSize  = input.string("Small", "Label size", options = ["Tiny", "Small", "Normal"], group = grpD,
      tooltip = "Text size for break labels. Use Tiny on dense lower-timeframe charts.")
 verboseLabels = input.bool(true, "Show ATR clearance on labels", group = grpD,
@@ -813,6 +829,8 @@ chainWidth = input.int(2, "  Line width", minval = 1, maxval = 3, group = grpCha
 chainStyle = input.string("Solid", "  Line style", options = ["Solid", "Dashed", "Dotted"], group = grpChain)
 chainCount = input.int(20, "  Swings to keep", minval = 4, maxval = 100, group = grpChain,
      tooltip = "How many recent swing-to-swing segments stay drawn.")
+chainLabels = input.bool(true, "  Label each swing HH / HL / LH / LL", group = grpChain,
+     tooltip = "Puts a label on every swing point in the chain, classified against the previous swing on the same side: a high above the last high is HH, below it is LH; a low below the last low is LL, above it is HL.\n\nTHIS IS NOT THE SAME AS THE BREAK LABELS in ⑤. Those sit on the bar where a level was BROKEN, which is a different bar from the swing itself and is often far away from it. These sit on the swing points, on the zigzag, which is what most structure indicators show.\n\nIf you only want one set, turn off 'HH / LL / LH / HL labels' in ⑤ Display and keep these.")
 chainColorBy = input.bool(true, "  Colour by direction", group = grpChain,
      tooltip = "ON = rising segments take the continuation colour and falling segments the reversal colour. OFF = a single neutral grey.")
 
@@ -2005,11 +2023,38 @@ if barstate.islast and showMap and atrVal > 0
 // ---------------------------- Structure chain --------------------------------
 // The labels say what each break was. The chain says what the sequence adds
 // up to, which is what "the trend" actually means.
-var array<line> chainLines = array.new_line(0)
-var line  chainLastLine = na
+var array<line>  chainLines    = array.new_line(0)
+var array<label> chainLabelArr = array.new_label(0)
+var line  chainLastLine  = na
+var label chainLastLabel = na
 var float chainLastP = na
 var int   chainLastB = na
 var int   chainLastK = 0
+
+// Previous COMPLETED swing on each side. A vertex is only complete once the
+// opposite side arrives, because until then a further extreme on the same side
+// can still replace it — so these lag the current vertex by one, which is
+// exactly what the HH/LH and LL/HL comparison needs.
+var float chainPrevHigh = na
+var float chainPrevLow  = na
+
+// Classify against the previous swing on the same side and label the point.
+// A high above the last high is a Higher High, below it a Lower High; a low
+// below the last low is a Lower Low, above it a Higher Low.
+chainTag(float p, int k) =>
+    k == 1 ? ((na(chainPrevHigh) or p > chainPrevHigh) ? "HH" : "LH")
+           : ((na(chainPrevLow)  or p < chainPrevLow)  ? "LL" : "HL")
+
+chainMark(float p, int b, int k) =>
+    string t = chainTag(p, k)
+    color  c = (t == "HH" or t == "LL") ? colCont : colRev
+    label lb = label.new(b, p, t,
+         style = k == 1 ? label.style_label_down : label.style_label_up,
+         color = color.new(color.black, 25), textcolor = c, size = lblSize)
+    array.push(chainLabelArr, lb)
+    while array.size(chainLabelArr) > chainCount + 2
+        label.delete(array.shift(chainLabelArr))
+    lb
 
 if showChain
     float newP = na
@@ -2030,6 +2075,8 @@ if showChain
             chainLastP := newP
             chainLastB := newB
             chainLastK := newK
+            if chainLabels
+                chainLastLabel := chainMark(newP, newB, newK)
 
         else if newK == chainLastK
             // Two highs (or two lows) in a row. A zigzag keeps only the more
@@ -2048,8 +2095,20 @@ if showChain
                 chainLastB := newB
                 if not na(chainLastLine)
                     line.set_xy2(chainLastLine, newB, newP)
+                // The label has to travel with the vertex, or it is left
+                // marking a point the chain no longer touches.
+                if chainLabels and not na(chainLastLabel)
+                    label.set_xy(chainLastLabel, newB, newP)
+                    label.set_text(chainLastLabel, chainTag(newP, newK))
 
         else
+            // The vertex we are leaving is now final, so it becomes the
+            // reference the next same-side swing is judged against.
+            if chainLastK == 1
+                chainPrevHigh := chainLastP
+            else
+                chainPrevLow := chainLastP
+
             color cc = chainColorBy ? (newP > chainLastP ? colCont : colRev) : color.new(color.gray, 35)
             line cl = line.new(chainLastB, chainLastP, newB, newP,
                  color = cc, width = chainWidth, style = styleOf(chainStyle))
@@ -2062,6 +2121,8 @@ if showChain
             chainLastP := newP
             chainLastB := newB
             chainLastK := newK
+            if chainLabels
+                chainLastLabel := chainMark(newP, newB, newK)
 
 // ---------------------------- Pivot markers ----------------------------------
 // plotshape's offset must be a constant, so the two engines get their own
@@ -2511,7 +2572,7 @@ plot(outScore, "Fwd sample score", display = display.data_window)
 // Fingerprint of the indicator source plus the trade logic that produced
 // this file. Shown on the chart label. If the two disagree, TradingView is
 // running an older compiled copy than the one you pasted.
-string BUILD_ID = "915692ba"
+string BUILD_ID = "18d3076a"
 
 // =============================================================================
 // BACKTEST TRADE LOGIC

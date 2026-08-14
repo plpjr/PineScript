@@ -5,7 +5,37 @@
 Both scripts version independently. The authoritative history lives in each
 `.pine` file's header comment; this page is the readable summary.
 
-**Current:** Structure Break Signals **v7.17** · Key Zone Map **v1.7**
+**Current:** Structure Break Signals **v7.18** · Key Zone Map **v1.7**
+
+---
+
+## v7.18 — the labels are on the swings now
+
+**The thing that was actually wrong.** The HH/LL/LH/HL labels had always sat on
+the bar where a level was **broken** — a different bar from the swing itself,
+often far from it. So the chain joined the swings while the labels sat off it,
+and the two never read as one picture.
+
+⑮ now **labels every swing point on the chain**, classified against the
+previous swing on the same side:
+
+| | |
+|---|---|
+| High above the last high | **HH** |
+| High below the last high | **LH** |
+| Low below the last low | **LL** |
+| Low above the last low | **HL** |
+
+The label travels with the vertex when a same-side extreme replaces it.
+Verified on chart: all 12 visible classifications correct against the previous
+same-side swing.
+
+**`⑤ HH / LL / LH / HL labels on break bars` now defaults OFF.** Two sets of
+the same four words on different bars read as duplicates rather than as two
+different facts. Turn it back on when you want the ATR clearance and score on
+the chart — **the level lines are unaffected either way.**
+
+Result: 56 chart labels down to 24.
 
 ---
 
