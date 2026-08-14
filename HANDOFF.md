@@ -4,14 +4,28 @@
 this up without re-deriving it. User-facing documentation lives in
 [`wiki/`](wiki/Home.md).
 
-Last updated at commit `4426aa9`.
+Last updated at commit `6c35b70`.
 
 ---
 
 ## 0. Read this first — state at the last handoff
 
-**The one action pending: restart Claude Code.** That is all that stands
-between the current session and a live TradingView MCP. Details in §5.
+**The MCP is live and was used successfully.** The restart happened; the
+TradingView tools work. Three things came out of that session:
+
+1. **The confidence score looks real, but the sample is too small to bank.**
+   At a high/low split of 80: hi bucket ratio **1.30 (n=27)**, lo bucket
+   **0.76 (n=5)**. Right direction, but the lo bucket is far below the
+   20-sample bar the script itself sets. See §6.
+2. **"Can't parse pine" is reproducible on demand** — and it is caused by the
+   MCP's `indicator_set_inputs`, *not* by the script. The same change made
+   through the normal settings dialog recalculates cleanly. See §4.
+3. **The chart was found completely blank** — no studies, no saved strategy,
+   layout "Unnamed". Whatever setup the frozen-settings symptom was observed
+   on no longer exists.
+
+⚠️ **Do not use `indicator_set_inputs`.** It corrupts the study. Change
+settings through the settings dialog instead (§5 has the working recipe).
 
 ### Decision: TradingView **Desktop**, via MCP. The browser route is dead.
 
@@ -58,6 +72,7 @@ strategy, run on **MNQ futures** (Micro E-mini Nasdaq-100).
 | `tools/build_strategy.py` | Generates the strategy from the indicator | |
 | `tools/strategy_tail.pine` | Trade logic appended by the generator | |
 | `tools/SETTINGS_TEST.pine` | Throwaway diagnostic (see §5) | |
+| `tools/tv_paste.js` | Pastes a `.pine` file into the TradingView editor over CDP, without spending context ([§5](#s5-gotchas)) | |
 
 **The user maintains the code and does all pasting into TradingView.** They
 have said so explicitly — do not tell them to run `build_strategy.py`, that's
@@ -212,7 +227,7 @@ Led to: instrument sanity guard — blocks entries and shows a red
 
 ## 4. THE BLOCKING PROBLEM — settings do not apply
 
-**This is where the session stalled and what to solve first.**
+**Substantially advanced. Read the update at the end of this section first.**
 
 After the MNQ baseline, **every settings change produced byte-identical
 results** — same 52 trades, same 0.855 profit factor, same trade 52
@@ -253,6 +268,49 @@ shadowed, not reassigned.
    unknown.
 2. **What BUILD_ID does the chart show?**
 3. **Did `SETTINGS_TEST.pine` respond to its toggle?**
+
+<a id="s4-update"></a>
+### UPDATE — the error is readable now, and it has a known cause
+
+The study's status string is reachable without screenshots:
+
+```js
+// via mcp__tradingview__ui_evaluate
+const cw = window._exposed_chartWidgetCollection.activeChartWidget.value();
+const st = cw.model().model().dataSources()
+             .find(s => s.title && /Structure Break/.test(String(s.title())));
+String(st.statusView().text());   // "...(inputs): Can't parse pine"
+```
+
+**This is the "Script execution ①" badge, as data.** It answers unknown #1
+above for any future session — no screenshot squinting, no asking.
+
+What it showed: **`Can't parse pine`**. A study in that state keeps rendering
+its previous output, which is precisely the frozen-settings symptom.
+
+**Cause — confirmed by controlled test:**
+
+| Path used to change an input | Result |
+|---|---|
+| MCP `indicator_set_inputs` | ❌ `Can't parse pine`, study freezes |
+| The normal settings dialog | ✅ recalculates, new numbers |
+
+Both were tested on the same input (`High/low score split`, 60 → 80) on the
+same script in the same session. The second run produced fresh bucket values,
+so the script and the pipeline are fine — **the MCP tool is what breaks it.**
+
+Ruled out along the way: **saved vs. unsaved is not the trigger.** The first
+failure happened on an unsaved buffer, which made "TradingView can't fetch the
+source" an attractive theory. It survived saving the script to the cloud and
+failed again identically. Stated plainly because it looked convincing.
+
+**What this does and does not explain.** It fully explains the freeze whenever
+inputs are set over the MCP. It does **not** yet explain the user's original
+report, since they were using the settings dialog, which works here. Either
+their symptom had a different cause, or something about that specific chart
+did. That chart no longer exists to inspect (§0), so the honest position is:
+**the original freeze is unreproduced, not solved.** Re-check it on a fresh
+setup before spending more on it.
 
 ---
 
@@ -325,6 +383,67 @@ The relevant ones:
 `data_get_ohlcv`; use `study_filter` on pine tools; **avoid `pine_get_source`**
 on our scripts (200KB+).
 
+<a id="s5-gotchas"></a>
+### Working notes — things that cost time, verified in practice
+
+**`indicator_set_inputs` corrupts the study.** See [§4](#s4-update). Never use
+it. Change settings through the dialog:
+
+```js
+// open it — no MCP tool does this
+const cw = window._exposed_chartWidgetCollection.activeChartWidget.value();
+const st = cw.model().model().dataSources()
+             .find(s => s.title && /Structure Break/.test(String(s.title())));
+cw.showSourceProperties(st);
+```
+
+The dialog is a flat grid of ~79 `<input>`s in declaration order, so index from
+the end for late inputs (last = `High/low score split`, second-to-last =
+`Bars to measure forward`). Set values with the native setter, then fire
+`input` + `change`, then click **Ok**:
+
+```js
+const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+setter.call(target, '80');
+target.dispatchEvent(new Event('input',  {bubbles: true}));
+target.dispatchEvent(new Event('change', {bubbles: true}));
+```
+
+**Pasting code without burning context — use `tools/tv_paste.js`.**
+`pine_set_source` takes the source as a parameter, so a 123KB indicator costs
+~30k tokens of context every paste. The script drives CDP from the shell
+instead, so the file never enters the conversation:
+
+```bash
+NODE_PATH=/Users/plpjr/Documents/tradingview-mcp/node_modules \
+  node tools/tv_paste.js Structure_Break_Signals.pine
+```
+
+It replays the source as a `paste` event, because Monaco handles paste itself
+and this build exposes no `window.monaco`. `dispatched: false` in the output is
+**success** — it means Monaco called `preventDefault` and took the content.
+
+Two dead ends already paid for, do not repeat them:
+- **Synthetic Cmd+V does nothing.** Key events reach Monaco's keybindings, but
+  the clipboard is privileged; only Cmd+A works that way.
+- **`fetch('http://127.0.0.1:…')` from the page is blocked** as mixed content.
+  Serving the repo over localhost and pulling it in-page will not work.
+
+**Other traps:**
+- **`ui_evaluate` does not await promises** — an `async` IIFE returns `{}`.
+  Stash the result on `window` and poll with a second call.
+- **`pine_smart_compile` clicked "Pine Save", not "Add to chart"**, which opens
+  a save dialog instead of compiling. Click the button directly:
+  `[...document.querySelectorAll('button')].find(e => /add to chart/i.test(e.textContent))`
+- **The Pine editor is a dialog in this build**, opened via
+  `data-name="pine-dialog-button"`. `ui_open_panel('pine-editor')` reports
+  success and does nothing.
+- **Match UI elements narrowly.** A loose `/close/i` over `aria-label` hit the
+  magnet-mode button, whose tooltip contains "closest". It got toggled and
+  reverted.
+- Adding a study is not instant — `chart_get_state` can return `studies: []`
+  for a second or two afterwards.
+
 ⚠️ The debug port gives any local process full control of the TradingView
 session. Fine while working; relaunch normally afterward.
 
@@ -332,8 +451,8 @@ session. Fine while working; relaunch normally afterward.
 
 ## 6. The other open question — is the score real?
 
-Independent of the settings bug. **The confidence score has never been
-validated.** Everything in the wiki assumes it ranks breaks correctly.
+**First real measurement taken. Result at the end of this section (§6 update).
+Short version: encouraging, underpowered, do not act on it yet.**
 
 ### The clean measurement — `⑬ Signal quality`, now ON by default (v7.12)
 
@@ -368,12 +487,61 @@ flattens. Flat → decoration.
 
 Table template in [`wiki/Backtesting.md`](wiki/Backtesting.md).
 
+<a id="s6-update"></a>
+### UPDATE — the first measurement
+
+Read off a live chart, `CME_MINI_DL:MNQ1!` 15M, indicator v7.12 freshly pasted,
+all defaults except the split. `Minimum score to signal` was confirmed to be
+**0**, so no break was filtered out before being sampled — the buckets see
+every break that fired.
+
+**At the shipped split of 60, the low bucket is empty:**
+
+```
+Sig MFE/MAE hi   2.46/2.01 =1.22 (n=32)
+Sig MFE/MAE lo   —              (n=0)
+```
+
+All 32 breaks scored ≥ 60. This is a **third outcome the section above did not
+anticipate** — not "hi beats lo", not "buckets identical", but *the score has
+so little spread that the default split cannot divide it.* Worth remembering:
+the default split of 60 cannot answer the question it was added to answer.
+
+**Moving the split to 80 separates them:**
+
+| Bucket | MFE | MAE | Ratio | n |
+|---|---|---|---|---|
+| **hi** (score ≥ 80) | 2.65 | 2.04 | **1.30** | 27 |
+| **lo** (score < 80) | 1.41 | 1.85 | **0.76** | 5 |
+
+The direction is exactly what a working score predicts: high-scoring breaks
+travel further for than against, low-scoring ones do the opposite.
+
+**Why this is not yet an answer:**
+
+- **n=5 in the lo bucket.** The script's own threshold for showing a bucket in
+  colour rather than grey is 20. By the project's own standard this does not
+  count yet. Five breaks is a handful of coin flips.
+- **412 bars of history.** That is all the chart had loaded (~8 trading days,
+  Aug 6–14 2026). Scrolling and `chart_set_visible_range` did not extend it —
+  the range request clamped. The Run 4 backtest window (Apr 30 – Aug 5) was
+  never in scope for this measurement.
+- **One instrument, one timeframe, one window.** And a window in which the
+  score sat above 80 five times out of six.
+- Ratios of 1.30 and 0.76 straddle 1.0, but 2.65 vs 2.04 ATR is not a large
+  edge in absolute terms even in the hi bucket.
+
+**The single highest-value next step is more history, not more analysis.** The
+numbers above will either firm up or dissolve with n in the hundreds, and no
+amount of reasoning over n=5 substitutes. Get the chart to load months of 15M
+data before re-reading these rows.
+
 ---
 
-## 7. Next steps — the exact plan for the session after the restart
+## 7. Next steps
 
-Run these in order. Steps 1–4 are read-only: they change nothing on the chart,
-so there is no risk of disturbing the user's setup while diagnosing.
+**Superseded — the current plan is [§7a](#s7a). The list below is kept because
+steps 5 and 6 are still the right experiments once there is enough data.**
 
 **1. Confirm the MCP is actually live.** `tv_health_check`. If the tools are
 still missing, re-check both preconditions in §5 — registration *and* debug
@@ -410,6 +578,46 @@ brilliant and be pure curve-fitting.
 
 ⚠️ **One change at a time**, per §8. Runs 2 and 3 were lost to ignoring that.
 
+<a id="s7a"></a>
+### 7a. The current plan
+
+**1. Get more history onto the chart.** Everything else is gated on this. The
+score measurement rests on 32 breaks over 412 bars, and the lo bucket has 5
+samples ([§6](#s6-update)). `chart_set_visible_range` clamps to what is loaded,
+so it needs a real fetch — scroll back repeatedly, or check whether the
+account's plan limits intraday history. **If MNQ 15M cannot load months of
+bars, say so plainly and pick a timeframe that can** rather than reporting
+numbers off eight days.
+
+**2. Re-read the ⑬ rows at split 80** once n is in the hundreds. Same reading,
+real power. This either confirms 1.30 vs 0.76 or kills it.
+
+**3. Sweep the split** — 60 / 70 / 80 / 90 — to map where the score actually
+separates, using the dialog recipe in [§5](#s5-gotchas), never
+`indicator_set_inputs`. Note that at 60 the lo bucket was empty, so the useful
+range starts higher than the shipped default.
+
+**4. Only then the strategy.** `Structure_Break_Strategy.pine` was never
+loaded this session and the saved-scripts list has no strategy in it — the
+backtest side is starting from nothing. `tools/tv_paste.js` handles the paste;
+check `BUILD_ID` against `a3d0963c` once it is on the chart.
+
+**5. Leave the original frozen-settings report alone until it reappears.**
+It is unreproduced on a fresh setup ([§4](#s4-update)). Chasing a symptom whose
+chart no longer exists is how the last two sessions went.
+
+### State the chart was left in
+
+- Layout **"Unnamed"**, `CME_MINI_DL:MNQ1!`, 15M.
+- One study: **Structure Break Signals v7.12**, with **High/low score split =
+  80** (not the shipped 60 — set deliberately, it is the only value that
+  populates both buckets).
+- A new saved script, **"Structure Break Signals v7.12"**
+  (`USER;46b1f109…`), created to test the saved/unsaved theory. The older
+  **"Structure Break Signals"** (v7.9) was **not** touched. Delete the new one
+  freely; it proved nothing.
+- Magnet mode was toggled on by a mis-aimed click and toggled back off.
+
 ---
 
 ## 8. Process lessons — I got these wrong
@@ -435,6 +643,18 @@ version history.**
 
 **Ask for the obvious diagnostic sooner.** The "Script execution ①" badge was
 in every screenshot from the start. I asked on round four.
+
+**A tool that reports success can still have done nothing.** `ui_open_panel`
+returned `{success: true, performed: "opened"}` for a Pine editor that never
+rendered, and `pine_smart_compile` returned success while clicking the wrong
+button. Both were caught by checking the DOM and a screenshot, not the return
+value. Same lesson as the MCP registration below, one level down.
+
+**Suspect your own tooling before the code under test.** Two sessions treated
+frozen results as a Pine or TradingView problem. The instance reproduced this
+session was caused by the MCP tool being used to make the change. The
+controlled test — same input, same script, two different paths — took two
+minutes and settled it.
 
 **Verify a tool is wired up, don't trust that you wired it.** I wrote the MCP
 registration to a file Claude Code never reads, recorded "registered" in the
