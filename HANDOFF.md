@@ -4,7 +4,28 @@
 this up without re-deriving it. User-facing documentation lives in
 [`wiki/`](wiki/Home.md).
 
-Last updated at commit `aae44e0`.
+Last updated at commit `7280bae`.
+
+**Direction and the improvement plan now live in [`PLAN.md`](PLAN.md).** Read
+that first if you are picking up the work; this file is session state and
+mechanics.
+
+Headlines from the latest session, all of which change what earlier sections
+say:
+
+- **v7.13 fixes the ⑬ statistic.** It reported `sum(MFE)/sum(MAE)`, which one
+  11-ATR break dominated. The same 32 breaks read 0.89 by that statistic and
+  2.06 by the median. Median and win rate now lead.
+- **The score shows no measurable relationship to outcome** — Spearman −0.18,
+  permutation p = 0.34, flat win rates across terciles. ⚠️ **The 1.30, the
+  1.01 and the "score is inverted" reading are all retracted as noise.**
+- **The distribution is degenerate**: scores run 64–100, median 88.5, nothing
+  below 60 — the exact failure the wiki predicted.
+- **Only 32 breaks in 5,020 bars.** One per 157. MNQ alone cannot supply
+  enough events; pooling across symbols is the plan.
+- **At 5,020 bars the script draws nothing** — no labels, lines or table,
+  while plots stay correct. Control-tested against unmodified v7.12, which
+  fails identically. Read the plot cache, never the table, at full history.
 
 ---
 

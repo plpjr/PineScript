@@ -1,5 +1,23 @@
 // =============================================================================
-// Structure Break Signals  —  v7.12
+// Structure Break Signals  —  v7.13
+//
+// NEW IN v7.13 — THE SIGNAL-QUALITY STATISTIC WAS NOT SAFE TO TRUST:
+//   * The ⑬ rows reported sum(MFE)/sum(MAE). That statistic is dominated by
+//     its largest sample. On real MNQ 15M data (32 breaks, 75 days) the top
+//     score tercile read **0.89 by the aggregate and 2.06 by the median** —
+//     opposite conclusions from the same data, because one break ran 11 ATR.
+//     Every conclusion drawn from these rows so far rested on the fragile
+//     half of that pair.
+//   * The rows now lead with **median per-break ratio** and **win rate**
+//     (share of breaks whose MFE beat their MAE), keeping the aggregate at
+//     the end so a lopsided pair is still visible. Cell colour keys off the
+//     median.
+//   * Measured on the same 32 breaks, the score showed **no relationship to
+//     outcome in either direction** — Spearman −0.18, permutation p = 0.34.
+//     Not evidence the score is broken; evidence the sample is far too small
+//     to tell. Breaks arrive about once per 157 bars, so 15M cannot supply
+//     enough of them from available history. Pool across symbols.
+//   * A break that never traded against you no longer divides by zero.
 //
 // NEW IN v7.12 — SIGNAL QUALITY ON BY DEFAULT:
 //   * "Measure forward excursion after each break" (⑬) now ON. It answers the
@@ -315,7 +333,7 @@
 // (swing 50 -> 100 bars, volume 200), 500 leaves comfortable headroom. The
 // previous value of 100 was below what the inputs already permitted and threw
 // "requested historical offset is beyond the historical buffer's limit".
-indicator("Structure Break Signals v7.12", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500)
+indicator("Structure Break Signals v7.13", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500)
 
 // =============================================================================
 // SENSITIVITY MASTER CONTROLS
@@ -1617,6 +1635,19 @@ var int   loN = 0
 var float loMFE = 0.0
 var float loMAE = 0.0
 
+// Per-break ratios and win counts, kept alongside the sums.
+//
+// The sums alone give sum(MFE)/sum(MAE), and that statistic is not safe to
+// draw conclusions from: a single break that ran 11 ATR in its favour moves
+// it more than the other thirty combined. Measured on real MNQ 15M data the
+// top score tercile read 0.89 by that statistic and 2.06 by the median —
+// opposite conclusions from the same 32 breaks. The median and the win rate
+// do not move like that, so they are what the colour and the eye should use.
+var array<float> hiRat = array.new_float(0)
+var array<float> loRat = array.new_float(0)
+var int   hiWin = 0
+var int   loWin = 0
+
 if diagOn and (fireUp or fireDown) and not na(fireLevel) and atrVal > 0
     // Measured from the CLOSE, not the broken level: the close is where you
     // could actually have acted, so this reflects a real entry rather than a
@@ -1652,14 +1683,25 @@ while array.size(fxBar) > 0
             outMFE   := array.get(fxMFE, 0) / a
             outMAE   := array.get(fxMAE, 0) / a
             outScore := sc
+            // A break that never moved against you is a win, not a divide by
+            // zero — guard the ratio rather than dropping the sample.
+            float rat = outMAE > 0 ? outMFE / outMAE : (outMFE > 0 ? 999.0 : na)
             if sc >= diagSplit
                 hiN   += 1
                 hiMFE += outMFE
                 hiMAE += outMAE
+                if not na(rat)
+                    array.push(hiRat, rat)
+                    if rat > 1
+                        hiWin += 1
             else
                 loN   += 1
                 loMFE += outMFE
                 loMAE += outMAE
+                if not na(rat)
+                    array.push(loRat, rat)
+                    if rat > 1
+                        loWin += 1
         array.shift(fxBar)
         array.shift(fxRef)
         array.shift(fxDir)
@@ -1728,21 +1770,39 @@ if showTable and barstate.islast
         float hiRatio = hiN > 0 and hiMAE > 0 ? hiMFE / hiMAE : na
         float loRatio = loN > 0 and loMAE > 0 ? loMFE / loMAE : na
 
+        // Median and win rate are the honest summaries; the aggregate is kept
+        // only so a lopsided pair is visible rather than hidden.
+        // Guarded with `if`, not a ternary — Pine evaluates both ternary
+        // branches, and array.median on an empty array is an error.
+        float hiMed = na
+        float loMed = na
+        if array.size(hiRat) > 0
+            hiMed := array.median(hiRat)
+        if array.size(loRat) > 0
+            loMed := array.median(loRat)
+        float hiWinPct = hiN > 0 ? 100.0 * hiWin / hiN : na
+        float loWinPct = loN > 0 ? 100.0 * loWin / loN : na
+
         string hiTxt = hiN == 0 ? "—" :
-             str.tostring(hiMFE / hiN, "#.##") + "/" + str.tostring(hiMAE / hiN, "#.##") +
-             " =" + (na(hiRatio) ? "—" : str.tostring(hiRatio, "#.##")) + " (n=" + str.tostring(hiN) + ")"
+             "med " + (na(hiMed) ? "—" : str.tostring(hiMed, "#.##")) +
+             " · win " + (na(hiWinPct) ? "—" : str.tostring(hiWinPct, "#") + "%") +
+             " · agg " + (na(hiRatio) ? "—" : str.tostring(hiRatio, "#.##")) +
+             " (n=" + str.tostring(hiN) + ")"
         string loTxt = loN == 0 ? "—" :
-             str.tostring(loMFE / loN, "#.##") + "/" + str.tostring(loMAE / loN, "#.##") +
-             " =" + (na(loRatio) ? "—" : str.tostring(loRatio, "#.##")) + " (n=" + str.tostring(loN) + ")"
+             "med " + (na(loMed) ? "—" : str.tostring(loMed, "#.##")) +
+             " · win " + (na(loWinPct) ? "—" : str.tostring(loWinPct, "#") + "%") +
+             " · agg " + (na(loRatio) ? "—" : str.tostring(loRatio, "#.##")) +
+             " (n=" + str.tostring(loN) + ")"
 
-        // Green only when the bucket is genuinely favourable AND has enough
-        // samples to mean anything. 20 is deliberately conservative.
-        color hiCol = na(hiRatio) or hiN < 20 ? color.gray : hiRatio > 1.15 ? color.lime : hiRatio < 0.9 ? color.red : color.yellow
-        color loCol = na(loRatio) or loN < 20 ? color.gray : loRatio > 1.15 ? color.lime : loRatio < 0.9 ? color.red : color.yellow
+        // Colour keys off the MEDIAN, not the aggregate — the aggregate is the
+        // statistic that flipped sign on an outlier. Grey below 20 samples
+        // because nothing measured on fewer is worth acting on.
+        color hiCol = na(hiMed) or hiN < 20 ? color.gray : hiMed > 1.15 ? color.lime : hiMed < 0.9 ? color.red : color.yellow
+        color loCol = na(loMed) or loN < 20 ? color.gray : loMed > 1.15 ? color.lime : loMed < 0.9 ? color.red : color.yellow
 
-        table.cell(st, 0, 8, "Sig MFE/MAE hi", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
+        table.cell(st, 0, 8, "Sig quality hi", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
         table.cell(st, 1, 8, hiTxt, text_color = hiCol, text_size = size.tiny, bgcolor = cellBg)
-        table.cell(st, 0, 9, "Sig MFE/MAE lo", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
+        table.cell(st, 0, 9, "Sig quality lo", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
         table.cell(st, 1, 9, loTxt, text_color = loCol, text_size = size.tiny, bgcolor = cellBg)
 
 // =============================================================================
