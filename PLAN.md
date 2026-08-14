@@ -147,6 +147,74 @@ The cost and instrument guards do now pass — `cost 2.3% of risk — workable`,
 
 ---
 
+## 1.7 The levels are good. The way they are traded is not.
+
+Everything above measures the *score* and the *strategy*. This measures the
+thing underneath both: **are the levels themselves worth anything?**
+
+Run with [`tools/level_quality.js`](tools/level_quality.js) over the same
+5,023 bars. Pivots are computed in JS so a sweep is one pass, with no
+look-ahead (a pivot at bar *k* is only known at *k+L*; scanning starts after).
+**n = 477 tested levels** — fifteen times the break sample, and the first
+well-powered result this project has had.
+
+### Swing length does not matter
+
+| swingLen | tested | hold % | median ratio |
+|---|---|---|---|
+| 3 | 814 | 52% | 1.08 |
+| **5** (default) | **477** | **53%** | **1.16** |
+| 8 | 286 | 53% | 1.16 |
+| 12 | 200 | 51% | 1.01 |
+| 20 | 109 | 51% | 1.02 |
+| 30 | 68 | 56% | 1.20 |
+
+Flat from 3 to 30. **"Find more significant pivots" is not a lever** — it was
+the obvious hypothesis and it is dead. The default of 5 is as good as anything.
+
+### Entering *at* the level is a real, positive edge
+
+Entry at the level on first revisit, fixed risk, net of MNQ commission
+($1.50 round trip, $2/point):
+
+| Stop | Target | Win % | Expectancy |
+|---|---|---|---|
+| 0.25 ATR | 2R | 32% | **−0.142 R** |
+| **0.50 ATR** | **2R** | **41%** | **+0.184 R** |
+| 0.50 ATR | 3R | 30% | +0.136 R |
+| 1.00 ATR | 2R | 37% | +0.095 R |
+| 1.50 ATR | 2R | 35% | +0.064 R (gross) |
+
+**Positive expectancy across every sane configuration, with a genuine interior
+optimum** — too tight (0.25 ATR) is killed by noise and cost, too loose (1.5
+ATR) bleeds edge. An interior optimum is a good sign: pure artifacts are
+usually monotonic.
+
+Commission is **5.5% of risk** at a 0.5 ATR stop, well inside the 15% guard.
+
+### What this means
+
+**The strategy currently uses the worst configuration on that table.** It
+enters on the *break* — far from the level, which forces a wide stop — and
+ships a **1.5 ATR stop**, the lowest-expectancy row tested. Entering at the
+level with a 0.5 ATR stop is roughly **3× the expectancy** of what ships.
+
+So the ranking of problems inverts from §1.1–1.3:
+
+1. The levels are fine. Detection is not the problem.
+2. **Entry placement and stop distance are the problem**, and both are
+   already parameterised — `entryTrigger` has an unused `"Retest"` option
+   (`tools/strategy_tail.pine:39`).
+3. The score is a separate, smaller issue: it does not rank, but it is not
+   what is destroying the edge.
+
+⚠️ **Caveats.** One symbol, 75 days, no slippage, and it assumes a limit order
+at the level fills. It also measures *raw pivots*, without the session, volume
+or score filters — so it is an upper bound on what the filtered version would
+do, and a reason to check whether those filters help or hurt.
+
+---
+
 ## 2. The plan
 
 Ordered so that each step is only attempted once the thing it depends on is
@@ -168,6 +236,30 @@ chart the place to measure. Analysis runs off the plot cache.
 **Still to do here:** the same median/win-rate treatment should be applied to
 whatever reports pooled results in §2.2 — that is where it will actually be
 read.
+
+### 2.15 — Trade the levels the way the data says they work ← **now the top priority**
+
+Promoted above everything else by §1.7, because it is the only change measured
+to improve expectancy, and both halves are already built.
+
+| | Ships today | Measured better |
+|---|---|---|
+| Entry | `Break` (market, on the break bar) | **`Retest`** — at the level |
+| Stop | 1.5 ATR | **0.5 ATR** |
+| Expectancy | +0.064 R | **+0.184 R** |
+
+Two runs, one variable each, against the current baseline:
+
+1. `entryTrigger = "Retest"`, stop unchanged. Isolates entry placement.
+2. Then stop 1.5 → 0.5 ATR. Isolates risk distance.
+
+**Predicted:** run 1 cuts adverse excursion (the median break has MAE 1.53 ATR
+against a 1.5 ATR stop — a coin flip by construction); run 2 raises expectancy
+most. **If retest entry does not reduce MAE, §1.7 does not transfer to the
+filtered signal set and that is worth knowing immediately.**
+
+Change these by editing the `input.*` defaults and re-pasting — never
+`indicator_set_inputs`.
 
 ### 2.2 — Fix the sample-size problem by pooling symbols
 

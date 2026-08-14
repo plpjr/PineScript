@@ -26,6 +26,13 @@ say:
 - **At 5,020 bars the script draws nothing** — no labels, lines or table,
   while plots stay correct. Control-tested against unmodified v7.12, which
   fails identically. Read the plot cache, never the table, at full history.
+- **The levels are good; the way they are traded is not.** At **n = 477**,
+  entering *at* a swing level with a 0.5 ATR stop returns **+0.184 R** net of
+  commission, against **+0.064 R** for the shipped break-entry/1.5-ATR-stop
+  configuration. Swing length is irrelevant (flat 51–56% from 3 to 30).
+  See [`PLAN.md` §1.7](PLAN.md) — this is the first well-powered result the
+  project has produced, and it makes **`entryTrigger = "Retest"` plus a
+  tighter stop** the top priority. Harness: `tools/level_quality.js`.
 
 ---
 
