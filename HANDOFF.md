@@ -4,7 +4,44 @@
 this up without re-deriving it. User-facing documentation lives in
 [`wiki/`](wiki/Home.md).
 
-Last updated at commit `ed84bca`.
+Last updated at commit `4426aa9`.
+
+---
+
+## 0. Read this first — state at the last handoff
+
+**The one action pending: restart Claude Code.** That is all that stands
+between the current session and a live TradingView MCP. Details in §5.
+
+### Decision: TradingView **Desktop**, via MCP. The browser route is dead.
+
+The user settled this explicitly. Two approaches had been circling each other:
+
+| Approach | Status |
+|---|---|
+| **TradingView Desktop + `tradingview-mcp` over CDP** | ✅ **This is the approach.** All effort goes here |
+| Chrome extension "AI Trading Copilot" | ❌ Abandoned. Spec deleted, no code was ever written |
+| Playwright driving TradingView **web** | ❌ Abandoned. Superseded by the MCP; artifacts deleted |
+
+Deleted from `~/Documents` as part of this decision — do not go looking for
+them, and do not recreate them:
+
+- `AI_Trading_Copilot_Product_Specification.md` — the Chrome-extension spec
+- `tv-snapshot.md` — 29KB Playwright accessibility dump of an AAPL web chart
+- `.playwright-mcp/` — console log and page dump from the same Aug 5 session
+
+### Where the files live
+
+The project is **fully self-contained in `~/Documents/PineScript`** — verified,
+not assumed: no `.pine` files exist anywhere else under `Documents`, and no file
+outside this folder references `Structure_Break_*` or `Key_Zone_Map`. All 25
+files are tracked in git.
+
+**One deliberate exception:** `~/Documents/tradingview-mcp` stays where it is.
+It is a third-party clone (`tradesdontlie/tradingview-mcp`), not our source —
+the equivalent of an installed dependency. Moving it inside `PineScript/` would
+nest a second `.git` inside a public repo and break the MCP registration, which
+points at that absolute path. Treat it as a tool, not a project file.
 
 ---
 
@@ -333,17 +370,45 @@ Table template in [`wiki/Backtesting.md`](wiki/Backtesting.md).
 
 ---
 
-## 7. Next steps, prioritized
+## 7. Next steps — the exact plan for the session after the restart
 
-1. **Restart Claude Code** — that is all that is left to get the MCP live (§5)
-2. **`tv_health_check`**, then read the chart state
-3. **Solve the frozen-settings problem.** Read the ① badge first. Then
-   `data_get_pine_tables` to see what the script thinks its settings are
-4. **Read the ⑬ signal-quality rows** — this may answer the score question
-   without the backtest working at all
-5. **Only then** the score sweep
-6. If the score is real: test trend alignment (HTF filter, or
-   `Trade direction = Continuation only`) against the 0.855 baseline
+Run these in order. Steps 1–4 are read-only: they change nothing on the chart,
+so there is no risk of disturbing the user's setup while diagnosing.
+
+**1. Confirm the MCP is actually live.** `tv_health_check`. If the tools are
+still missing, re-check both preconditions in §5 — registration *and* debug
+port — before assuming anything is broken.
+
+**2. Read the "Script execution ①" badge.** *Highest-value unknown in this
+file.* It has been visible in every screenshot since the beginning and was
+asked for three times without an answer. **A runtime error would explain the
+frozen settings completely** — a script that errors mid-run keeps displaying
+its last good results, which is exactly the symptom. Now readable directly
+instead of asking.
+
+**3. `data_get_pine_tables`** — read the status table as data. Two things to
+check:
+   - **`BUILD_ID` on the label vs. `a3d0963c`.** If they differ, TradingView is
+     running stale code and the whole frozen-settings mystery dissolves.
+   - **The settings echo** — what the running script *thinks* its settings are,
+     versus what the user set. A mismatch localises the fault immediately.
+
+**4. Read the ⑬ signal-quality rows** (`Sig MFE/MAE hi` / `lo`). The one I most
+want. **This may settle whether the confidence score is real without the
+strategy tester working at all** — it measures MFE vs MAE per break in ATR,
+with no trade rules, stops, commission, or instrument arithmetic. Every prior
+attempt to measure this through a backtest was derailed by exactly those
+things (§3, runs 1–5). Needs n ≥ 20 per bucket to be non-grey.
+
+**5. Only then, the score sweep.** `Minimum score to signal` across
+0 / 40 / 55 / 70 / 85, nothing else changed, against the 0.855 baseline.
+
+**6. If the score is real:** test trend alignment — HTF filter, or
+`Trade direction = Continuation only`. Remember the counter-trend finding is
+**confounded** by a 37% up-move in the window (§3, run 4); long-only would look
+brilliant and be pure curve-fitting.
+
+⚠️ **One change at a time**, per §8. Runs 2 and 3 were lost to ignoring that.
 
 ---
 
