@@ -5,7 +5,28 @@
 Both scripts version independently. The authoritative history lives in each
 `.pine` file's header comment; this page is the readable summary.
 
-**Current:** Structure Break Signals **v7.15** · Key Zone Map **v1.7**
+**Current:** Structure Break Signals **v7.16** · Key Zone Map **v1.7**
+
+---
+
+## v7.16 — structure first; the level map is opt-in
+
+v7.15 put eight tagged bands on the chart by default and buried the structure
+they were meant to support. Reverted to a quiet default. **Nothing was
+removed** — every v7.15 feature is one toggle away.
+
+| Setting | Was | Now |
+|---|---|---|
+| `⑭ Show nearby levels` | on | **off** |
+| `Draw live levels as zones` | on | **off** |
+| `⑭ Draw as zones` | on | **off** |
+
+**On by default now:** HH/LL/LH/HL labels with ATR clearance, the two live
+watch levels as dotted lines, the structure chain, and the status table.
+
+**Bug fixed:** `clearMap()` was gated behind `Show nearby levels`, so switching
+the map off left its lines and tags stranded on the chart with nothing left to
+delete them. The clear now runs regardless.
 
 ---
 
