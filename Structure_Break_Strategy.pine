@@ -19,7 +19,33 @@
 // be reproduced, and contradicts process_orders_on_close = true below.
 // =============================================================================
 // =============================================================================
-// Structure Break Signals  —  v7.13
+// Structure Break Signals  —  v7.14
+//
+// NEW IN v7.14 — SAY WHAT THE USER IS ACTUALLY WATCHING:
+//   The indicator marked structure well but was quiet about the things you
+//   need in order to act on a level. Five changes, all display-side:
+//
+//   * LIVE LEVELS ARE ZONES. Price respects bands, not ticks. Measured over
+//     5,023 MNQ 15M bars, an exact hairline holds on 53% of revisits; a
+//     ±0.25 ATR band lifts that to 68%. Some of that gap is definitional, but
+//     a hairline still sets an expectation the market does not honour.
+//     `Draw live levels as zones`, half-width `zoneWidthATR`.
+//   * TEST COUNTS. A level tested three times and still holding is not the
+//     same as one nobody has touched, and nothing said which was which.
+//     Counted per approach, not per bar.
+//   * LIVE DISTANCE. How far price sits from each live level, in ATR, on the
+//     chart tag and in the status table. Also two new "approaching" alerts —
+//     every other alert here fires after the fact.
+//   * CLEARANCE ON LABELS BY DEFAULT. Clearance is measured directly and
+//     varies between breaks; the composite score does not. Read it first.
+//   * SCORE THRESHOLDS RAISED — clearance 0.40 → 0.60, candle range
+//     1.20 → 1.50. Over 32 MNQ 15M breaks the score ran 64-100, median 88.5,
+//     with nothing below 60: the degenerate distribution those settings exist
+//     to prevent. ⚠️ Scores shift as a result — re-check `Minimum score to
+//     signal` if you had tuned it.
+//
+//   Honest scope: zones are drawn on the LIVE levels only, which is where you
+//   are watching. Historical broken levels stay as lines.
 //
 // NEW IN v7.13 — THE SIGNAL-QUALITY STATISTIC WAS NOT SAFE TO TRUST:
 //   * The ⑬ rows reported sum(MFE)/sum(MAE). That statistic is dominated by
@@ -370,7 +396,7 @@
 //
 // process_orders_on_close: the break conditions evaluate against close, so
 // filling at the next bar's open would report entries the signal never offered.
-strategy("Structure Break Strategy v7.13", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500,
+strategy("Structure Break Strategy v7.14", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500,
      initial_capital = 10000,
      default_qty_type = strategy.fixed, default_qty_value = 1,
      commission_type = strategy.commission.cash_per_contract, commission_value = 0.75,
@@ -618,8 +644,8 @@ showLabels = input.bool(true, "HH / LL / LH / HL labels", group = grpD,
      tooltip = "Text labels on each break. Turn off for a cleaner chart if the coloured lines are enough.")
 labelSize  = input.string("Small", "Label size", options = ["Tiny", "Small", "Normal"], group = grpD,
      tooltip = "Text size for break labels. Use Tiny on dense lower-timeframe charts.")
-verboseLabels = input.bool(false, "Verbose labels (show ATR clearance)", group = grpD,
-     tooltip = "ON = labels show 'HH +0.3' or 'LH -0.2' indicating how many ATR the break cleared beyond the level. Useful for quickly judging break quality.")
+verboseLabels = input.bool(true, "Show ATR clearance on labels", group = grpD,
+     tooltip = "ON = labels show 'HH +0.3' or 'LH -0.2' — how many ATR the break cleared beyond the level.\n\nDEFAULTED ON IN v7.14. Clearance is the number on the label that actually varies between breaks and is measured directly, rather than being a composite. Measured over 32 MNQ 15M breaks, the confidence score ranged only 64-100 with 84% above 80, so it separates far less than clearance does. Read the clearance first.")
 showLiveHigh = input.bool(true, "Live (unbroken) high level", group = grpD,
      tooltip = "Dotted line showing the swing HIGH price is CURRENTLY working against, before any break.\n\nThis is the most useful setting for live trading: it shows what needs to break for a signal to fire, so you can plan the trade before the label appears.")
 showLiveLow = input.bool(true, "Live (unbroken) low level", group = grpD,
@@ -630,6 +656,21 @@ liveLineStyle = input.string("Dotted", "  Live level line style", options = ["So
      tooltip = "Line style for the live level lines. Dotted by default so they read as 'not confirmed yet,' distinct from the solid/dashed HH/LL/LH/HL break lines.")
 liveExtendBars = input.int(20, "  Extend live level right (bars)", minval = 0, maxval = 200, group = grpD,
      tooltip = "How far the live level line is drawn forward from the current bar. Scales with 'Auto-adapt to timeframe' like every other extend setting, so it means the same amount of real time on every chart.")
+// ---- Zones and live-level tags (v7.14) --------------------------------------
+// Price respects bands, not ticks. Measured on 5,023 MNQ 15M bars, treating a
+// level as an exact price gives a 53% hold rate; widening it to a ±0.25 ATR
+// band raises the share of revisits that hold to 68%. Part of that is
+// definitional — a wider band is harder to violate — but the practical point
+// stands: an exact hairline sets an expectation the market does not honour.
+showZones = input.bool(true, "Draw live levels as zones", group = grpD,
+     tooltip = "ON = the live (unbroken) high and low are drawn as shaded bands rather than single lines.\n\nA level is an area of interest, not a price. Drawing it as a hairline invites judging a reaction by a couple of ticks, which is not how the level behaves.")
+zoneWidthATR = input.float(0.25, "  Zone half-width (× ATR)", minval = 0.0, maxval = 1.0, step = 0.05, group = grpD,
+     tooltip = "Half-height of the live level band, in ATR. 0.25 means the band spans 0.25 ATR either side of the level.\n\nScales with volatility, so it means the same thing across instruments and timeframes. Set 0 to fall back to plain lines.")
+showLiveTags = input.bool(true, "Tag live levels with price, tests and distance", group = grpD,
+     tooltip = "ON = a small label at the right edge of each live level showing its exact price, how many times it has been tested, and how far price currently sits from it in ATR.\n\nThis is the 'what am I watching and how close am I' readout — it saves hovering the line to read the price.")
+testTolATR = input.float(0.15, "  Counts as a test within (× ATR)", minval = 0.02, maxval = 1.0, step = 0.05, group = grpD,
+     tooltip = "How close price must come to a live level for it to count as a test.\n\nA test is counted once per approach, not once per bar — price has to leave the band and come back for the count to rise again.")
+
 showPivots = input.bool(false, "Raw pivot markers", group = grpD,
      tooltip = "Small triangles on every detected swing high/low, including ones the filters rejected.\n\nUseful for DIAGNOSIS: if the indicator is missing structure you'd mark by hand, turn this on to see whether the pivot was detected but filtered out, or never detected at all.")
 tintBias   = input.bool(false, "Tint background by bias", group = grpD,
@@ -798,14 +839,14 @@ wFollow = input.int(10, "Weight · follow-through", minval = 0, maxval = 100, gr
        "Set to 0 to remove it entirely; its share is redistributed across the other measures.")
 
 // --- Where each measure earns full marks ---------------------------------------
-tClear = input.float(0.40, "Full marks · clearance (× ATR)", minval = 0.05, step = 0.05, group = grpQ2,
+tClear = input.float(0.60, "Full marks · clearance (× ATR)", minval = 0.05, step = 0.05, group = grpQ2,
      tooltip = "Clearance beyond the level that earns the FULL clearance score.\n\n" +
        "LOWER (0.25) = easier to max out, scores cluster high, less discrimination between good and great.\n" +
        "HIGHER (0.60) = only emphatic breaks score well.\n\n" +
-       "If almost every break scores 85+, your thresholds are too easy — raise this and 'displacement' first.")
+       "RAISED FROM 0.40 TO 0.60 IN v7.14. Measured over 32 MNQ 15M breaks the score ran 64-100 with a median of 88.5 and nothing at all below 60 — the degenerate distribution this setting exists to prevent. At 0.40 the component was maxing out on ordinary breaks.")
 
-tDisp = input.float(1.20, "Full marks · candle range (× ATR)", minval = 0.10, step = 0.10, group = grpQ2,
-     tooltip = "Breaking-candle range that earns the FULL displacement score, in ATR.")
+tDisp = input.float(1.50, "Full marks · candle range (× ATR)", minval = 0.10, step = 0.10, group = grpQ2,
+     tooltip = "Breaking-candle range that earns the FULL displacement score, in ATR.\n\nRAISED FROM 1.20 TO 1.50 IN v7.14, for the same reason as clearance above: it was saturating on unremarkable candles and flattening the score.")
 
 tBody = input.float(0.80, "Full marks · body % of range", minval = 0.40, maxval = 1.00, step = 0.05, group = grpQ2,
      tooltip = "Body-to-range ratio that earns the FULL conviction score.\n\n0.80 = body is 80% of the candle's range. Scoring starts from 0.35 and rises to this value.")
@@ -1585,19 +1626,102 @@ else
     line.delete(pendLine)
     pendLine := na
 
+// ---------------------------- Live level tests -------------------------------
+// How many times price has come to the live level and turned away. A level
+// tested three times and still holding is a different proposition from one
+// nobody has touched, and nothing on the chart said which was which.
+//
+// Counted per APPROACH, not per bar: price has to leave the tolerance band and
+// come back before the count rises again. Otherwise a single slow grind along
+// the level would report as a dozen tests.
+var int   whTests   = 0
+var int   wlTests   = 0
+var bool  whInBand  = false
+var bool  wlInBand  = false
+var float whTracked = na
+var float wlTracked = na
+
+if not na(watchHigh) and atrVal > 0
+    // A new level starts its own count.
+    if na(whTracked) or math.abs(watchHigh - whTracked) > syminfo.mintick
+        whTracked := watchHigh
+        whTests   := 0
+        whInBand  := false
+    float tol = testTolATR * atrVal
+    bool touching = high >= watchHigh - tol and low <= watchHigh + tol
+    if touching and not whInBand
+        whTests += 1
+    whInBand := touching
+
+if not na(watchLow) and atrVal > 0
+    if na(wlTracked) or math.abs(watchLow - wlTracked) > syminfo.mintick
+        wlTracked := watchLow
+        wlTests   := 0
+        wlInBand  := false
+    float tol = testTolATR * atrVal
+    bool touching = low <= watchLow + tol and high >= watchLow - tol
+    if touching and not wlInBand
+        wlTests += 1
+    wlInBand := touching
+
+// Distance from the current close to each live level, in ATR. Negative means
+// price has already passed it. Used by the tags and the status table.
+float distHiATR = not na(watchHigh) and atrVal > 0 ? (watchHigh - close) / atrVal : na
+float distLoATR = not na(watchLow)  and atrVal > 0 ? (close - watchLow)  / atrVal : na
+
 // ---------------------------- Live levels ------------------------------------
 var line liveHiLine = na
 var line liveLoLine = na
+var box  liveHiBox  = na
+var box  liveLoBox  = na
+var label liveHiTag = na
+var label liveLoTag = na
+
+// Reads "30287.25 · 2 tests · 0.4 ATR away". Everything you need to decide
+// whether this level is worth watching right now, without hovering the line.
+liveTagText(float lvl, int tests, float dist) =>
+    string s = str.tostring(lvl, format.mintick)
+    s += tests == 1 ? "  ·  1 test" : "  ·  " + str.tostring(tests) + " tests"
+    if not na(dist)
+        s += dist >= 0 ? "  ·  " + str.tostring(dist, "#.##") + " ATR away"
+                       : "  ·  " + str.tostring(math.abs(dist), "#.##") + " ATR through"
+    s
 
 if barstate.islast
     line.delete(liveHiLine)
     line.delete(liveLoLine)
+    box.delete(liveHiBox)
+    box.delete(liveLoBox)
+    label.delete(liveHiTag)
+    label.delete(liveLoTag)
+    int rightBar = bar_index + effLiveExtend
+    float halfZone = showZones and atrVal > 0 ? zoneWidthATR * atrVal : 0.0
+
     if showLiveHigh and not na(watchHigh)
-        liveHiLine := line.new(watchHighBar, watchHigh, bar_index + effLiveExtend, watchHigh,
-             color = color.new(colCont, 60), style = styleOf(liveLineStyle), width = liveLineWidth)
+        if halfZone > 0
+            liveHiBox := box.new(watchHighBar, watchHigh + halfZone, rightBar, watchHigh - halfZone,
+                 border_color = color.new(colCont, 55), border_width = 1,
+                 border_style = styleOf(liveLineStyle), bgcolor = color.new(colCont, 88))
+        else
+            liveHiLine := line.new(watchHighBar, watchHigh, rightBar, watchHigh,
+                 color = color.new(colCont, 60), style = styleOf(liveLineStyle), width = liveLineWidth)
+        if showLiveTags
+            liveHiTag := label.new(rightBar, watchHigh + halfZone, liveTagText(watchHigh, whTests, distHiATR),
+                 style = label.style_label_left, color = color.new(color.black, 20),
+                 textcolor = color.new(colCont, 0), size = size.tiny)
+
     if showLiveLow and not na(watchLow)
-        liveLoLine := line.new(watchLowBar, watchLow, bar_index + effLiveExtend, watchLow,
-             color = color.new(colRev, 60), style = styleOf(liveLineStyle), width = liveLineWidth)
+        if halfZone > 0
+            liveLoBox := box.new(watchLowBar, watchLow + halfZone, rightBar, watchLow - halfZone,
+                 border_color = color.new(colRev, 55), border_width = 1,
+                 border_style = styleOf(liveLineStyle), bgcolor = color.new(colRev, 88))
+        else
+            liveLoLine := line.new(watchLowBar, watchLow, rightBar, watchLow,
+                 color = color.new(colRev, 60), style = styleOf(liveLineStyle), width = liveLineWidth)
+        if showLiveTags
+            liveLoTag := label.new(rightBar, watchLow - halfZone, liveTagText(watchLow, wlTests, distLoATR),
+                 style = label.style_label_left, color = color.new(color.black, 20),
+                 textcolor = color.new(colRev, 0), size = size.tiny)
 
 // ---------------------------- Pivot markers ----------------------------------
 // plotshape's offset must be a constant, so the two engines get their own
@@ -1775,12 +1899,16 @@ if showTable and barstate.islast
     table.cell(st, 0, 1, "Bias", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
     table.cell(st, 1, 1, biasTxt, text_color = biasCol, text_size = size.tiny, bgcolor = cellBg)
 
+    // Price, tests and live distance on one row each. These three answer
+    // "which level, how proven, how close" — the questions you actually ask
+    // when deciding whether to watch a level, and they were spread across the
+    // chart or absent entirely before v7.14.
     table.cell(st, 0, 2, "Watch high", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
-    table.cell(st, 1, 2, na(watchHigh) ? "—" : str.tostring(watchHigh, format.mintick),
+    table.cell(st, 1, 2, na(watchHigh) ? "—" : liveTagText(watchHigh, whTests, distHiATR),
          text_color = colCont, text_size = size.tiny, bgcolor = cellBg)
 
     table.cell(st, 0, 3, "Watch low", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
-    table.cell(st, 1, 3, na(watchLow) ? "—" : str.tostring(watchLow, format.mintick),
+    table.cell(st, 1, 3, na(watchLow) ? "—" : liveTagText(watchLow, wlTests, distLoATR),
          text_color = colRev, text_size = size.tiny, bgcolor = cellBg)
 
     table.cell(st, 0, 4, "Bars since break", text_color = color.gray, text_size = size.tiny, bgcolor = cellBg)
@@ -1956,6 +2084,15 @@ plotshape(showRetestResistanceMarker and retestDown and retestNormal, title = "R
      location = location.abovebar, style = shape.triangledown, color = colRev, size = size.normal)
 
 
+// Approach alerts. Every alert above fires on something that has already
+// happened; these fire while there is still time to do something about it.
+// The threshold is the same tolerance the test counter uses, so what raises
+// the alert is exactly what increments "tests" on the chart.
+bool nearHigh = not na(distHiATR) and distHiATR >= 0 and distHiATR <= testTolATR
+bool nearLow  = not na(distLoATR) and distLoATR >= 0 and distLoATR <= testTolATR
+     message = "Price approaching the live high on {{ticker}} @ {{close}}")
+     message = "Price approaching the live low on {{ticker}} @ {{close}}")
+
 // =============================================================================
 // MACHINE-READABLE OUTPUT
 // =============================================================================
@@ -2011,6 +2148,17 @@ plot(retestUp or retestDown ? retestLevel : na, "Retest level",
 plot(atrVal, "ATR", display = display.data_window)
 plot(bias, "Bias", display = display.data_window)
 
+// Live-level context, exported so it is addressable from alerts and lands in
+// an exported CSV alongside everything else. "How far am I from the level"
+// and "how many times has it held" are the two questions a watchlist alert
+// most wants to ask, and neither was reachable before v7.14.
+plot(watchHigh,  "Watch high level",  display = display.data_window)
+plot(watchLow,   "Watch low level",   display = display.data_window)
+plot(distHiATR,  "Dist to high (ATR)", display = display.data_window)
+plot(distLoATR,  "Dist to low (ATR)",  display = display.data_window)
+plot(whTests,    "Tests · watch high", display = display.data_window)
+plot(wlTests,    "Tests · watch low",  display = display.data_window)
+
 // Forward-excursion samples, emitted when each break's measurement window
 // elapses. One row per break: join score against MFE/MAE in a spreadsheet and
 // the question "does the score rank breaks?" answers itself.
@@ -2021,7 +2169,7 @@ plot(outScore, "Fwd sample score", display = display.data_window)
 // Fingerprint of the indicator source plus the trade logic that produced
 // this file. Shown on the chart label. If the two disagree, TradingView is
 // running an older compiled copy than the one you pasted.
-string BUILD_ID = "b6be4ee3"
+string BUILD_ID = "94e2ac35"
 
 // =============================================================================
 // BACKTEST TRADE LOGIC

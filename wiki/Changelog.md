@@ -5,7 +5,30 @@
 Both scripts version independently. The authoritative history lives in each
 `.pine` file's header comment; this page is the readable summary.
 
-**Current:** Structure Break Signals **v7.12** · Key Zone Map **v1.7**
+**Current:** Structure Break Signals **v7.14** · Key Zone Map **v1.7**
+
+---
+
+## v7.14 — say what you are actually watching
+
+Five display changes, all aimed at the same gap: the script marked structure
+well but was quiet about what you need in order to act on a level.
+
+| Change | Detail |
+|---|---|
+| **Live levels drawn as zones** | ±0.25 ATR bands instead of hairlines. Exact prices hold on 53% of revisits over 5,023 MNQ 15M bars; a band holds on 68% |
+| **Test counts** | How many times a live level has been approached and rejected, counted per approach rather than per bar |
+| **Live distance** | How far price is from each live level, in ATR — on the chart tag and in the table |
+| **Approach alerts** | Two new alerts that fire *before* the break, not after |
+| **Clearance on labels by default** | The number that actually varies between breaks |
+
+⚠️ **Score thresholds raised** — `Full marks · clearance` 0.40 → 0.60 and
+`· candle range` 1.20 → 1.50. Over 32 MNQ 15M breaks the score ran 64–100 with
+a median of 88.5 and **nothing below 60** — the degenerate distribution those
+settings exist to prevent. **Re-check `Minimum score to signal` if you had
+tuned it.** The change spreads the score modestly (median 88.5 → 83, and 3% now
+fall below 60); it does not fully fix it, which is why the label now leads with
+clearance.
 
 ---
 

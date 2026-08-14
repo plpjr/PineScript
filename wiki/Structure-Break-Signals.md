@@ -305,11 +305,53 @@ correctly or the window won't land where you expect.**
 
 ### The live levels are the point
 
-**Live (unbroken) high / low level** — dotted lines showing the swing high and
-low price is *currently* working against, before any break. This is the most
-useful setting in the script for live trading: it shows what needs to break
-for a signal to fire, so you can plan before the label appears. Independent
-toggles, so turn off one side if you only trade one direction.
+**Live (unbroken) high / low level** — shows the swing high and low price is
+*currently* working against, before any break. This is the most useful setting
+in the script for live trading: it shows what needs to break for a signal to
+fire, so you can plan before the label appears. Independent toggles, so turn
+off one side if you only trade one direction.
+
+<a id="zones-and-tags"></a>
+#### Zones, tests and distance (v7.14)
+
+Three settings turn a live level from a price into something you can act on.
+
+**Draw live levels as zones** *(on)* — the live high and low are drawn as
+shaded bands rather than hairlines, with **Zone half-width (× ATR)** *(0.25)*
+controlling the height.
+
+Why: a level is an area, not a tick. Measured over 5,023 MNQ 15M bars, treating
+a level as an exact price gives a **53%** hold rate on revisits; a ±0.25 ATR
+band gives **68%**. Part of that gap is definitional — a wider band is harder
+to violate — but the practical point stands: a hairline invites you to judge a
+reaction by two ticks, and the market does not trade that way. Set the width to
+0 to go back to plain lines.
+
+**Tag live levels with price, tests and distance** *(on)* — a small label at
+the right edge of each live level:
+
+```
+30287.25  ·  2 tests  ·  0.41 ATR away
+```
+
+- **price** — exact level, so you don't have to hover the line.
+- **tests** — how many times price has come to this level and turned away.
+  A level that has held twice is a different proposition from one nobody has
+  touched. Counted **per approach, not per bar**: price must leave the
+  tolerance band and return before the count rises again, so a slow grind
+  along the level counts once.
+- **distance** — how far price sits from the level right now, in ATR. Reads
+  `ATR through` instead of `ATR away` once price has passed it.
+
+**Counts as a test within (× ATR)** *(0.15)* — how close price must come for a
+test to count. This same threshold drives the two **Approaching watch
+high / low** alerts, so what fires the alert is exactly what increments the
+counter.
+
+The same three values appear in the status table, and `Watch high level`,
+`Watch low level`, `Dist to high (ATR)`, `Dist to low (ATR)`,
+`Tests · watch high` and `Tests · watch low` are exported to the data window
+for CSV export and alert interpolation.
 
 ### Diagnosis
 
@@ -318,8 +360,15 @@ filters rejected*. If the indicator is missing structure you'd mark by hand,
 turn this on to see whether the pivot was detected but filtered out, or never
 detected at all. See [Troubleshooting](Troubleshooting.md).
 
-**Verbose labels** — appends the ATR clearance to each label (`HH +0.3`), for
-judging break quality without opening the table.
+**Show ATR clearance on labels** *(on since v7.14)* — appends the clearance to
+each label (`HH +0.3`), for judging break quality without opening the table.
+
+It is on by default because **clearance is the number on the label that
+actually separates breaks.** Measured over 32 MNQ 15M breaks, the confidence
+score ran 64–100 with 84% of it above 80 — it barely varies, so it cannot rank
+much. Clearance is measured directly rather than being a composite of six
+partly-overlapping components. Read the clearance first, the score second.
+See [Confidence Score](Confidence-Score.md).
 
 ### History limits
 

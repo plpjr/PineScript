@@ -3,6 +3,33 @@
 [← Home](Home.md) · Part of [Structure Break Signals](Structure-Break-Signals.md)
 (`⑨ Confidence score`, `⑩ Score tuning`)
 
+> ## ⚠️ Measured, not assumed — read this first
+>
+> This page describes how the score is *built*. As of v7.14 there is finally
+> data on how well it *works*, and it is not flattering.
+>
+> Over 32 MNQ 15M breaks (75 days), with `Minimum score to signal` at 0 so
+> nothing was filtered out:
+>
+> - **The distribution is degenerate.** Scores ran **64–100**, median **88.5**,
+>   84% at or above 80, and **nothing at all below 60** — exactly the failure
+>   [Calibration](#calibration) warns about, now confirmed on real data.
+> - **No measurable relationship to outcome.** Correlating score against what
+>   price did over the following 20 bars: Spearman **−0.18**, permutation
+>   **p = 0.34**. Win rates were flat across score terciles (6/10, 6/10, 7/12).
+>   That is not evidence the score is backwards — it is evidence the sample is
+>   far too small to tell, and that no positive relationship is visible in it.
+>
+> **What to do with that.** Do not treat a 94 as meaningfully better than a 78;
+> nothing supports it yet. **Read the ATR clearance on the label instead** — it
+> is measured directly, it varies properly between breaks, and it is shown by
+> default from v7.14.
+>
+> v7.14 raised the clearance and displacement thresholds (below), which spreads
+> the score somewhat — median 88.5 → 83, and 3% now fall below 60 — but does
+> not fix it. Breaks arrive roughly once per 157 bars, so settling this
+> properly needs data pooled across several instruments.
+
 The break-quality filters are binary: a break either qualifies or it doesn't.
 A break that cleared the level by 0.21 ATR and one that cleared it by 1.4 ATR
 both just say `HH`. The score grades *how well* it passed, 0–100.
@@ -28,8 +55,8 @@ is that you determine your own cutoff empirically — see
 
 | # | Component | Default weight | Full marks at | What it sees |
 |---|---|---|---|---|
-| 1 | Clearance beyond level | **30** | `0.40 × ATR` | How far past the level the close landed |
-| 2 | Displacement | **25** | `1.20 × ATR` | How large the breaking candle was |
+| 1 | Clearance beyond level | **30** | `0.60 × ATR` | How far past the level the close landed |
+| 2 | Displacement | **25** | `1.50 × ATR` | How large the breaking candle was |
 | 3 | Body conviction | **15** | body = `0.80` of range | Whether it closed near its extreme |
 | 4 | Volume participation | **15** | `1.60 ×` baseline | Whether anyone showed up |
 | 5 | Size of leg broken | **15** | `2.00 × ATR` | Whether the swing being broken was substantial |
@@ -65,19 +92,25 @@ generally does more than fiddling with thresholds.
 How far beyond the level the close landed, in ATR. Carries the most weight
 because it is the single most reliable indicator of a real break.
 
-**Full marks · clearance (× ATR)** — default `0.40`. Lower (0.25) is easier to
-max out, so scores cluster high and discriminate less between good and great.
-Higher (0.60) means only emphatic breaks score well.
+**Full marks · clearance (× ATR)** — default `0.60` **(raised from 0.40 in
+v7.14)**. Lower (0.25) is easier to max out, so scores cluster high and
+discriminate less between good and great. Higher means only emphatic breaks
+score well.
 
 > If almost every break scores 85+, your thresholds are too easy. Raise this
 > and displacement first.
+
+That is exactly what happened: at `0.40` this component was saturating on
+ordinary breaks and nothing scored below 60. `0.60` is the value this page had
+recommended all along for the symptom it turned out to have.
 
 ### 2. Displacement — weight 25
 
 The breaking candle's full range relative to recent volatility.
 
-**Full marks · candle range (× ATR)** — default `1.20`. Raise if your
-instrument breaks with obvious expansion; lower on instruments that grind
+**Full marks · candle range (× ATR)** — default `1.50` **(raised from 1.20 in
+v7.14)**, for the same saturation reason as clearance above. Raise further if
+your instrument breaks with obvious expansion; lower on instruments that grind
 rather than impulse.
 
 ### 3. Body conviction — weight 15
