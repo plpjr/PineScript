@@ -5,7 +5,32 @@
 Both scripts version independently. The authoritative history lives in each
 `.pine` file's header comment; this page is the readable summary.
 
-**Current:** Structure Break Signals **v7.22** · Key Zone Map **v1.7**
+**Current:** Structure Break Signals **v7.23** · Key Zone Map **v1.7**
+
+---
+
+## v7.23 — one width, one text size
+
+Horizontal level thickness was spread over **three inputs in three different
+groups** — `HH/LL line width` in ⑦, `LH/HL line width` in ⑧, `Live level line
+width` in ⑤ — plus a hard-coded width on the nearby-level map that no setting
+reached. Making every level match was not possible without editing the script.
+
+Label text size was worse: only break and swing labels honoured `Label size`.
+Live level tags, map tags and internal-structure labels were **hard-coded to
+Tiny** and could not be changed at all.
+
+| Control | Governs |
+|---|---|
+| **⑤ Level line width** | Every horizontal level — live, broken HH/LL and LH/HL, and the nearby map |
+| **⑤ Label size** | Every label — swing, break, live tags, map tags, internal |
+
+**Two inputs removed rather than added.** Verified on chart: all 14 horizontal
+lines now render at the same width.
+
+Per-type **style** is unchanged and still separate — live levels dotted, HH/LL
+solid, LH/HL dashed — so the lines stay distinguishable. The zigzag keeps its
+own width in ⑮ because it is not a level.
 
 ---
 

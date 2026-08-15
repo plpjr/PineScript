@@ -285,7 +285,7 @@ correctly or the window won't land where you expect.**
 | Verbose labels (ATR clearance) | `OFF` | |
 | Live (unbroken) high level | `ON` | |
 | Live (unbroken) low level | `ON` | |
-| Live level line width | `1` | 1–4 |
+| Level line width — applies to every horizontal level | `1` | 1–4 |
 | Live level line style | `Dotted` | |
 | Extend live level right (bars) | `20` | 0–200 |
 | Raw pivot markers | `OFF` | |

@@ -1,7 +1,25 @@
 // =============================================================================
-// Structure Break Signals  —  v7.22
+// Structure Break Signals  —  v7.23
 //
-// NEW IN v7.22 — DRAW THE LEVELS NEAREST PRICE, NOT THE NEWEST ONES:
+// NEW IN v7.23 — ONE WIDTH, ONE TEXT SIZE:
+//   Horizontal level thickness was spread over three separate inputs in three
+//   different groups — `HH/LL line width` in ⑦, `LH/HL line width` in ⑧,
+//   `Live level line width` in ⑤ — plus a hard-coded width on the nearby-level
+//   map that no setting reached at all. Making every level match was not
+//   possible without editing the script.
+//
+//   Label text size was worse: only break and swing labels honoured
+//   `Label size`. Live level tags, map tags and internal-structure labels were
+//   hard-coded to Tiny and could not be changed.
+//
+//     ⑤ Level line width   — one control, every horizontal level
+//     ⑤ Label size         — one control, every label
+//
+//   Two inputs removed rather than added. Per-type STYLE is unchanged and
+//   still separate: live levels dotted, HH/LL solid, LH/HL dashed. The zigzag
+//   keeps its own width in ⑮ because it is not a level.
+//
+// SUPERSEDED IN v7.22 — DRAW THE LEVELS NEAREST PRICE, NOT THE NEWEST ONES:
 //   Detection is unchanged. Every level still comes from the same pivot
 //   engine verified at 98%. What changes is WHICH of the found levels get
 //   drawn.
@@ -490,7 +508,7 @@
 // (swing 50 -> 100 bars, volume 200), 500 leaves comfortable headroom. The
 // previous value of 100 was below what the inputs already permitted and threw
 // "requested historical offset is beyond the historical buffer's limit".
-indicator("Structure Break Signals v7.22", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500)
+indicator("Structure Break Signals v7.23", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500)
 
 // =============================================================================
 // SENSITIVITY MASTER CONTROLS
@@ -732,15 +750,15 @@ grpD = "⑤ Display & history"
 showLabels = input.bool(false, "HH / LL / LH / HL labels on break bars", group = grpD,
      tooltip = "Text labels on the bar where a level was BROKEN, carrying the ATR clearance and score.\n\nDEFAULTED OFF IN v7.18. ⑮ now labels the swing points themselves, and two sets of HH/LL/LH/HL labels sitting on different bars read as duplicates rather than as two different facts. Turn this back on when you want the clearance and score on the chart; the level LINES are unaffected either way.")
 labelSize  = input.string("Small", "Label size", options = ["Tiny", "Small", "Normal"], group = grpD,
-     tooltip = "Text size for break labels. Use Tiny on dense lower-timeframe charts.")
+     tooltip = "Text size for EVERY label the script draws — swing HH/HL/LH/LL labels, break labels, live level tags, nearby-level tags and internal structure. One control so they all match.\n\nBefore v7.23 only the break and swing labels followed this; the live tags, map tags and internal labels were hard-coded to Tiny and could not be changed at all.")
 verboseLabels = input.bool(true, "Show ATR clearance on labels", group = grpD,
      tooltip = "ON = labels show 'HH +0.3' or 'LH -0.2' — how many ATR the break cleared beyond the level.\n\nDEFAULTED ON IN v7.14. Clearance is the number on the label that actually varies between breaks and is measured directly, rather than being a composite. Measured over 32 MNQ 15M breaks, the confidence score ranged only 64-100 with 84% above 80, so it separates far less than clearance does. Read the clearance first.")
 showLiveHigh = input.bool(true, "Live (unbroken) high level", group = grpD,
      tooltip = "Dotted line showing the swing HIGH price is CURRENTLY working against, before any break.\n\nThis is the most useful setting for live trading: it shows what needs to break for a signal to fire, so you can plan the trade before the label appears.")
 showLiveLow = input.bool(true, "Live (unbroken) low level", group = grpD,
      tooltip = "Same as the high level above, mirrored for the current watched swing LOW.")
-liveLineWidth = input.int(2, "  Live level line width", minval = 1, maxval = 4, group = grpD,
-     tooltip = "Thickness of the live (unbroken) level lines.")
+levelWidth = input.int(1, "Level line width", minval = 1, maxval = 4, group = grpD,
+     tooltip = "Thickness of EVERY horizontal level line — live levels, broken HH/LL and LH/HL lines, and the nearby-level map. One control so they all match.\n\nBefore v7.23 these were three separate settings in three different groups plus one hard-coded value, so the lines could not be made to match without hunting. Style is still per-type: live levels dotted, HH/LL solid, LH/HL dashed. Only the weight is shared.\n\nThe zigzag has its own width in ⑮ — it is not a level.")
 liveLineStyle = input.string("Dotted", "  Live level line style", options = ["Solid", "Dashed", "Dotted"], group = grpD,
      tooltip = "Line style for the live level lines. Dotted by default so they read as 'not confirmed yet,' distinct from the solid/dashed HH/LL/LH/HL break lines.")
 liveExtendBars = input.int(20, "  Extend live level right (bars)", minval = 0, maxval = 200, group = grpD,
@@ -883,8 +901,6 @@ colCont       = input.color(#38BDF8, "HH/LL colour", group = grpB,
      tooltip = "Colour for continuation lines and labels — HH (Higher High) on an up break, LL (Lower Low) on a down break. A break WITH the existing trend, confirming it's still intact.")
 contLineStyle = input.string("Solid", "HH/LL line style", options = ["Solid", "Dashed", "Dotted"], group = grpB,
      tooltip = "Line style for HH/LL levels. Solid reads as more definitive, which suits continuation signals.")
-contLineWidth = input.int(1, "HH/LL line width", minval = 1, maxval = 4, group = grpB,
-     tooltip = "Thickness of HH/LL lines. Raise if you're on a large monitor or find them hard to see.")
 contExtendBars = input.int(0, "Extend HH/LL lines right (bars)", minval = 0, maxval = 500, group = grpB,
      tooltip = "How many bars to draw the HH/LL line forward from the break bar.\n\n0 = line stops at the break bar (cleanest).\n20 = extends 20 bars forward.\n100 = extends 100 bars forward.\n\nUnlike 'extend.right' which runs forever, this keeps your chart clean on the right edge while still showing relevant levels ahead.")
 contVertical  = input.bool(false, "Vertical marker on HH/LL bar", group = grpB,
@@ -901,8 +917,6 @@ colRev       = input.color(#FB923C, "LH/HL colour", group = grpC,
      tooltip = "Colour for reversal lines and labels — LH (Lower High) breaking on an up move, HL (Higher Low) breaking on a down move. A break AGAINST the existing trend, signalling a possible reversal — this is the level that just failed.")
 revLineStyle = input.string("Dashed", "LH/HL line style", options = ["Solid", "Dashed", "Dotted"], group = grpC,
      tooltip = "Line style for LH/HL levels. Dashed distinguishes them from HH/LL at a glance.")
-revLineWidth = input.int(1, "LH/HL line width", minval = 1, maxval = 4, group = grpC,
-     tooltip = "Thickness of LH/HL lines.")
 revExtendBars = input.int(20, "Extend LH/HL lines right (bars)", minval = 0, maxval = 500, group = grpC,
      tooltip = "How many bars to draw the LH/HL line forward from the break bar.\n\n0 = line stops at the break bar.\n50 = extends 50 bars forward (default — enough to see retests without clutter).\n200 = extends 200 bars.\n\nLH/HL levels often act as support/resistance, so some extension is useful. But 'forever' clutters the chart. Adjust to your timeframe: lower on 1M, higher on 1H+.")
 revVertical  = input.bool(true, "Vertical marker on LH/HL bar", group = grpC,
@@ -1670,7 +1684,7 @@ if fireUp and not na(fireLevel)
 
     drawBreak(true, fireLevel, fireLevelBar, fireClearance, fireScore, txt, col,
          isRev ? revLineStyle : contLineStyle,
-         isRev ? revLineWidth : contLineWidth,
+         levelWidth,
          isRev ? effRevExtend : effContExtend,
          isRev ? revVertical : contVertical,
          isRev ? revVertStyle : contVertStyle,
@@ -1711,7 +1725,7 @@ if fireDown and not na(fireLevel)
 
     drawBreak(false, fireLevel, fireLevelBar, fireClearance, fireScore, txt, col,
          isRev ? revLineStyle : contLineStyle,
-         isRev ? revLineWidth : contLineWidth,
+         levelWidth,
          isRev ? effRevExtend : effContExtend,
          isRev ? revVertical : contVertical,
          isRev ? revVertStyle : contVertStyle,
@@ -1747,7 +1761,7 @@ if useInternal
         if showLabels and iDrawIt
             label iLbl = label.new(bar_index, high + atrVal * 0.3, iTxt,
                  style = label.style_label_down, color = color.new(color.black, 15),
-                 textcolor = color.new(iCol, intTransparency), size = size.tiny)
+                 textcolor = color.new(iCol, intTransparency), size = lblSize)
             array.push(intLabels, iLbl)
         if iDrawIt
             line iLn = line.new(iWatchHighBar, iWatchHigh, bar_index + effIntExtend, iWatchHigh,
@@ -1774,7 +1788,7 @@ if useInternal
         if showLabels and iDrawIt
             label iLbl = label.new(bar_index, low - atrVal * 0.3, iTxt,
                  style = label.style_label_up, color = color.new(color.black, 15),
-                 textcolor = color.new(iCol, intTransparency), size = size.tiny)
+                 textcolor = color.new(iCol, intTransparency), size = lblSize)
             array.push(intLabels, iLbl)
         if iDrawIt
             line iLn = line.new(iWatchLowBar, iWatchLow, bar_index + effIntExtend, iWatchLow,
@@ -1883,11 +1897,11 @@ if barstate.islast
                  border_style = styleOf(liveLineStyle), bgcolor = color.new(colCont, 88))
         else
             liveHiLine := line.new(watchHighBar, watchHigh, rightBar, watchHigh,
-                 color = color.new(colCont, 60), style = styleOf(liveLineStyle), width = liveLineWidth)
+                 color = color.new(colCont, 60), style = styleOf(liveLineStyle), width = levelWidth)
         if showLiveTags
             liveHiTag := label.new(rightBar, watchHigh + halfZone, liveTagText(watchHigh, whTests, distHiATR),
                  style = label.style_label_left, color = color.new(color.black, 20),
-                 textcolor = color.new(colCont, 0), size = size.tiny)
+                 textcolor = color.new(colCont, 0), size = lblSize)
 
     if showLiveLow and not na(watchLow)
         if halfZone > 0
@@ -1896,11 +1910,11 @@ if barstate.islast
                  border_style = styleOf(liveLineStyle), bgcolor = color.new(colRev, 88))
         else
             liveLoLine := line.new(watchLowBar, watchLow, rightBar, watchLow,
-                 color = color.new(colRev, 60), style = styleOf(liveLineStyle), width = liveLineWidth)
+                 color = color.new(colRev, 60), style = styleOf(liveLineStyle), width = levelWidth)
         if showLiveTags
             liveLoTag := label.new(rightBar, watchLow - halfZone, liveTagText(watchLow, wlTests, distLoATR),
                  style = label.style_label_left, color = color.new(color.black, 20),
-                 textcolor = color.new(colRev, 0), size = size.tiny)
+                 textcolor = color.new(colRev, 0), size = lblSize)
 
 // ---------------------------- Level map --------------------------------------
 // A registry of recent swing levels, of which only the few nearest to price
@@ -2027,7 +2041,7 @@ if barstate.islast and showMap and atrVal > 0
                 array.push(mapBoxes, bx)
             else
                 line ln2 = line.new(b, p, rightB, p,
-                     color = color.new(mc, transp), style = line.style_dotted, width = 1)
+                     color = color.new(mc, transp), style = line.style_dotted, width = levelWidth)
                 array.push(mapLines, ln2)
 
             if mapShowTags
@@ -2037,7 +2051,7 @@ if barstate.islast and showMap and atrVal > 0
                     mt := mt + "  ·  broken"
                 label mtg = label.new(rightB, p, mt, style = label.style_label_left,
                      color = color.new(color.black, 35), textcolor = color.new(mc, math.max(0, transp - 45)),
-                     size = size.tiny)
+                     size = lblSize)
                 array.push(mapTags, mtg)
 
 // ---------------------------- Structure chain --------------------------------
