@@ -5,7 +5,50 @@
 Both scripts version independently. The authoritative history lives in each
 `.pine` file's header comment; this page is the readable summary.
 
-**Current:** Structure Break Signals **v7.21** · Key Zone Map **v1.7**
+**Current:** Structure Break Signals **v7.22** · Key Zone Map **v1.7**
+
+---
+
+## v7.22 — draw the levels nearest price, not the newest ones
+
+**Detection is unchanged.** Every level still comes from the same pivot engine
+verified at 98%. What changes is *which* of the found levels get drawn.
+
+The rule was "the most recent N breaks". Breaks arrive about once every five
+days, so fifteen of them reach back roughly five weeks — and MNQ moved ~3,000
+points in that time. Recency and relevance are not the same thing on an
+instrument that trends.
+
+Measured on the live chart:
+
+| | v7.21 | v7.22 |
+|---|---|---|
+| Horizontal lines | 18 | **14** |
+| Within 5 ATR of price | 3 (16%) | **8 (57%)** |
+| Beyond 20 ATR | 10 | **3** |
+
+| Setting | Was | Now |
+|---|---|---|
+| `⑭ Show nearby levels` | off | **on** (3 each side, ≤ 6 ATR) |
+| `⑭ Label with price, tests, age` | on | **off** — plain lines |
+| `Max breaks to draw` | 15 | **5** |
+
+### Why there is no "importance" ranking
+
+Tested against 1,480 touches of 473 levels. **No attribute we can calculate
+predicts whether a level holds.** Hold rate sits at ~51% regardless of:
+
+| Attribute | Result |
+|---|---|
+| Times already tested | 51 / 51 / 53 / 50% across touches 1–4 |
+| Leg size that created it | 48 / 56 / 46 / 54% across quartiles |
+| Age of the level | 53 / 46 / 49 / 56% across quartiles |
+| Swing length used | 51–56% from `swingLen` 3 to 30 |
+
+So levels are selected by **proximity**, which is a fact about where they are —
+not by "importance", which would be an aesthetic choice dressed as significance.
+Power caveat: ~100 per group detects effects above roughly 10 points, so a small
+real effect could still hide.
 
 ---
 

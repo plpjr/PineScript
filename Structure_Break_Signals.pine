@@ -1,7 +1,26 @@
 // =============================================================================
-// Structure Break Signals  —  v7.21
+// Structure Break Signals  —  v7.22
 //
-// NEW IN v7.21 — PUT THE WEIGHT ON THE LIVE LEVELS:
+// NEW IN v7.22 — DRAW THE LEVELS NEAREST PRICE, NOT THE NEWEST ONES:
+//   Detection is unchanged. Every level still comes from the same pivot
+//   engine verified at 98%. What changes is WHICH of the found levels get
+//   drawn.
+//
+//   The rule was "the most recent N breaks". Breaks arrive about once every
+//   five days, so fifteen of them reach back roughly five weeks — and MNQ
+//   moved ~3,000 points in that time. Measured on the live chart: of the 18
+//   horizontal lines drawn, only THREE sat within 5 ATR of price, ten were
+//   beyond 20 ATR, and one was 93 ATR away. Recency and relevance are not
+//   the same thing on an instrument that trends.
+//
+//   v7.21 cut 50 -> 15 by COUNT, which trims by age indiscriminately and did
+//   nothing for this. The three usable levels survived by luck.
+//
+//     ⑭ Show nearby levels        off -> ON   (nearest 3 each side, ≤ 6 ATR)
+//     ⑭ Label with price/tests    on  -> off  (plain lines, no text)
+//     Max breaks to draw          15  -> 5
+//
+// SUPERSEDED IN v7.21 — PUT THE WEIGHT ON THE LIVE LEVELS:
 //   The hierarchy was inverted. The two levels still in play were drawn
 //   dotted at width 1, while the thirty-two already resolved were solid or
 //   dashed at width 2 — so the chart shouted about history and whispered
@@ -471,7 +490,7 @@
 // (swing 50 -> 100 bars, volume 200), 500 leaves comfortable headroom. The
 // previous value of 100 was below what the inputs already permitted and threw
 // "requested historical offset is beyond the historical buffer's limit".
-indicator("Structure Break Signals v7.21", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500)
+indicator("Structure Break Signals v7.22", overlay = true, max_bars_back = 500, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500)
 
 // =============================================================================
 // SENSITIVITY MASTER CONTROLS
@@ -751,7 +770,7 @@ showTable  = input.bool(true, "Status table", group = grpD,
      tooltip = "Corner panel showing current bias, the exact watched levels, bars since the last break, ATR, and active preset.\n\nThe numeric levels are the useful part: copy them straight into your trade journal rather than reading them off the chart.")
 tablePosition = input.string("Top Right", "  Table position", options = ["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group = grpD,
      tooltip = "Corner of the chart the status table is anchored to. Move it if it overlaps another indicator's panel or the price scale.")
-maxHistory = input.int(15, "Max breaks to draw (0 = unlimited)", minval = 0, maxval = 200, group = grpD,
+maxHistory = input.int(5, "Max breaks to draw (0 = unlimited)", minval = 0, maxval = 200, group = grpD,
      tooltip = "Limits how many historical HH/LL/LH/HL lines and labels remain on chart. Oldest auto-delete when exceeded.\n\n0 = no limit (may hit TradingView's 500 cap on busy charts).\n50 = keeps chart clean on intraday timeframes.\n\nLive levels and pivot markers are not counted.")
 
 showUnconfirmed = input.bool(true, "Show unconfirmed break preview", group = grpD,
@@ -799,7 +818,7 @@ retestCooldown = input.int(10, "  Bars before a level can retest again", minval 
 // never the problem; this is purely showing more of what is already found.
 grpMap = "⑭ Level map"
 
-showMap = input.bool(false, "Show nearby levels", group = grpMap,
+showMap = input.bool(true, "Show nearby levels", group = grpMap,
      tooltip = "Draws the swing levels closest to current price, above and below, in addition to the two live watch levels.\n\nThis is the fix for 'nothing is marked anywhere near price', which measured at about a third of the session on MNQ 15M.")
 mapCount = input.int(3, "  Levels each side", minval = 1, maxval = 8, group = grpMap,
      tooltip = "How many levels to draw above and below price.\n\n3 each side is usually enough to see the immediate playing field without turning the chart into a ladder. TradingView caps a script at 100 boxes total, so this is deliberately bounded.")
@@ -807,7 +826,7 @@ mapMaxDist = input.float(6.0, "  Ignore levels further than (× ATR)", minval = 
      tooltip = "Levels beyond this distance are not drawn even if they are among the nearest. Stops the map reaching for irrelevant structure when price is in open space.")
 mapZones = input.bool(false, "  Draw as zones", group = grpMap,
      tooltip = "ON = each mapped level is a band of the same half-width as the live level zones. OFF = single lines, which is lighter on the chart.")
-mapShowTags = input.bool(true, "  Label with price, tests and age", group = grpMap,
+mapShowTags = input.bool(false, "  Label with price, tests and age", group = grpMap,
      tooltip = "Small right-edge label on each mapped level: price, how many times it has been tested, and how long ago it formed.")
 mapStrength = input.bool(true, "  Fade by strength", group = grpMap,
      tooltip = "ON = levels that have been tested more, and that have survived longer, are drawn more solidly. Untested recent levels appear faint.\n\nThis is the quickest way to see which of the nearby levels actually matters, without reading any numbers.")
