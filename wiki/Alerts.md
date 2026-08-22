@@ -23,18 +23,18 @@ hold.
 
 | Alert | Fires when |
 |---|---|
-| **Pivot-high level closed above** | Any upward break completes its configured confirmation delay. |
-| **Pivot-low level closed below** | Any downward break completes its configured confirmation delay. |
+| **Key level closed above** | A close above the frozen `Above 1` cluster completes its configured confirmation delay. |
+| **Key level closed below** | A close below the frozen `Below 1` cluster completes its configured confirmation delay. |
 | **Return to upward-broken level** | Price first moved above the return band, then re-entered it and closed at or above the level. |
 | **Return to downward-broken level** | Mirrored: price moved below, re-entered, and closed at or below the level. |
 
-The generic break alerts cover every relationship (`HH`, `LH`, `LL`, `HL`,
-`H`, `L`, `EH`, and `EL`). The exact relationship remains available in the
-Data Window export.
+The break alert records the frozen level and independent reference-family
+count. v9.0 intentionally has no pivot-relationship classification or
+relationship export.
 
 The script also supplies dynamic, transition-only notices for:
 
-- first approach to the active high or low band;
+- first approach to the current Above 1 or Below 1 band;
 - upward/downward candidate start or cancellation;
 - one configured confirmation bar remaining;
 - an upward/downward broken level becoming armed after price moves away; and
@@ -74,8 +74,8 @@ enabled dynamic category.
 The built-in messages include ticker and confirmation-bar close:
 
 ```
-A confirmed close remained above an active pivot-high level on {{ticker}} @ {{close}}
-Price returned to a previously upward-broken pivot level and closed at or above it on {{ticker}} @ {{close}}
+A completed close confirmed above a frozen key level on {{ticker}} @ {{close}}
+Price returned to a previously upward-broken key level and closed at or above it on {{ticker}} @ {{close}}
 ```
 
 You can overwrite the message in the alert dialog and use any TradingView
@@ -87,13 +87,14 @@ The script exposes its break data as named plots, so alert messages can
 interpolate them directly:
 
 ```
-relation {{plot("Break relationship code")}} on {{ticker}} @ {{close}} — level {{plot("Break level")}}, initial {{plot("Initial-cross clearance · ATR")}} ATR, confirmed {{plot("Confirmation clearance · ATR")}} ATR
+direction {{plot("Break direction")}} on {{ticker}} @ {{close}} — level {{plot("Break level")}}, initial {{plot("Initial-cross clearance · ATR")}} ATR, confirmed {{plot("Confirmation clearance · ATR")}} ATR
 ```
 
-Relationship codes are `1`=HH, `2`=LL, `3`=LH, `4`=HL, `5`=first H,
-`6`=first L, `7`=equal high, and `8`=equal low. Candidate and confirmation
-measurements, session flags, return events, and active-level facts are also
-available as named plots. See [Export fields](Structure-Break-Signals.md#export-fields).
+Direction is `1` for above and `-1` for below. The four former relationship and
+active-boundary slots now expose Key level above 1/below 1/above 2/below 2.
+Candidate and confirmation measurements, family count, session flags, returns,
+and excursion facts are also available as named plots. See [Export
+fields](Structure-Break-Signals.md#export-fields).
 
 ---
 
@@ -152,8 +153,8 @@ pair is the core loop of the zone workflow.
 it's the one the visual-only design made easiest to miss.
 
 **Combining with the companion script:** compare a zone lifecycle event with a
-confirmed `HH`/`LL`/`LH`/`HL` event and its measured context. Agreement is a
-fact worth recording, not proof of a higher-probability trade. See [Playbooks →
+confirmed key-level break and its measured context. Agreement is a fact worth
+recording, not proof of a higher-probability trade. See [Playbooks →
 Using both scripts together](Playbooks.md#using-both-scripts-together).
 
 ---

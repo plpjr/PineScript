@@ -5,7 +5,38 @@
 Both scripts version independently. The authoritative history lives in each
 `.pine` file's header comment; this page is the readable summary.
 
-**Current:** Structure Break Signals **v8.4** · Key Zone Map **v1.7**
+**Current:** Structure Break Signals **v9.0** · Key Zone Map **v1.7** · Opening
+Range Breakout Toolkit **v1.0**
+
+---
+
+## Opening Range Breakout Toolkit v1.0
+
+- Added a separate facts-only daily ORB indicator with exchange-time session
+  and opening-duration inputs.
+- Added developing/completed OR High, OR Low, and optional midpoint lines;
+  requested/effective duration reporting prevents coarse chart bars from being
+  presented as exact lower-timeframe data.
+- Added frozen completed-close candidates, optional confirmation delay,
+  cancellation, one confirmation per side per session, and factual above/below
+  alerts.
+- Added armed broken-boundary returns, current-session extension and back-inside
+  facts, and bounded completed-session observations.
+- Added Compact, Standard, and Research dashboards. Historical proportions are
+  withheld until their minimum sample and are explicitly in-sample rather than
+  predictive.
+
+---
+
+## Structure Break Signals v9.0 — key horizontal levels
+
+- Replaced pivot-relationship presentation with ranked clusters from confirmed
+  pivots and completed prior-session, opening-range, and overnight facts.
+- Added up to three levels per side, with two per side by default. Reference
+  count controls only line width/brightness and is not a strength claim.
+- Break candidates now freeze the displayed cluster and consume its exact
+  source records on confirmation. HH/LH/HL/LL calculations and exports were
+  removed in this intentional breaking release.
 
 ---
 

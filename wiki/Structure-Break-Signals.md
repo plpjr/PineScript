@@ -2,254 +2,207 @@
 
 [← Home](Home.md)
 
-Structure Break Signals v8.4 is a guided facts-only reader for confirmed pivot
-structure. It reports calculations from loaded chart bars and active settings.
-It does not estimate probability, rank trade quality, recommend a direction,
-or place orders.
+Structure Break Signals v9.0 is a facts-only key-level and break-event reader.
+It calculates from the loaded chart bars and active settings. It does not call
+a level support or resistance, predict whether it will hold, score a trade, or
+recommend an entry, exit, target, or direction.
 
 ## What appears on the chart
 
-- Confirmed pivot highs and lows: `H`/`L` for the first observation,
-  `HH`/`LH`/`LL`/`HL` relative to the prior confirmed same-side pivot, and
-  `EH`/`EL` for exactly equal pivots.
-- Active unbroken high and low with exact price, current ATR distance, and the
-  number of separate entries into the selected ATR band (`approaches`).
-- A measured evidence label on each active high and low: `Stronger measured`,
-  `Weaker measured`, `No measured separation`, or `Evidence building`.
-- Confirmed break lines after the close remains beyond the pivot for the
-  configured delay. Optional labels separate initial-cross clearance from
-  confirmation-bar clearance.
-- Return markers for previously broken levels. A return requires price to move
-  away first, enter the current ATR band on a new transition, and close on the
-  broken side of the level.
-- A selectable Compact, Standard, or Research dashboard. All three lead with
-  the current factual state; Research restores the full facts and evidence
-  panels.
+The default chart is a four-line map:
 
-## Quick setup and dashboard
+- `Above 1` and `Above 2` are the two selected clusters from upper reference
+  sources.
+- `Below 1` and `Below 2` are the two selected clusters from lower reference
+  sources.
+- Aqua identifies above levels and orange identifies below levels. One family
+  is thinner and more transparent; each additional independent family makes
+  the line thicker and brighter, capped at width 4.
+- A right-edge label contains only side/rank, exact price, and independent
+  reference count: for example, `Above 1 · 29488.50 · 3 refs`.
 
-`Structure profile` changes only the structural event definition. It never
-changes ATR length, evidence horizons, return rules, or session calculations.
+The line tooltip lists the source families, pivot-observation count, cluster
+mean, current ATR tolerance, current ATR distance, oldest/newest constituent
+age, and the completed reaction evidence for the monitored level. Historical
+break lines are optional and default to zero so they do not clutter the live
+map. Pivot labels and HH/LH/HL/LL text no longer exist.
 
-| Profile | Effective pivot / clearance / confirmation |
+## How a key level is calculated
+
+The engine keeps factual source records from:
+
+1. confirmed chart-timeframe pivot highs and lows;
+2. the prior completed selected-session high and low;
+3. the completed opening-range high and low; and
+4. the completed overnight high and low, when overnight bars are loaded.
+
+A pivot uses `ta.pivothigh(high, N, N)` or `ta.pivotlow(low, N, N)`. It is not
+known until `N` later bars complete. Pivot records remain available for 500
+bars by default, and the complete source registry is capped at 200 records.
+Session-derived records are replaced when their corresponding period completes
+again. A source is consumed after a completed close clears it by the effective
+ATR clearance.
+
+Nearby repeated pivots contribute to one `Pivot` family while their observation
+count remains visible in the tooltip. Sources within `Cluster tolerance`
+(0.20 current ATR by default) are consolidated. The cluster price is the
+equal-weight mean of the participating family prices, so repeated pivots cannot
+outvote Prior Session, Opening Range, or Overnight. The displayed `refs` number
+is the count of unique families, from one to four.
+
+Clusters beyond `Maximum distance` (10 current ATR by default) or below the
+configured minimum family count are excluded. The engine ranks the remainder
+by:
+
+1. more unique families;
+2. smaller current distance from price; and
+3. newest constituent as the final tie-break.
+
+It displays the selected number per side, then orders that selected subset by
+distance so `Above 1` and `Below 1` are the nearest displayed boundaries. The
+reference count is factual agreement only. It is not a claim that the level is
+stronger, more likely to hold, or a target.
+
+## Break candidates and confirmation
+
+The nearest displayed level becomes the monitored boundary. An above candidate
+begins when a completed close exceeds `Above 1` by the effective ATR clearance;
+the below rule is mirrored. At that instant the script freezes the level price,
+family count, source IDs, ATR, candle range/body, volume multiple, session
+state, and initial clearance.
+
+The visible line stays pinned to the frozen price while confirmation is being
+evaluated. A close back across the level cancels the candidate and releases the
+pin. A completed confirmation consumes the exact constituent records, creates
+the bounded broken-level return record, and lets the engine select the next
+qualified cluster. Labels and alerts use factual wording such as `Closed above
+key level · 3 refs`.
+
+## Span, location, and state
+
+The dashboard uses `Above 1` and `Below 1` for immediate geometry:
+
+- **Span:** `(Above 1 - Below 1) / current ATR`.
+- **Location:** `(close - Below 1) / (Above 1 - Below 1) × 100`.
+- **Nearest boundary:** the smaller absolute current ATR distance.
+- **Compressed / expanded:** the raw price span compared with the prior
+  complete selected-pair generation. It updates only when either selected
+  cluster identity changes.
+
+The current state says building, monitoring, candidate, canceled, or confirmed.
+Missing facts use explicit text such as `No second qualified cluster`,
+`Evidence building: 8 of 20`, or `Overnight unavailable: no overnight bars
+loaded`.
+
+## Reaction evidence
+
+Each unique cluster generation is identified by its sorted constituent source
+IDs. Its first approach can begin one reaction observation; the approach candle
+is excluded. The observation freezes side, family count, session state, ATR
+regime, cluster price, and ATR.
+
+The configured race measures whether price first reaches the reaction distance
+away from the level or a completed close reaches the close-through distance.
+Both thresholds in one OHLC candle are ambiguous because their intrabar order
+cannot be proved. The dashboard can state `Stronger measured`, `Weaker
+measured`, `No measured separation`, or `Evidence building` against ordinary
+bars from the same loaded chart.
+
+This is an in-sample comparison, not predictive validation and not the
+project's separate paired shifted-price placebo test. Reaction evidence never
+selects a line and never changes line thickness or brightness.
+
+## Post-break evidence
+
+Each confirmed break freezes its direction, family count, session and ATR
+regimes, initial-close measurements, confirmation delay, anchor, level, and
+ATR. At the configured 5/10/20-bar horizons it records MFE, MAE, final signed
+displacement, the first ±ATR threshold reached, first eligible broken-level
+return age, and whether a later close crossed back through the level.
+
+Evidence cohorts are `Side only`, `Side + family count`, `Family count +
+session`, `Family count + session + ATR`, and `Full context`. Ordinary baseline
+bars can match session and ATR regime but do not possess a key-level family
+count, clearance, volume-at-cross, or confirmation delay. The dashboard shows
+sample counts immediately and withholds comparisons until the configured
+minimum is reached.
+
+## Dashboard and five-minute workflow
+
+1. Leave `Structure profile = Custom` to preserve the numeric inputs, or choose
+   Standard for the documented `pivot 5 / clearance 0.10 ATR / confirmation 1`
+   definition.
+2. Read top to bottom: state → Above/Below levels → nearest boundary → span and
+   location → pending/latest break → reaction and post-break evidence.
+3. Enable session context only when it is relevant, and enter all sessions in
+   the symbol's exchange time.
+4. Use candidate notices for awareness and named alert conditions for completed
+   events.
+5. Wait for each evidence row to say `Ready` before interpreting its historical
+   comparison.
+
+`Compact` shows the immediate map and readiness. `Standard` adds source and
+evidence summaries. `Research` preserves every non-relationship fact and shows
+the separate detailed evidence table.
+
+## Inputs
+
+| Group | Controls |
 |---|---|
-| Fast | `3 / 0.05 ATR / 0` |
-| Standard | `5 / 0.10 ATR / 1` |
-| Broad | `10 / 0.10 ATR / 1` |
-| Custom | The three numeric Structure inputs |
+| Quick setup | Structure profile, dashboard detail, optional session rows |
+| Structure | Pivot confirmation, ATR lookback, initial clearance, confirmation delay |
+| Session facts | Display filter, selected session, opening-range minutes, overnight session |
+| Display | Break drawings, live map/labels, base line width, dashboard position |
+| Key levels | 1–3 levels per side, tolerance, maximum distance, pivot age, minimum families |
+| Broken-level returns | Return band, age window, cooldown, bounded record count |
+| Event evidence | Horizons, first-hit threshold, family-count cohorts, sample bounds |
+| Advance notices | Dynamic-alert master switch and detail level |
+| Key-level evidence | First-approach race, sample minimum, bounded history |
 
-Custom is the default to preserve existing saved behavior. The dashboard
-always prints the effective values being used.
+## Alerts
 
-- **Compact** shows setup, current state, active boundaries, nearest boundary,
-  structure span/location, latest confirmation, and evidence readiness.
-- **Standard** adds immutable event measurements, ATR/volume context, optional
-  session rows, and long-horizon break/baseline summaries.
-- **Research** keeps the complete v8.2 fact set and enables the separate
-  nine-row cohort table.
-
-`Show session context in dashboard` controls the optional Standard-dashboard
-rows. Research always shows the complete session facts. Calculations and Data
-Window exports continue when the switch is off.
-
-## How the main calculations work
-
-### Pivots and relationships
-
-`ta.pivothigh(high, N, N)` and `ta.pivotlow(low, N, N)` require `N` bars on
-both sides of the pivot. The label therefore appears `N` bars after the actual
-pivot. That delay prevents the script from claiming an unconfirmed swing.
-Relationships use permanent prior-pivot history even after an active level has
-broken, so clearing a break level cannot corrupt the next `HH/LH/LL/HL` label.
-
-### Break candidates and confirmations
-
-An upward candidate begins when a completed close is more than the configured
-ATR clearance above the active high; downward is mirrored. The script freezes
-the candidate bar, level, ATR, clearance, candle range/body, volume multiple,
-and session state at that instant. Later bars cannot rewrite them. A confirmed
-event occurs only after the configured number of additional completed closes
-remain beyond that same frozen level.
-
-### Active structural context
-
-When a newly confirmed pivot creates a complete active high/low pair, the
-script stores a structural snapshot:
-
-- **Span:** `abs(active high - active low) / current ATR`.
-- **Location:** `(close - lower boundary) / span × 100`.
-- **Age:** bars since each boundary's source pivot.
-- **Nearest boundary:** the smaller absolute ATR distance from the close.
-- **Compressed/expanded:** the new pair's raw price width compared with the
-  previous complete structural snapshot. It updates on a new pivot, not on
-  every candle.
-
-These describe the current chart geometry; they do not say that compression
-must expand or that a nearby boundary must break.
-
-### Active-level stronger / weaker evidence
-
-The script does not assign points for age, touches, swing size, or appearance.
-Those would be assumptions. Instead, it measures the first completed approach
-to every confirmed structural level and compares the completed history with
-ordinary starting bars from the same loaded chart.
-
-- For a **high**, reaction is reached when price trades the configured ATR
-  distance below the level before a completed close clears the configured
-  close-through distance above it.
-- For a **low**, the calculation is mirrored.
-- The approach-bar ATR is frozen. The approach candle itself is excluded.
-- Both thresholds on one candle is ambiguous because OHLC bars cannot prove
-  order. Neither threshold by the reaction horizon is unresolved. Both remain
-  in the denominator as non-reactions, which makes the rate conservative.
-- Only the first approach to a level creates an observation, preventing repeat
-  entries at one level from dominating the sample.
-
-At pivot confirmation, the indicator also counts same-side references within
-the configured ATR tolerance: prior-session high/low, opening-range high/low,
-and overnight high/low. Missing references are not counted. The comparison
-first tries to match side + reference count + selected-session state + ATR
-regime. If that cohort is too small, it transparently falls back to reference
-count and then level side. The tooltip names the cohort actually used and the
-specific references overlapping the current level.
-
-`Stronger measured` is shown only when the level reaction rate minus the
-ordinary-bar rate has a 95% normal-approximation interval entirely above zero.
-`Weaker measured` requires the interval entirely below zero. If it overlaps
-zero, the factual result is `No measured separation`. Both sample sets must
-meet `Minimum level samples`; otherwise the result is `Evidence building`.
-
-These labels mean stronger or weaker **against the displayed chart-history
-baseline under this exact definition**. They are in-sample descriptions, not
-probabilities that the active level will hold. The ordinary-bar comparison is
-also not the same as the separately researched shifted-price placebo; use the
-label to compare defined observations, not as proof of a tradable edge.
-
-### Post-break evidence
-
-Each non-dual confirmed break starts an observation at its confirmation close.
-The confirmation-bar ATR is frozen as the unit of measurement. At the selected
-short, medium, and long horizons (5/10/20 bars by default), the script records:
-
-- maximum favorable excursion (MFE), in frozen ATR;
-- maximum adverse excursion (MAE), in frozen ATR;
-- close displacement at the horizon, signed in the break direction;
-- which ±ATR threshold was reached first;
-- first eligible broken-level return age; and
-- whether any later close crossed back through the broken level.
-
-If both thresholds occur inside one OHLC candle, the outcome is `X` (same-bar
-ambiguous), because bar data cannot prove the intrabar order. `N` means neither
-threshold was reached.
-
-The baseline uses actual completed non-break starting bars and the same forward
-horizons. Downward events mirror the baseline direction. Depending on the
-selected cohort, baseline samples can match direction, selected-session state,
-and ATR regime. They cannot match pivot relationship, break clearance,
-volume-at-cross, or confirmation delay because a non-break bar has none of
-those facts. The table says `base ≤D/S/ATR` to make that limit visible.
-
-All table values are historical medians or proportions. The table displays
-sample counts immediately but withholds statistics until `Minimum cohort
-samples` is reached. A break/baseline difference is not labelled an edge.
-
-## Session and range context
-
-Every loaded bar contributes to pivots, candidates, confirmations, active
-levels, evidence, and broken-level returns. `Display events only inside
-session` filters drawings and alerts by the event's confirmation bar only; it
-does not remove the event from calculations or exports.
-
-The facts table reports:
-
-- elapsed minutes from the selected-session start using completed chart bars;
-- current session range in ATR and close location inside it;
-- ATR distances to the current session high and low;
-- whether the close is above, below, or inside the prior completed session;
-- opening-range high/low from bars whose opening time is within the configured
-  opening minutes; and
-- a separately calculated overnight high/low and current relation.
-
-Overnight values remain blank when overnight bars are absent. Current/prior
-session rollover also works on regular-session-only charts by detecting the
-trading-day change.
-
-## Advance notices
-
-Transition alerts are available for the first entry into an active boundary's
-band, break-candidate start/cancellation, one configured confirmation bar
-remaining, a broken level moving outside its return band, and a new re-entry
-into that band. They fire on completed bars and respect the display-session
-filter. In TradingView, create one alert using **Any alert() function call**.
-
-These are preparation notices about state changes—not early break signals.
-
-`Advance notice detail` determines which dynamic messages are sent:
-
-- **Confirmed only:** no dynamic `alert()` calls. The four named confirmed
-  break/return conditions remain available.
-- **Candidates:** candidate start, cancellation, and one-bar-remaining notices.
-- **All transitions:** Candidates plus active-boundary approaches and
-  broken-level arm/re-entry preparation.
-
-The existing `Enable transition alerts` switch remains the master control.
+Named conditions cover confirmed above/below breaks and returns to previously
+broken levels. `Any alert() function call` covers the enabled candidate and
+transition notices. All use completed bars and respect the display-session
+filter. See [Alerts](Alerts.md).
 
 ## Compact glossary
 
 | Term | Plain meaning |
 |---|---|
-| ATR | Average true range over the configured lookback; used to express distances in a scale that travels across markets. |
-| Clearance | How far a completed close is beyond the frozen pivot level, divided by ATR. |
-| Approach | One new transition into the ATR band around an active boundary. It does not mean the level held. |
-| Structure span | Distance between the active high and low, divided by current ATR. |
-| Structure location | Close position from the lower boundary (`0%`) to upper boundary (`100%`). Values outside 0–100 mean the close is outside the pair. |
-| MFE / MAE | Maximum favorable/adverse excursion observed after a confirmed break, measured in the event's frozen ATR. |
-| Baseline | Actual ordinary non-break starting bars measured over the same future horizons. |
-| Stronger / weaker measured | The completed level-reaction rate is statistically above/below its ordinary-bar baseline under the configured first-hit definition. |
-| F / A / X / N | Favorable first / adverse first / both in one bar with unknown order / neither threshold. |
+| ATR | Average true range; the current unit used to compare distances across symbols and timeframes. |
+| Clearance | Completed-close distance beyond a frozen key level, divided by ATR. |
+| Reference family | One independent calculation type: Pivot, Prior Session, Opening Range, or Overnight. |
+| Approach | One new entry into the ATR band around a level; it does not mean the level held. |
+| Span / location | Distance between Above 1 and Below 1 in ATR / the close's percentage position inside it. |
+| MFE / MAE | Maximum favorable/adverse excursion observed after a confirmed break in frozen ATR. |
+| Baseline | Ordinary non-break chart bars measured over the same future horizons. |
+| F / A / X / N | Favorable first / adverse first / both in one candle / neither. |
 
 ## Example chart reading
 
-Suppose the Standard dashboard shows:
-
-> Current structure: Up candidate · 0/1 bars
+> Current state: Above candidate · 0/1 bars
 >
-> Active high: HH · 20,150 · 0.08 ATR away · age 14 · 2 approaches
+> Above 1: 29,488.50 · 3 refs · 0.08 ATR
 >
-> Structure: 3.20 ATR wide · close at 92% · compressed
+> Span/location: 3.20 ATR · close at 92% · compressed
 >
 > Historical evidence: Ready · 24 breaks / 612 ordinary bars
 
-This proves only that a completed close created an upward candidate against the
-shown active high, price is near the upper boundary of the current pair, the
-pair is narrower than the prior snapshot, and enough matching historical
-events exist to display their summaries. It does not prove that the candidate
-will confirm or that price should be bought or sold.
-
-## Settings summary
-
-| Group | Controls |
-|---|---|
-| Quick setup | Structure profile, dashboard detail, and optional session rows |
-| Structure | Pivot confirmation, ATR lookback, initial clearance, and confirmation delay |
-| Session facts | Display filter, selected session, opening-range minutes, and overnight session |
-| Display | Pivot/break history bounds, live levels/tags, line width, and facts table |
-| Broken-level returns | ATR tolerance, eligible age, expiration, repeat cooldown, and record cap |
-| Event evidence | Horizons, threshold, cohort, minimum sample count, history caps, and table |
-| Advance notices | Dynamic transition master switch and detail level |
-| Active-level evidence | Reaction horizon, reaction and close-through distances, reference tolerance, minimum samples, and history cap |
+This proves that a completed close created a candidate at the shown frozen
+cluster, three independent reference families contributed to that cluster, the
+close is near the upper edge of the current pair, the pair is narrower than the
+prior generation, and the historical cohort has reached its minimum sample.
+It does not prove that the candidate will confirm or that the level will hold.
 
 ## Export fields
 
-The Data Window exports event direction/relationship, source and candidate
-bars, immutable initial-cross facts, confirmation facts, return events and
-record lifecycle counts, ATR/volume, active-structure metrics, session/range
-context, resolved post-break measurements, and packed advance-event codes.
+The four former relationship/active-boundary slots now export `Key level above
+1`, `Key level below 1`, `Key level above 2`, and `Key level below 2`.
+Direction, candidate source bar, immutable initial-close facts, confirmation
+facts, family count, returns, excursions, session/range values, and packed
+advance-event codes remain available. Relationship codes and HH/LH/HL/LL
+exports are intentionally removed in this breaking v9.0 release.
 
-Advance codes are `1/-1` active high/low approach, `2/-2` candidate start,
-`3/-3` cancellation, `4/-4` one bar remaining, `5/-5` broken level armed, and
-`6/-6` broken-level band re-entry. Separate event-count output reports how many
-transition types occurred on the same bar.
-
-The script intentionally excludes scores, probabilities, entries, stops,
-targets, and strategy orders.
+The script intentionally contains no strategy, orders, probability, score,
+entry, stop, or target logic.

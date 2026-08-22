@@ -12,14 +12,15 @@ assumed rather than measured, it says so.
 
 ## 1. What this is
 
-Two TradingView Pine v5 indicators for reporting calculated market structure
-and price-region information. The repository intentionally contains no trading
-strategy or order-generation code.
+Three TradingView Pine v5 indicators for reporting calculated market structure,
+price-region, and daily opening-range information. The repository intentionally
+contains no trading strategy or order-generation code.
 
 | File | Purpose | Version | Lines | Inputs |
 |---|---|---|---|---|
-| `Structure_Break_Signals.pine` | Guided facts-only pivots, breaks, active structure, sessions, level/event evidence, and exports | **v8.4** | 1,603 | **46** |
+| `Structure_Break_Signals.pine` | Ranked factual key-level clusters, breaks, sessions, level/event evidence, and exports | **v9.0** | 2,008 | **48** |
 | `Key_Zone_Map.pine` | Zones: swing zones, order blocks, FVGs, liquidity pools, confluence | **v1.7** | 1,158 | 45 |
+| `Opening_Range_Breakout_Toolkit.pine` | Daily opening-range boundaries, completed-close events, returns, and session history | **v1.0** | 612 | **21** |
 | `tools/tv_paste.js` | Pastes a `.pine` into TradingView over CDP | | 86 | |
 | `tools/tv_export_bars.js` | Exports chart bars to JSON over CDP | | 61 | |
 | `tools/level_quality.js` | In-page level-quality harness | | 106 | |
@@ -33,13 +34,19 @@ working documents with fuller history than this brief.
   what must break next?*
 - **Key Zone Map — regions in price.** *Where are the areas of interest, and
   how much independent agreement does each have?*
+- **Opening Range Breakout Toolkit — one configured daily session.** *What did
+  the opening range measure, and what completed-close events occurred at it?*
 
 Test when unsure: a break happens at an instant → Structure Break Signals. A
 zone persists across bars → Key Zone Map.
 
 Persistent price regions remain Key Zone Map's responsibility. Structure Break
-Signals contains only event-time structure, active pivot levels, and bounded
+Signals contains event-time structure, ranked key-level clusters, and bounded
 records of previously broken levels for objective return detection.
+
+The ORB toolkit is intentionally separate. It resets around one explicit
+exchange-time session, uses chart-timeframe bars only, and treats historical
+session outcomes as in-sample descriptions rather than predictive validation.
 
 ---
 

@@ -1,7 +1,15 @@
 //@version=5
-// Structure Break Signals — v8.4
+// Structure Break Signals — v9.0
 // Facts-only market-structure reader. Every displayed value is derived from
 // chart bars and the active settings; no score, probability, or trade advice.
+//
+// v9.0 key horizontal levels:
+//   • Four ranked horizontal levels are calculated from confirmed pivots,
+//     prior-session, completed opening-range, and completed overnight facts.
+//   • Nearby sources are clustered; independent reference-family count is
+//     displayed as agreement, never as a prediction of a reaction.
+//   • Break candidates use the same frozen cluster prices drawn on the chart.
+//   • Pivot-relationship terminology and exports have been removed.
 //
 // v8.4 measured level evidence:
 //   • Active highs and lows are classified from completed first-approach
@@ -25,7 +33,6 @@
 //     and a separately calculated overnight range.
 //
 // v8.1 reliability pass:
-//   • Pivot relationships are retained independently from active break levels.
 //   • Break facts are frozen when the candidate first crosses its level, then
 //     reported separately from facts measured on the confirmation bar.
 //   • The session switch affects drawings and alerts only. Detection continues
@@ -34,7 +41,7 @@
 //   • Return markers now refer to previously broken levels. Each tracked level
 //     must move away, re-enter its ATR band, and close on the broken side.
 //   • Pivot labels, break labels, lines, and tracked broken levels are bounded.
-indicator("Structure Break Signals v8.4", overlay = true, max_bars_back = 5000, max_lines_count = 500, max_labels_count = 500)
+indicator("Structure Break Signals v9.0", overlay = true, max_bars_back = 5000, max_lines_count = 500, max_labels_count = 500)
 
 // ───────────────────────────── Inputs ──────────────────────────────────────
 grpQuick = "⓪ Quick setup"
@@ -65,20 +72,27 @@ overnightSession = input.session("1800-0930", "Overnight session · exchange tim
      tooltip = "Separately tracks overnight O/H/L when those bars exist in the chart dataset. No value is invented on regular-session-only charts.")
 
 grpDisplay = "③ Display"
-showSwingLabels = input.bool(true, "Label confirmed pivots", group = grpDisplay)
-pivotHistoryCount = input.int(100, "Pivot labels to retain", minval = 0, maxval = 250, group = grpDisplay,
-     tooltip = "Limits drawings only. Pivot calculations continue across all loaded bars.")
 showBreakLabels = input.bool(false, "Label confirmed breaks", group = grpDisplay)
-showLiveLevels = input.bool(true, "Show active high and low", group = grpDisplay)
-showLevelTags = input.bool(true, "Show active-level facts", group = grpDisplay)
-historyCount = input.int(12, "Confirmed break drawings to retain", minval = 0, maxval = 100, group = grpDisplay,
-     tooltip = "Limits historical break lines and labels only. Detection and exported events are unchanged.")
+showLiveLevels = input.bool(true, "Show key horizontal levels", group = grpDisplay)
+showLevelTags = input.bool(true, "Show key-level labels", group = grpDisplay)
+historyCount = input.int(0, "Confirmed break drawings to retain", minval = 0, maxval = 100, group = grpDisplay,
+     tooltip = "Zero keeps the default chart to the live key-level map. Raise this to retain bounded historical break lines; detection and exported events are unchanged.")
 lineWidth = input.int(1, "Level line width", minval = 1, maxval = 4, group = grpDisplay)
 showTable = input.bool(true, "Chart facts table", group = grpDisplay,
      tooltip = "Shows the Compact, Standard, or Research dashboard selected in Quick setup.")
 tablePosition = input.string("Top Right", "Table position", options = ["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group = grpDisplay)
 
-grpReturns = "④ Broken-level returns"
+grpKeyLevels = "④ Key levels"
+levelsPerSide = input.int(2, "Levels per side", minval = 1, maxval = 3, group = grpKeyLevels,
+     tooltip = "Shows this many ranked clusters above and below. Ranking uses unique reference-family count, then distance, then newest constituent.")
+keyClusterTolerance = input.float(0.20, "Cluster tolerance · ATR", minval = 0.01, maxval = 2.0, step = 0.05, group = grpKeyLevels,
+     tooltip = "Confirmed sources within this current-ATR distance are combined. The line price is the equal-weight mean of the participating family prices.")
+keyMaxDistance = input.float(10.0, "Maximum distance · ATR", minval = 0.5, maxval = 100.0, step = 0.5, group = grpKeyLevels)
+keyMaxPivotAge = input.int(500, "Maximum pivot age · bars", minval = 20, maxval = 5000, group = grpKeyLevels)
+keyMinFamilies = input.int(1, "Minimum reference families", minval = 1, maxval = 4, group = grpKeyLevels,
+     tooltip = "One keeps standalone pivot clusters available. Higher values require agreement from more independent source families and can leave a side empty.")
+
+grpReturns = "⑤ Broken-level returns"
 showReturns = input.bool(true, "Mark broken-level returns", group = grpReturns)
 returnBand = input.float(0.20, "Return tolerance · ATR", minval = 0.01, maxval = 2.0, step = 0.05, group = grpReturns,
      tooltip = "A return requires the candle to overlap this band around a previously broken level and close back on the broken side.")
@@ -89,7 +103,7 @@ returnCooldown = input.int(5, "Minimum bars between repeated returns", minval = 
 maxTrackedBrokenLevels = input.int(200, "Maximum broken levels tracked", minval = 10, maxval = 500, group = grpReturns,
      tooltip = "Calculation safety bound. Capacity removals are counted explicitly and are never classified as successful or failed returns.")
 
-grpEvidence = "⑤ Event evidence"
+grpEvidence = "⑥ Event evidence"
 enableEvidence = input.bool(true, "Collect post-break evidence", group = grpEvidence,
      tooltip = "Measures what happened after each confirmed break. It reports historical observations and a non-break baseline; it does not score or predict the next event.")
 evidenceShort = input.int(5, "Short horizon · bars", minval = 1, maxval = 50, group = grpEvidence)
@@ -97,8 +111,8 @@ evidenceMedium = input.int(10, "Medium horizon · bars", minval = 2, maxval = 75
 evidenceLong = input.int(20, "Long horizon · bars", minval = 3, maxval = 100, group = grpEvidence)
 evidenceThreshold = input.float(0.50, "First-hit threshold · ATR", minval = 0.05, maxval = 5.0, step = 0.05, group = grpEvidence,
      tooltip = "Records whether favorable or adverse excursion first reached this fixed multiple of the confirmation-bar ATR. If both occur in one candle, the result is marked ambiguous.")
-evidenceCohort = input.string("Relation + session + ATR", "Evidence cohort", options = ["Direction only", "Direction + relation", "Relation + session", "Relation + session + ATR", "Full context"], group = grpEvidence,
-     tooltip = "Controls which completed break samples are included in the table. Full context also matches initial-clearance, volume, and confirmation-delay buckets.")
+evidenceCohort = input.string("Family count + session + ATR", "Evidence cohort", options = ["Side only", "Side + family count", "Family count + session", "Family count + session + ATR", "Full context"], group = grpEvidence,
+     tooltip = "Controls which completed key-level break samples are included. Full context also matches initial-clearance, volume, and confirmation-delay buckets.")
 minEvidenceSamples = input.int(20, "Minimum cohort samples", minval = 1, maxval = 500, group = grpEvidence,
      tooltip = "The table shows counts while building and only prints cohort statistics after this many completed break samples match.")
 maxEvidenceSamples = input.int(500, "Maximum completed break samples", minval = 50, maxval = 2000, group = grpEvidence)
@@ -108,13 +122,13 @@ showEvidenceTable = input.bool(true, "Evidence table", group = grpEvidence,
      tooltip = "Shows the separate nine-row cohort table when Dashboard detail is Research. Compact and Standard summarize evidence in the main dashboard.")
 evidenceTablePosition = input.string("Bottom Left", "Evidence table position", options = ["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group = grpEvidence)
 
-grpAdvance = "⑥ Advance notices"
+grpAdvance = "⑦ Advance notices"
 enableAdvanceAlerts = input.bool(true, "Enable transition alerts", group = grpAdvance,
      tooltip = "Master switch for dynamic alert() messages selected below. Named confirmed-break and return conditions remain available. Create a TradingView alert using 'Any alert() function call' for dynamic notices.")
 advanceNoticeDetail = input.string("All transitions", "Advance notice detail", options = ["Confirmed only", "Candidates", "All transitions"], group = grpAdvance,
      tooltip = "Confirmed only disables dynamic advance notices; named confirmed-break and return alert conditions remain available. Candidates adds candidate start, cancellation, and one-bar-remaining messages. All transitions also adds active-level approaches and broken-level preparation.")
 
-grpLevelEvidence = "⑦ Active-level evidence"
+grpLevelEvidence = "⑧ Key-level evidence"
 enableLevelEvidence = input.bool(true, "Measure stronger / weaker evidence", group = grpLevelEvidence,
      tooltip = "Compares completed first-approach reactions at prior structural levels with ordinary starting bars from this chart. It reports measured separation, not a prediction or trade instruction.")
 levelEvidenceHorizon = input.int(10, "Reaction window · bars", minval = 2, maxval = 50, group = grpLevelEvidence,
@@ -123,17 +137,12 @@ levelReactionThreshold = input.float(0.50, "Reaction distance · ATR", minval = 
      tooltip = "For a high, reaction means trading this distance below the level first. For a low, it means trading this distance above the level first. ATR is frozen on the approach bar.")
 levelFailureThreshold = input.float(0.10, "Close-through distance · ATR", minval = 0.0, maxval = 2.0, step = 0.05, group = grpLevelEvidence,
      tooltip = "A high fails the reaction race when a completed close first exceeds the level by this distance. A low uses the mirrored close below. Same-bar reaction and close-through is recorded as ambiguous.")
-levelContextTolerance = input.float(0.20, "Reference overlap tolerance · ATR", minval = 0.0, maxval = 2.0, step = 0.05, group = grpLevelEvidence,
-     tooltip = "Counts same-side prior-session, opening-range, and overnight references lying within this distance of a newly confirmed level. References unavailable in chart data are not counted.")
 minLevelEvidenceSamples = input.int(20, "Minimum level samples", minval = 5, maxval = 500, group = grpLevelEvidence,
      tooltip = "Stronger or weaker is printed only when both the structural-level cohort and ordinary-bar baseline reach this sample count and their 95% difference interval excludes zero.")
 maxLevelEvidenceSamples = input.int(1000, "Maximum level samples", minval = 100, maxval = 3000, group = grpLevelEvidence,
      tooltip = "Calculation-history bound for completed structural-level observations. The ordinary-bar baseline retains up to three times this number.")
 
 // ───────────────────────────── Helpers ─────────────────────────────────────
-relationCode(string relation) =>
-    relation == "HH" ? 1 : relation == "LL" ? 2 : relation == "LH" ? 3 : relation == "HL" ? 4 : relation == "H" ? 5 : relation == "L" ? 6 : relation == "EH" ? 7 : relation == "EL" ? 8 : 0
-
 pushBoundedLabel(array<label> ids, label id, int keep) =>
     array.push(ids, id)
     while array.size(ids) > keep
@@ -161,7 +170,7 @@ int effectiveConfirmBars = structureProfile == "Fast" ? 0 : structureProfile == 
 type ActiveEvidence
     int startBar
     int direction
-    int relation
+    int familyCount
     bool inSession
     int atrRegime
     int clearanceRegime
@@ -188,7 +197,7 @@ type ActiveEvidence
 
 type EvidenceResult
     int direction
-    int relation
+    int familyCount
     bool inSession
     int atrRegime
     int clearanceRegime
@@ -240,6 +249,58 @@ type LevelBaselineResult
     bool inSession
     int atrRegime
     int outcome
+
+type LevelSource
+    int id
+    int family
+    int side
+    int createdBar
+    float price
+    bool consumed
+
+replaceLevelSource(array<LevelSource> sources, int family, int side, float price, int createdBar, int nextId) =>
+    if array.size(sources) > 0
+        for i = 0 to array.size(sources) - 1
+            LevelSource old = array.get(sources, i)
+            if old.family == family and old.side == side and not old.consumed
+                old.consumed := true
+                array.set(sources, i, old)
+    LevelSource fresh = LevelSource.new()
+    fresh.id := nextId
+    fresh.family := family
+    fresh.side := side
+    fresh.createdBar := createdBar
+    fresh.price := price
+    fresh.consumed := false
+    array.push(sources, fresh)
+    nextId + 1
+
+appendLevelSource(array<LevelSource> sources, int family, int side, float price, int createdBar, int nextId) =>
+    LevelSource fresh = LevelSource.new()
+    fresh.id := nextId
+    fresh.family := family
+    fresh.side := side
+    fresh.createdBar := createdBar
+    fresh.price := price
+    fresh.consumed := false
+    array.push(sources, fresh)
+    nextId + 1
+
+familyMaskText(int mask, int pivotObservations) =>
+    string txt = ""
+    if mask % 2 == 1
+        txt := "pivot" + (pivotObservations > 1 ? " (" + str.tostring(pivotObservations) + " observations)" : "")
+    if math.floor(mask / 2) % 2 == 1
+        txt := txt == "" ? "prior session" : txt + " + prior session"
+    if math.floor(mask / 4) % 2 == 1
+        txt := txt == "" ? "opening range" : txt + " + opening range"
+    if math.floor(mask / 8) % 2 == 1
+        txt := txt == "" ? "overnight" : txt + " + overnight"
+    txt == "" ? "none" : txt
+
+keyLevelTooltip(float price, int familyCount, int mask, int pivotObservations, int newestBar, int oldestBar, float currentAtr, float tolerance, string evidenceText) =>
+    string distanceText = currentAtr > 0 ? str.tostring(math.abs(price - close) / currentAtr, "#.##") + " ATR" : "unavailable"
+    "Calculated cluster mean: " + str.tostring(price, format.mintick) + "\nIndependent reference families: " + str.tostring(familyCount) + "\nSources: " + familyMaskText(mask, pivotObservations) + "\nCluster tolerance: " + str.tostring(tolerance, "#.##") + " ATR\nDistance from close: " + distanceText + "\nNewest / oldest source age: " + str.tostring(bar_index - newestBar) + " / " + str.tostring(bar_index - oldestBar) + " bars\nHistorical reaction evidence: " + evidenceText + "\nReference agreement is factual and is not a prediction that price will react."
 
 levelEvidenceSummary(array<LevelReactionResult> observations, array<LevelBaselineResult> baselines, int direction, int contextCount, bool birthSession, int birthAtrRegime, int minimumSamples) =>
     int exactN = 0
@@ -403,105 +464,305 @@ float referenceOvernightHigh = insideOvernight ? overnightHigh : lastOvernightHi
 float referenceOvernightLow = insideOvernight ? overnightLow : lastOvernightLow
 int overnightRangeRelation = na(referenceOvernightHigh) or na(referenceOvernightLow) ? 0 : close > referenceOvernightHigh ? 1 : close < referenceOvernightLow ? -1 : 2
 
-// ───────────────────────────── Confirmed pivots ───────────────────────────
+// ───────────────────────────── Key-level sources and clusters ──────────────
+// Families: 1 pivot, 2 prior session, 3 opening range, 4 overnight.
+// Sides: 1 upper-source family, -1 lower-source family. These describe the
+// source calculation and do not claim resistance/support behavior.
 float pivotHigh = ta.pivothigh(high, effectiveSwingLen, effectiveSwingLen)
 float pivotLow = ta.pivotlow(low, effectiveSwingLen, effectiveSwingLen)
 int pivotBar = bar_index - effectiveSwingLen
+bool confirmedPivotHighEvent = barstate.isconfirmed and not na(pivotHigh)
+bool confirmedPivotLowEvent = barstate.isconfirmed and not na(pivotLow)
 
-// Last confirmed pivots are permanent comparison history. Active levels are
-// independently replaceable/clearable and must never be used as that history.
-var float lastPivotHigh = na
-var float lastPivotLow = na
-var float activeHigh = na
-var int activeHighBar = na
-var string activeHighRelation = ""
-var float activeLow = na
-var int activeLowBar = na
-var string activeLowRelation = ""
+var array<LevelSource> levelSources = array.new<LevelSource>(0)
+var int nextLevelSourceId = 1
+if confirmedPivotHighEvent
+    nextLevelSourceId := appendLevelSource(levelSources, 1, 1, pivotHigh, pivotBar, nextLevelSourceId)
+if confirmedPivotLowEvent
+    nextLevelSourceId := appendLevelSource(levelSources, 1, -1, pivotLow, pivotBar, nextLevelSourceId)
+
+bool priorReferenceCompleted = sessionEnd or (sessionStart and newTradingDay and priorInside)
+if priorReferenceCompleted and not na(priorSessionHigh) and not na(priorSessionLow)
+    nextLevelSourceId := replaceLevelSource(levelSources, 2, 1, priorSessionHigh, bar_index, nextLevelSourceId)
+    nextLevelSourceId := replaceLevelSource(levelSources, 2, -1, priorSessionLow, bar_index, nextLevelSourceId)
+
+bool openingRangeJustCompleted = openingRangeComplete and (bar_index == 0 or not openingRangeComplete[1])
+if openingRangeJustCompleted and not na(openingRangeHigh) and not na(openingRangeLow)
+    nextLevelSourceId := replaceLevelSource(levelSources, 3, 1, openingRangeHigh, bar_index, nextLevelSourceId)
+    nextLevelSourceId := replaceLevelSource(levelSources, 3, -1, openingRangeLow, bar_index, nextLevelSourceId)
+
+if overnightEnd and not na(lastOvernightHigh) and not na(lastOvernightLow)
+    nextLevelSourceId := replaceLevelSource(levelSources, 4, 1, lastOvernightHigh, bar_index, nextLevelSourceId)
+    nextLevelSourceId := replaceLevelSource(levelSources, 4, -1, lastOvernightLow, bar_index, nextLevelSourceId)
+
+// Remove consumed records and aged pivot records. Session records are replaced
+// by their next completed period and therefore have no arbitrary bar expiry.
+if array.size(levelSources) > 0
+    for i = array.size(levelSources) - 1 to 0
+        LevelSource source = array.get(levelSources, i)
+        if source.consumed or (source.family == 1 and bar_index - source.createdBar > keyMaxPivotAge)
+            array.remove(levelSources, i)
+while array.size(levelSources) > 200
+    array.shift(levelSources)
+
+// Sort source indices by price so grouping is deterministic.
+var array<int> sourceOrder = array.new_int(0)
+array.clear(sourceOrder)
+if array.size(levelSources) > 0
+    for i = 0 to array.size(levelSources) - 1
+        array.push(sourceOrder, i)
+        if array.size(sourceOrder) > 1
+            for j = array.size(sourceOrder) - 1 to 1
+                int rightIndex = array.get(sourceOrder, j)
+                int leftIndex = array.get(sourceOrder, j - 1)
+                if array.get(levelSources, rightIndex).price < array.get(levelSources, leftIndex).price
+                    array.set(sourceOrder, j, leftIndex)
+                    array.set(sourceOrder, j - 1, rightIndex)
+                else
+                    break
+
+var array<int> clusterSides = array.new_int(0)
+var array<float> clusterSeedSums = array.new_float(0)
+var array<int> clusterSeedCounts = array.new_int(0)
+var array<int> memberClusters = array.new_int(0)
+var array<int> memberSources = array.new_int(0)
+array.clear(clusterSides)
+array.clear(clusterSeedSums)
+array.clear(clusterSeedCounts)
+array.clear(memberClusters)
+array.clear(memberSources)
+float clusterBand = atr * keyClusterTolerance
+
+if atr > 0 and array.size(sourceOrder) > 0
+    for orderPos = 0 to array.size(sourceOrder) - 1
+        int sourceIndex = array.get(sourceOrder, orderPos)
+        LevelSource source = array.get(levelSources, sourceIndex)
+        int matchedCluster = -1
+        if array.size(clusterSides) > 0
+            for c = 0 to array.size(clusterSides) - 1
+                float seedMean = array.get(clusterSeedSums, c) / array.get(clusterSeedCounts, c)
+                if array.get(clusterSides, c) == source.side and math.abs(source.price - seedMean) <= clusterBand
+                    matchedCluster := c
+                    break
+        if matchedCluster == -1
+            matchedCluster := array.size(clusterSides)
+            array.push(clusterSides, source.side)
+            array.push(clusterSeedSums, source.price)
+            array.push(clusterSeedCounts, 1)
+        else
+            array.set(clusterSeedSums, matchedCluster, array.get(clusterSeedSums, matchedCluster) + source.price)
+            array.set(clusterSeedCounts, matchedCluster, array.get(clusterSeedCounts, matchedCluster) + 1)
+        array.push(memberClusters, matchedCluster)
+        array.push(memberSources, sourceIndex)
+
+var array<float> clusterPrices = array.new_float(0)
+var array<int> clusterFamilyCounts = array.new_int(0)
+var array<int> clusterMasks = array.new_int(0)
+var array<int> clusterPivotObservations = array.new_int(0)
+var array<int> clusterNewestBars = array.new_int(0)
+var array<int> clusterOldestBars = array.new_int(0)
+var array<string> clusterFingerprints = array.new_string(0)
+array.clear(clusterPrices)
+array.clear(clusterFamilyCounts)
+array.clear(clusterMasks)
+array.clear(clusterPivotObservations)
+array.clear(clusterNewestBars)
+array.clear(clusterOldestBars)
+array.clear(clusterFingerprints)
+
+if array.size(clusterSides) > 0
+    for c = 0 to array.size(clusterSides) - 1
+        float pivotSum = 0.0
+        float priorSum = 0.0
+        float openingSum = 0.0
+        float overnightSum = 0.0
+        int pivotCount = 0
+        int priorCount = 0
+        int openingCount = 0
+        int overnightCount = 0
+        int newestBar = -1
+        int oldestBar = bar_index
+        string fingerprint = ""
+        if array.size(memberClusters) > 0
+            for m = 0 to array.size(memberClusters) - 1
+                if array.get(memberClusters, m) == c
+                    LevelSource source = array.get(levelSources, array.get(memberSources, m))
+                    if source.family == 1
+                        pivotSum += source.price
+                        pivotCount += 1
+                    else if source.family == 2
+                        priorSum += source.price
+                        priorCount += 1
+                    else if source.family == 3
+                        openingSum += source.price
+                        openingCount += 1
+                    else
+                        overnightSum += source.price
+                        overnightCount += 1
+                    newestBar := math.max(newestBar, source.createdBar)
+                    oldestBar := math.min(oldestBar, source.createdBar)
+                    fingerprint += "|" + str.tostring(source.id) + "|"
+        int familyCount = (pivotCount > 0 ? 1 : 0) + (priorCount > 0 ? 1 : 0) + (openingCount > 0 ? 1 : 0) + (overnightCount > 0 ? 1 : 0)
+        int mask = (pivotCount > 0 ? 1 : 0) + (priorCount > 0 ? 2 : 0) + (openingCount > 0 ? 4 : 0) + (overnightCount > 0 ? 8 : 0)
+        float familyPriceSum = (pivotCount > 0 ? pivotSum / pivotCount : 0.0) + (priorCount > 0 ? priorSum / priorCount : 0.0) + (openingCount > 0 ? openingSum / openingCount : 0.0) + (overnightCount > 0 ? overnightSum / overnightCount : 0.0)
+        array.push(clusterPrices, familyCount > 0 ? familyPriceSum / familyCount : na)
+        array.push(clusterFamilyCounts, familyCount)
+        array.push(clusterMasks, mask)
+        array.push(clusterPivotObservations, pivotCount)
+        array.push(clusterNewestBars, newestBar)
+        array.push(clusterOldestBars, oldestBar)
+        array.push(clusterFingerprints, fingerprint)
+
+// Select by agreement, distance, then newest; order the selected subset by
+// distance so Above/Below 1 is always the monitored boundary.
+var array<int> selectedUpper = array.new_int(0)
+var array<int> selectedLower = array.new_int(0)
+array.clear(selectedUpper)
+array.clear(selectedLower)
+if atr > 0 and array.size(clusterPrices) > 0
+    for rank = 0 to levelsPerSide - 1
+        int bestUpper = -1
+        int bestLower = -1
+        for c = 0 to array.size(clusterPrices) - 1
+            float clusterPrice = array.get(clusterPrices, c)
+            float distance = math.abs(clusterPrice - close) / atr
+            bool eligible = array.get(clusterFamilyCounts, c) >= keyMinFamilies and distance <= keyMaxDistance
+            // A just-crossed boundary remains eligible on its crossing bar so
+            // the candidate can freeze it. Older crossed references are
+            // retired below and disappear on the next rebuild.
+            bool upperPosition = clusterPrice >= close or (bar_index > 0 and close[1] <= clusterPrice)
+            bool lowerPosition = clusterPrice <= close or (bar_index > 0 and close[1] >= clusterPrice)
+            if eligible and upperPosition and array.get(clusterSides, c) == 1 and not array.includes(selectedUpper, c)
+                bool better = bestUpper == -1
+                if bestUpper != -1
+                    int candidateFamilies = array.get(clusterFamilyCounts, c)
+                    int incumbentFamilies = array.get(clusterFamilyCounts, bestUpper)
+                    float incumbentDistance = math.abs(array.get(clusterPrices, bestUpper) - close) / atr
+                    better := candidateFamilies > incumbentFamilies or (candidateFamilies == incumbentFamilies and (distance < incumbentDistance or (distance == incumbentDistance and array.get(clusterNewestBars, c) > array.get(clusterNewestBars, bestUpper))))
+                if better
+                    bestUpper := c
+            if eligible and lowerPosition and array.get(clusterSides, c) == -1 and not array.includes(selectedLower, c)
+                bool better = bestLower == -1
+                if bestLower != -1
+                    int candidateFamilies = array.get(clusterFamilyCounts, c)
+                    int incumbentFamilies = array.get(clusterFamilyCounts, bestLower)
+                    float incumbentDistance = math.abs(array.get(clusterPrices, bestLower) - close) / atr
+                    better := candidateFamilies > incumbentFamilies or (candidateFamilies == incumbentFamilies and (distance < incumbentDistance or (distance == incumbentDistance and array.get(clusterNewestBars, c) > array.get(clusterNewestBars, bestLower))))
+                if better
+                    bestLower := c
+        if bestUpper != -1
+            array.push(selectedUpper, bestUpper)
+        if bestLower != -1
+            array.push(selectedLower, bestLower)
+
+if array.size(selectedUpper) > 1
+    for i = 0 to array.size(selectedUpper) - 2
+        for j = i + 1 to array.size(selectedUpper) - 1
+            int a = array.get(selectedUpper, i)
+            int b = array.get(selectedUpper, j)
+            if math.abs(array.get(clusterPrices, b) - close) < math.abs(array.get(clusterPrices, a) - close)
+                array.set(selectedUpper, i, b)
+                array.set(selectedUpper, j, a)
+if array.size(selectedLower) > 1
+    for i = 0 to array.size(selectedLower) - 2
+        for j = i + 1 to array.size(selectedLower) - 1
+            int a = array.get(selectedLower, i)
+            int b = array.get(selectedLower, j)
+            if math.abs(array.get(clusterPrices, b) - close) < math.abs(array.get(clusterPrices, a) - close)
+                array.set(selectedLower, i, b)
+                array.set(selectedLower, j, a)
+
+int upper1Index = -1
+int upper2Index = -1
+int upper3Index = -1
+int lower1Index = -1
+int lower2Index = -1
+int lower3Index = -1
+if array.size(selectedUpper) > 0
+    upper1Index := array.get(selectedUpper, 0)
+if array.size(selectedUpper) > 1
+    upper2Index := array.get(selectedUpper, 1)
+if array.size(selectedUpper) > 2
+    upper3Index := array.get(selectedUpper, 2)
+if array.size(selectedLower) > 0
+    lower1Index := array.get(selectedLower, 0)
+if array.size(selectedLower) > 1
+    lower2Index := array.get(selectedLower, 1)
+if array.size(selectedLower) > 2
+    lower3Index := array.get(selectedLower, 2)
+
+float activeHigh = na
+float activeLow = na
+float keyAbove2 = na
+float keyAbove3 = na
+float keyBelow2 = na
+float keyBelow3 = na
+int activeHighBar = na
+int activeLowBar = na
+int activeHighContextCount = 0
+int activeLowContextCount = 0
+string activeHighContextTags = "none"
+string activeLowContextTags = "none"
+string activeHighFingerprint = ""
+string activeLowFingerprint = ""
+if upper1Index >= 0
+    activeHigh := array.get(clusterPrices, upper1Index)
+    activeHighBar := array.get(clusterNewestBars, upper1Index)
+    activeHighContextCount := array.get(clusterFamilyCounts, upper1Index)
+    activeHighContextTags := familyMaskText(array.get(clusterMasks, upper1Index), array.get(clusterPivotObservations, upper1Index))
+    activeHighFingerprint := array.get(clusterFingerprints, upper1Index)
+if lower1Index >= 0
+    activeLow := array.get(clusterPrices, lower1Index)
+    activeLowBar := array.get(clusterNewestBars, lower1Index)
+    activeLowContextCount := array.get(clusterFamilyCounts, lower1Index)
+    activeLowContextTags := familyMaskText(array.get(clusterMasks, lower1Index), array.get(clusterPivotObservations, lower1Index))
+    activeLowFingerprint := array.get(clusterFingerprints, lower1Index)
+if upper2Index >= 0
+    keyAbove2 := array.get(clusterPrices, upper2Index)
+if upper3Index >= 0
+    keyAbove3 := array.get(clusterPrices, upper3Index)
+if lower2Index >= 0
+    keyBelow2 := array.get(clusterPrices, lower2Index)
+if lower3Index >= 0
+    keyBelow3 := array.get(clusterPrices, lower3Index)
+var string priorActiveHighFingerprint = ""
+var string priorActiveLowFingerprint = ""
 var int highApproaches = 0
 var int lowApproaches = 0
 var bool highInBand = false
 var bool lowInBand = false
-var int activeHighContextCount = 0
-var int activeLowContextCount = 0
-var string activeHighContextTags = "none"
-var string activeLowContextTags = "none"
 var bool activeHighBirthSession = false
 var bool activeLowBirthSession = false
 var int activeHighBirthAtrRegime = -1
 var int activeLowBirthAtrRegime = -1
 var bool activeHighEvidenceStarted = false
 var bool activeLowEvidenceStarted = false
-var array<label> pivotLabels = array.new_label(0)
-bool confirmedPivotHighEvent = barstate.isconfirmed and not na(pivotHigh)
-bool confirmedPivotLowEvent = barstate.isconfirmed and not na(pivotLow)
 
-if confirmedPivotHighEvent
-    string highRelation = na(lastPivotHigh) ? "H" : pivotHigh > lastPivotHigh ? "HH" : pivotHigh < lastPivotHigh ? "LH" : "EH"
-    lastPivotHigh := pivotHigh
-    activeHigh := pivotHigh
-    activeHighBar := pivotBar
-    activeHighRelation := highRelation
+bool upperClusterChanged = activeHighFingerprint != priorActiveHighFingerprint
+bool lowerClusterChanged = activeLowFingerprint != priorActiveLowFingerprint
+if upperClusterChanged
     highApproaches := 0
     highInBand := false
-    activeHighContextCount := 0
-    activeHighContextTags := ""
-    float highContextBand = atr * levelContextTolerance
-    if atr > 0 and not na(priorSessionHigh) and math.abs(pivotHigh - priorSessionHigh) <= highContextBand
-        activeHighContextCount += 1
-        activeHighContextTags := "prior-session high"
-    if atr > 0 and not na(openingRangeHigh) and math.abs(pivotHigh - openingRangeHigh) <= highContextBand
-        activeHighContextCount += 1
-        activeHighContextTags := activeHighContextTags == "" ? "opening-range high" : activeHighContextTags + " + opening-range high"
-    if atr > 0 and not na(referenceOvernightHigh) and math.abs(pivotHigh - referenceOvernightHigh) <= highContextBand
-        activeHighContextCount += 1
-        activeHighContextTags := activeHighContextTags == "" ? "overnight high" : activeHighContextTags + " + overnight high"
-    activeHighContextTags := activeHighContextTags == "" ? "none" : activeHighContextTags
     activeHighBirthSession := insideSession
     activeHighBirthAtrRegime := atrBucket(atrPct)
     activeHighEvidenceStarted := false
-    if showSwingLabels and pivotHistoryCount > 0
-        label p = label.new(pivotBar, pivotHigh, highRelation, style = label.style_label_down, color = color.new(color.black, 20), textcolor = color.aqua, size = size.tiny,
-             tooltip = "Confirmed pivot high\nPrice: " + str.tostring(pivotHigh, format.mintick) + "\nRelationship to prior confirmed high: " + highRelation + "\nConfirmation delay: " + str.tostring(effectiveSwingLen) + " bars")
-        pushBoundedLabel(pivotLabels, p, pivotHistoryCount)
-
-if confirmedPivotLowEvent
-    string lowRelation = na(lastPivotLow) ? "L" : pivotLow < lastPivotLow ? "LL" : pivotLow > lastPivotLow ? "HL" : "EL"
-    lastPivotLow := pivotLow
-    activeLow := pivotLow
-    activeLowBar := pivotBar
-    activeLowRelation := lowRelation
+    priorActiveHighFingerprint := activeHighFingerprint
+if lowerClusterChanged
     lowApproaches := 0
     lowInBand := false
-    activeLowContextCount := 0
-    activeLowContextTags := ""
-    float lowContextBand = atr * levelContextTolerance
-    if atr > 0 and not na(priorSessionLow) and math.abs(pivotLow - priorSessionLow) <= lowContextBand
-        activeLowContextCount += 1
-        activeLowContextTags := "prior-session low"
-    if atr > 0 and not na(openingRangeLow) and math.abs(pivotLow - openingRangeLow) <= lowContextBand
-        activeLowContextCount += 1
-        activeLowContextTags := activeLowContextTags == "" ? "opening-range low" : activeLowContextTags + " + opening-range low"
-    if atr > 0 and not na(referenceOvernightLow) and math.abs(pivotLow - referenceOvernightLow) <= lowContextBand
-        activeLowContextCount += 1
-        activeLowContextTags := activeLowContextTags == "" ? "overnight low" : activeLowContextTags + " + overnight low"
-    activeLowContextTags := activeLowContextTags == "" ? "none" : activeLowContextTags
     activeLowBirthSession := insideSession
     activeLowBirthAtrRegime := atrBucket(atrPct)
     activeLowEvidenceStarted := false
-    if showSwingLabels and pivotHistoryCount > 0
-        label p = label.new(pivotBar, pivotLow, lowRelation, style = label.style_label_up, color = color.new(color.black, 20), textcolor = color.orange, size = size.tiny,
-             tooltip = "Confirmed pivot low\nPrice: " + str.tostring(pivotLow, format.mintick) + "\nRelationship to prior confirmed low: " + lowRelation + "\nConfirmation delay: " + str.tostring(effectiveSwingLen) + " bars")
-        pushBoundedLabel(pivotLabels, p, pivotHistoryCount)
+    priorActiveLowFingerprint := activeLowFingerprint
 
-// Compare the width only when a newly confirmed pivot creates a complete
-// high/low pair. This measures compression or expansion between structural
-// snapshots rather than comparing the same static levels on every bar.
 var float priorStructureSnapshot = na
 var float latestStructureSnapshot = na
-if (confirmedPivotHighEvent or confirmedPivotLowEvent) and not na(activeHigh) and not na(activeLow)
+var string priorStructurePair = ""
+string currentStructurePair = activeHighFingerprint + "/" + activeLowFingerprint
+if currentStructurePair != priorStructurePair and not na(activeHigh) and not na(activeLow)
     priorStructureSnapshot := latestStructureSnapshot
     latestStructureSnapshot := math.abs(activeHigh - activeLow)
+    priorStructurePair := currentStructurePair
 
 int structureChange = na(priorStructureSnapshot) or na(latestStructureSnapshot) ? 0 : latestStructureSnapshot < priorStructureSnapshot ? -1 : latestStructureSnapshot > priorStructureSnapshot ? 1 : 2
 
@@ -554,13 +815,15 @@ int nearestBoundary = na(highDistance) ? (na(lowDistance) ? 0 : -1) : na(lowDist
 
 // ───────────────────────────── Break candidates ───────────────────────────
 // Up and down candidates are independent so one side cannot block the other.
-bool rawUp = barstate.isconfirmed and not na(activeHigh) and atr > 0 and close > activeHigh + atr * effectiveMinClearance
-bool rawDown = barstate.isconfirmed and not na(activeLow) and atr > 0 and close < activeLow - atr * effectiveMinClearance
-
 var int pendingUpBar = na
 var float pendingUpLevel = na
 var int pendingUpLevelBar = na
-var string pendingUpRelation = ""
+var int pendingUpOldestBar = na
+var int pendingUpFamilyCount = 0
+var int pendingUpMask = 0
+var int pendingUpPivotObservations = 0
+var string pendingUpFingerprint = ""
+var array<int> pendingUpSourceIds = array.new_int(0)
 var float pendingUpClearance = na
 var float pendingUpRangeAtr = na
 var float pendingUpBodyRatio = na
@@ -572,7 +835,12 @@ var bool pendingUpInsideSession = false
 var int pendingDownBar = na
 var float pendingDownLevel = na
 var int pendingDownLevelBar = na
-var string pendingDownRelation = ""
+var int pendingDownOldestBar = na
+var int pendingDownFamilyCount = 0
+var int pendingDownMask = 0
+var int pendingDownPivotObservations = 0
+var string pendingDownFingerprint = ""
+var array<int> pendingDownSourceIds = array.new_int(0)
 var float pendingDownClearance = na
 var float pendingDownRangeAtr = na
 var float pendingDownBodyRatio = na
@@ -591,18 +859,38 @@ bool evtDownOneRemaining = false
 if barstate.isconfirmed and not na(pendingUpBar) and close <= pendingUpLevel
     evtCandidateUpCanceled := true
     pendingUpBar := na
+    array.clear(pendingUpSourceIds)
 if barstate.isconfirmed and not na(pendingDownBar) and close >= pendingDownLevel
     evtCandidateDownCanceled := true
     pendingDownBar := na
+    array.clear(pendingDownSourceIds)
+
+float monitoredHigh = not na(pendingUpBar) ? pendingUpLevel : activeHigh
+float monitoredLow = not na(pendingDownBar) ? pendingDownLevel : activeLow
+bool rawUp = barstate.isconfirmed and not na(monitoredHigh) and atr > 0 and close > monitoredHigh + atr * effectiveMinClearance
+bool rawDown = barstate.isconfirmed and not na(monitoredLow) and atr > 0 and close < monitoredLow - atr * effectiveMinClearance
 
 // Freeze initial-cross measurements. Later bars cannot rewrite these facts.
 if na(pendingUpBar) and rawUp
     evtCandidateUpStarted := true
     pendingUpBar := bar_index
-    pendingUpLevel := activeHigh
+    pendingUpLevel := monitoredHigh
     pendingUpLevelBar := activeHighBar
-    pendingUpRelation := activeHighRelation
-    pendingUpClearance := (close - activeHigh) / atr
+    pendingUpOldestBar := activeHighBar
+    pendingUpFamilyCount := activeHighContextCount
+    pendingUpMask := 0
+    pendingUpPivotObservations := 0
+    if upper1Index >= 0
+        pendingUpOldestBar := array.get(clusterOldestBars, upper1Index)
+        pendingUpMask := array.get(clusterMasks, upper1Index)
+        pendingUpPivotObservations := array.get(clusterPivotObservations, upper1Index)
+    pendingUpFingerprint := activeHighFingerprint
+    array.clear(pendingUpSourceIds)
+    if upper1Index >= 0 and array.size(memberClusters) > 0
+        for m = 0 to array.size(memberClusters) - 1
+            if array.get(memberClusters, m) == upper1Index
+                array.push(pendingUpSourceIds, array.get(levelSources, array.get(memberSources, m)).id)
+    pendingUpClearance := (close - monitoredHigh) / atr
     pendingUpRangeAtr := (high - low) / atr
     pendingUpBodyRatio := high != low ? math.abs(close - open) / (high - low) : na
     pendingUpVolumeMultiple := volumeMultiple
@@ -613,10 +901,23 @@ if na(pendingUpBar) and rawUp
 if na(pendingDownBar) and rawDown
     evtCandidateDownStarted := true
     pendingDownBar := bar_index
-    pendingDownLevel := activeLow
+    pendingDownLevel := monitoredLow
     pendingDownLevelBar := activeLowBar
-    pendingDownRelation := activeLowRelation
-    pendingDownClearance := (activeLow - close) / atr
+    pendingDownOldestBar := activeLowBar
+    pendingDownFamilyCount := activeLowContextCount
+    pendingDownMask := 0
+    pendingDownPivotObservations := 0
+    if lower1Index >= 0
+        pendingDownOldestBar := array.get(clusterOldestBars, lower1Index)
+        pendingDownMask := array.get(clusterMasks, lower1Index)
+        pendingDownPivotObservations := array.get(clusterPivotObservations, lower1Index)
+    pendingDownFingerprint := activeLowFingerprint
+    array.clear(pendingDownSourceIds)
+    if lower1Index >= 0 and array.size(memberClusters) > 0
+        for m = 0 to array.size(memberClusters) - 1
+            if array.get(memberClusters, m) == lower1Index
+                array.push(pendingDownSourceIds, array.get(levelSources, array.get(memberSources, m)).id)
+    pendingDownClearance := (monitoredLow - close) / atr
     pendingDownRangeAtr := (high - low) / atr
     pendingDownBodyRatio := high != low ? math.abs(close - open) / (high - low) : na
     pendingDownVolumeMultiple := volumeMultiple
@@ -635,8 +936,12 @@ float upBreakLevel = na
 float downBreakLevel = na
 int upBreakLevelBar = na
 int downBreakLevelBar = na
-string upBreakRelation = ""
-string downBreakRelation = ""
+int upBreakFamilyCount = 0
+int downBreakFamilyCount = 0
+int upBreakMask = 0
+int downBreakMask = 0
+int upBreakPivotObservations = 0
+int downBreakPivotObservations = 0
 int upCandidateBar = na
 int downCandidateBar = na
 float candidateClearance = na
@@ -653,7 +958,9 @@ if barstate.isconfirmed and not na(pendingUpBar) and bar_index - pendingUpBar >=
     breakUp := true
     upBreakLevel := pendingUpLevel
     upBreakLevelBar := pendingUpLevelBar
-    upBreakRelation := pendingUpRelation
+    upBreakFamilyCount := pendingUpFamilyCount
+    upBreakMask := pendingUpMask
+    upBreakPivotObservations := pendingUpPivotObservations
     upCandidateBar := pendingUpBar
     candidateClearance := pendingUpClearance
     candidateRangeAtr := pendingUpRangeAtr
@@ -664,13 +971,22 @@ if barstate.isconfirmed and not na(pendingUpBar) and bar_index - pendingUpBar >=
     candidateInsideSession := pendingUpInsideSession
     confirmationClearance := atr > 0 ? (close - pendingUpLevel) / atr : na
     confirmationDelay := bar_index - pendingUpBar
+    if array.size(levelSources) > 0 and array.size(pendingUpSourceIds) > 0
+        for i = 0 to array.size(levelSources) - 1
+            LevelSource source = array.get(levelSources, i)
+            if array.includes(pendingUpSourceIds, source.id)
+                source.consumed := true
+                array.set(levelSources, i, source)
     pendingUpBar := na
+    array.clear(pendingUpSourceIds)
 
 if barstate.isconfirmed and not na(pendingDownBar) and bar_index - pendingDownBar >= effectiveConfirmBars and close < pendingDownLevel
     breakDown := true
     downBreakLevel := pendingDownLevel
     downBreakLevelBar := pendingDownLevelBar
-    downBreakRelation := pendingDownRelation
+    downBreakFamilyCount := pendingDownFamilyCount
+    downBreakMask := pendingDownMask
+    downBreakPivotObservations := pendingDownPivotObservations
     downCandidateBar := pendingDownBar
     // A simultaneous opposite confirmation is abnormal; the down event becomes
     // the representative export while the separate direction flags preserve both.
@@ -683,36 +999,56 @@ if barstate.isconfirmed and not na(pendingDownBar) and bar_index - pendingDownBa
     candidateInsideSession := pendingDownInsideSession
     confirmationClearance := atr > 0 ? (pendingDownLevel - close) / atr : na
     confirmationDelay := bar_index - pendingDownBar
+    if array.size(levelSources) > 0 and array.size(pendingDownSourceIds) > 0
+        for i = 0 to array.size(levelSources) - 1
+            LevelSource source = array.get(levelSources, i)
+            if array.includes(pendingDownSourceIds, source.id)
+                source.consumed := true
+                array.set(levelSources, i, source)
     pendingDownBar := na
+    array.clear(pendingDownSourceIds)
+
+// Retire any unpinned source that a completed close has already cleared by
+// the effective ATR clearance. Pending constituent IDs are excluded until the
+// candidate either cancels or confirms, preserving its frozen calculation.
+if barstate.isconfirmed and atr > 0 and array.size(levelSources) > 0
+    for i = 0 to array.size(levelSources) - 1
+        LevelSource source = array.get(levelSources, i)
+        bool pinned = array.includes(pendingUpSourceIds, source.id) or array.includes(pendingDownSourceIds, source.id)
+        bool cleared = source.side == 1 ? close > source.price + atr * effectiveMinClearance : close < source.price - atr * effectiveMinClearance
+        if not source.consumed and not pinned and cleared
+            source.consumed := true
+            array.set(levelSources, i, source)
 
 bool anyBreak = breakUp or breakDown
 bool visibleBreakUp = breakUp and eventVisibleNow
 bool visibleBreakDown = breakDown and eventVisibleNow
 bool anyVisibleBreak = visibleBreakUp or visibleBreakDown
-string breakType = breakUp and breakDown ? "UP + DOWN" : breakUp ? upBreakRelation : breakDown ? downBreakRelation : ""
+string breakType = breakUp and breakDown ? "UP + DOWN" : breakUp ? "ABOVE" : breakDown ? "BELOW" : ""
+int breakFamilyCount = breakUp and not breakDown ? upBreakFamilyCount : breakDown and not breakUp ? downBreakFamilyCount : 0
 float breakLevel = breakUp and not breakDown ? upBreakLevel : breakDown and not breakUp ? downBreakLevel : na
 int breakLevelBar = breakUp and not breakDown ? upBreakLevelBar : breakDown and not breakUp ? downBreakLevelBar : na
 int candidateBar = breakUp and not breakDown ? upCandidateBar : breakDown and not breakUp ? downCandidateBar : na
 
-// Clear only the exact active level that broke. A newer pivot confirmed during
-// the pending window remains active, and the opposite side is never discarded.
-if breakUp and activeHighBar == upBreakLevelBar and activeHigh == upBreakLevel
+// Hide a just-confirmed frozen cluster immediately. Its consumed components
+// are removed from the registry on the next bar's cluster rebuild.
+if breakUp
     activeHigh := na
     activeHighBar := na
-    activeHighRelation := ""
     highInBand := false
-if breakDown and activeLowBar == downBreakLevelBar and activeLow == downBreakLevel
+if breakDown
     activeLow := na
     activeLowBar := na
-    activeLowRelation := ""
     lowInBand := false
 
 // Refresh bar-scoped structure facts after a confirmation may have cleared one
 // side. The snapshot comparison above remains the last complete pivot pair.
-highDistance := not na(activeHigh) and atr > 0 ? (activeHigh - close) / atr : na
-lowDistance := not na(activeLow) and atr > 0 ? (close - activeLow) / atr : na
-structureTop := not na(activeHigh) and not na(activeLow) ? math.max(activeHigh, activeLow) : na
-structureBottom := not na(activeHigh) and not na(activeLow) ? math.min(activeHigh, activeLow) : na
+float keyAbove1 = not na(pendingUpBar) ? pendingUpLevel : activeHigh
+float keyBelow1 = not na(pendingDownBar) ? pendingDownLevel : activeLow
+highDistance := not na(keyAbove1) and atr > 0 ? (keyAbove1 - close) / atr : na
+lowDistance := not na(keyBelow1) and atr > 0 ? (close - keyBelow1) / atr : na
+structureTop := not na(keyAbove1) and not na(keyBelow1) ? math.max(keyAbove1, keyBelow1) : na
+structureBottom := not na(keyAbove1) and not na(keyBelow1) ? math.min(keyAbove1, keyBelow1) : na
 structureWidth := not na(structureTop) ? structureTop - structureBottom : na
 structureWidthAtr := not na(structureWidth) and atr > 0 ? structureWidth / atr : na
 structurePosition := not na(structureWidth) and structureWidth > 0 ? 100.0 * (close - structureBottom) / structureWidth : na
@@ -835,7 +1171,6 @@ var array<BaselineResult> completedBaseline = array.new<BaselineResult>(0)
 var int baselineWriteIndex = 0
 
 bool evidenceResolved = false
-int resolvedEvidenceRelation = na
 float resolvedMfeShort = na
 float resolvedMaeShort = na
 float resolvedFinalShort = na
@@ -901,7 +1236,7 @@ if enableEvidence and barstate.isconfirmed and array.size(activeEvidence) > 0
             if age >= evidenceLong
                 EvidenceResult r = EvidenceResult.new()
                 r.direction := s.direction
-                r.relation := s.relation
+                r.familyCount := s.familyCount
                 r.inSession := s.inSession
                 r.atrRegime := s.atrRegime
                 r.clearanceRegime := s.clearanceRegime
@@ -924,7 +1259,6 @@ if enableEvidence and barstate.isconfirmed and array.size(activeEvidence) > 0
                 array.push(completedEvidence, r)
 
                 evidenceResolved := true
-                resolvedEvidenceRelation := r.relation
                 resolvedMfeShort := r.mfeShort
                 resolvedMaeShort := r.maeShort
                 resolvedFinalShort := r.finalShort
@@ -952,7 +1286,7 @@ if enableEvidence and anyBreak and not (breakUp and breakDown) and atr > 0
     ActiveEvidence s = ActiveEvidence.new()
     s.startBar := bar_index
     s.direction := breakUp ? 1 : -1
-    s.relation := relationCode(breakType)
+    s.familyCount := breakFamilyCount
     s.inSession := insideSession
     s.atrRegime := atrBucket(atrPct)
     s.clearanceRegime := clearanceBucket(candidateClearance)
@@ -1003,7 +1337,7 @@ if enableEvidence and barstate.isconfirmed and bar_index >= evidenceLong
             baselineWriteIndex := (baselineWriteIndex + 1) % maxBaselineSamples
 
 var int latestEvidenceDirection = 0
-var int latestEvidenceRelation = 0
+var int latestEvidenceFamilyCount = 0
 var bool latestEvidenceSession = false
 var int latestEvidenceAtrRegime = -1
 var int latestEvidenceClearanceRegime = -1
@@ -1011,7 +1345,7 @@ var int latestEvidenceVolumeRegime = -1
 var int latestEvidenceDelayRegime = -1
 if anyBreak and not (breakUp and breakDown)
     latestEvidenceDirection := breakUp ? 1 : -1
-    latestEvidenceRelation := relationCode(breakType)
+    latestEvidenceFamilyCount := breakFamilyCount
     latestEvidenceSession := insideSession
     latestEvidenceAtrRegime := atrBucket(atrPct)
     latestEvidenceClearanceRegime := clearanceBucket(candidateClearance)
@@ -1153,10 +1487,10 @@ if barstate.islast and enableLevelEvidence and not na(activeLow)
 
 string highLevelStatusName = not enableLevelEvidence ? "Evidence disabled" : levelStatusName(highLevelStatus)
 string lowLevelStatusName = not enableLevelEvidence ? "Evidence disabled" : levelStatusName(lowLevelStatus)
-string highLevelEvidenceText = na(activeHigh) ? "Waiting for confirmed high" : not enableLevelEvidence ? "Evidence collection disabled" : highLevelStatus == 0 ? "Evidence building: " + str.tostring(highLevelN) + " of " + str.tostring(minLevelEvidenceSamples) + " levels · base " + str.tostring(highBaseN) : highLevelStatusName + " · level " + str.tostring(100.0 * highLevelRate, "#") + "% / base " + str.tostring(100.0 * highBaseRate, "#") + "% · n " + str.tostring(highLevelN) + "/" + str.tostring(highBaseN)
-string lowLevelEvidenceText = na(activeLow) ? "Waiting for confirmed low" : not enableLevelEvidence ? "Evidence collection disabled" : lowLevelStatus == 0 ? "Evidence building: " + str.tostring(lowLevelN) + " of " + str.tostring(minLevelEvidenceSamples) + " levels · base " + str.tostring(lowBaseN) : lowLevelStatusName + " · level " + str.tostring(100.0 * lowLevelRate, "#") + "% / base " + str.tostring(100.0 * lowBaseRate, "#") + "% · n " + str.tostring(lowLevelN) + "/" + str.tostring(lowBaseN)
-string highLevelEvidenceTooltip = na(activeHigh) ? "No active confirmed high is available to classify." : not enableLevelEvidence ? "Active-level evidence collection is disabled." : highLevelStatus == 0 ? "Classification waits for " + str.tostring(minLevelEvidenceSamples) + " completed level observations and ordinary-bar observations. Current cohort: " + levelCohortName(highCohortMode) + ". Overlapping references at confirmation: " + activeHighContextTags + ". Historical and in-sample; not a prediction." : "High-level first-approach reaction / ordinary-bar reaction. 95% difference interval: " + str.tostring(100.0 * highLevelLower, "#.0") + " to " + str.tostring(100.0 * highLevelUpper, "#.0") + " percentage points. Cohort: " + levelCohortName(highCohortMode) + ". Overlapping references at confirmation: " + activeHighContextTags + ". Historical and in-sample; not a prediction."
-string lowLevelEvidenceTooltip = na(activeLow) ? "No active confirmed low is available to classify." : not enableLevelEvidence ? "Active-level evidence collection is disabled." : lowLevelStatus == 0 ? "Classification waits for " + str.tostring(minLevelEvidenceSamples) + " completed level observations and ordinary-bar observations. Current cohort: " + levelCohortName(lowCohortMode) + ". Overlapping references at confirmation: " + activeLowContextTags + ". Historical and in-sample; not a prediction." : "Low-level first-approach reaction / ordinary-bar reaction. 95% difference interval: " + str.tostring(100.0 * lowLevelLower, "#.0") + " to " + str.tostring(100.0 * lowLevelUpper, "#.0") + " percentage points. Cohort: " + levelCohortName(lowCohortMode) + ". Overlapping references at confirmation: " + activeLowContextTags + ". Historical and in-sample; not a prediction."
+string highLevelEvidenceText = na(activeHigh) ? "Waiting for Above 1" : not enableLevelEvidence ? "Evidence collection disabled" : highLevelStatus == 0 ? "Evidence building: " + str.tostring(highLevelN) + " of " + str.tostring(minLevelEvidenceSamples) + " clusters · base " + str.tostring(highBaseN) : highLevelStatusName + " · cluster " + str.tostring(100.0 * highLevelRate, "#") + "% / base " + str.tostring(100.0 * highBaseRate, "#") + "% · n " + str.tostring(highLevelN) + "/" + str.tostring(highBaseN)
+string lowLevelEvidenceText = na(activeLow) ? "Waiting for Below 1" : not enableLevelEvidence ? "Evidence collection disabled" : lowLevelStatus == 0 ? "Evidence building: " + str.tostring(lowLevelN) + " of " + str.tostring(minLevelEvidenceSamples) + " clusters · base " + str.tostring(lowBaseN) : lowLevelStatusName + " · cluster " + str.tostring(100.0 * lowLevelRate, "#") + "% / base " + str.tostring(100.0 * lowBaseRate, "#") + "% · n " + str.tostring(lowLevelN) + "/" + str.tostring(lowBaseN)
+string highLevelEvidenceTooltip = na(activeHigh) ? "No Above 1 cluster is available." : not enableLevelEvidence ? "Key-level evidence collection is disabled." : highLevelStatus == 0 ? "Classification waits for " + str.tostring(minLevelEvidenceSamples) + " completed cluster observations and ordinary-bar observations. Cohort: " + levelCohortName(highCohortMode) + ". Families: " + activeHighContextTags + ". Historical and in-sample; not a prediction or paired-placebo validation." : "Above-cluster first-approach reaction / ordinary-bar reaction. 95% difference interval: " + str.tostring(100.0 * highLevelLower, "#.0") + " to " + str.tostring(100.0 * highLevelUpper, "#.0") + " percentage points. Cohort: " + levelCohortName(highCohortMode) + ". Families: " + activeHighContextTags + ". Historical and in-sample; not a prediction or paired-placebo validation."
+string lowLevelEvidenceTooltip = na(activeLow) ? "No Below 1 cluster is available." : not enableLevelEvidence ? "Key-level evidence collection is disabled." : lowLevelStatus == 0 ? "Classification waits for " + str.tostring(minLevelEvidenceSamples) + " completed cluster observations and ordinary-bar observations. Cohort: " + levelCohortName(lowCohortMode) + ". Families: " + activeLowContextTags + ". Historical and in-sample; not a prediction or paired-placebo validation." : "Below-cluster first-approach reaction / ordinary-bar reaction. 95% difference interval: " + str.tostring(100.0 * lowLevelLower, "#.0") + " to " + str.tostring(100.0 * lowLevelUpper, "#.0") + " percentage points. Cohort: " + levelCohortName(lowCohortMode) + ". Families: " + activeLowContextTags + ". Historical and in-sample; not a prediction or paired-placebo validation."
 
 // ───────────────────────────── Historical break drawings ──────────────────
 var array<line> breakLines = array.new_line(0)
@@ -1167,7 +1501,7 @@ if visibleBreakUp and historyCount > 0
     array.push(breakLines, l)
     if showBreakLabels
         float upConfirmNow = atr > 0 ? (close - upBreakLevel) / atr : na
-        label b = label.new(bar_index, high, upBreakRelation + " · initial " + str.tostring(pendingUpClearance, "#.##") + " ATR · confirm " + str.tostring(upConfirmNow, "#.##") + " ATR",
+        label b = label.new(bar_index, high, "Closed above key level · " + str.tostring(upBreakFamilyCount) + " refs · initial " + str.tostring(candidateClearance, "#.##") + " ATR · confirm " + str.tostring(upConfirmNow, "#.##") + " ATR",
              style = label.style_label_down, color = color.new(color.black, 20), textcolor = color.aqua, size = size.tiny)
         pushBoundedLabel(breakLabels, b, historyCount)
 
@@ -1176,38 +1510,92 @@ if visibleBreakDown and historyCount > 0
     array.push(breakLines, l)
     if showBreakLabels
         float downConfirmNow = atr > 0 ? (downBreakLevel - close) / atr : na
-        label b = label.new(bar_index, low, downBreakRelation + " · initial " + str.tostring(pendingDownClearance, "#.##") + " ATR · confirm " + str.tostring(downConfirmNow, "#.##") + " ATR",
+        label b = label.new(bar_index, low, "Closed below key level · " + str.tostring(downBreakFamilyCount) + " refs · initial " + str.tostring(candidateClearance, "#.##") + " ATR · confirm " + str.tostring(downConfirmNow, "#.##") + " ATR",
              style = label.style_label_up, color = color.new(color.black, 20), textcolor = color.orange, size = size.tiny)
         pushBoundedLabel(breakLabels, b, historyCount)
 
 while array.size(breakLines) > historyCount
     line.delete(array.shift(breakLines))
 
-// ───────────────────────────── Active-level drawings ──────────────────────
-var line highLine = na
-var line lowLine = na
-var label highTag = na
-var label lowTag = na
+// ───────────────────────────── Key-level drawings ─────────────────────────
+var array<line> keyLines = array.new_line(0)
+var array<label> keyTags = array.new_label(0)
 
 if barstate.islast
-    line.delete(highLine)
-    line.delete(lowLine)
-    label.delete(highTag)
-    label.delete(lowTag)
-    if showLiveLevels and not na(activeHigh)
-        highLine := line.new(activeHighBar, activeHigh, bar_index + 20, activeHigh, color = color.new(color.aqua, 30), style = line.style_dotted, width = lineWidth)
-        if showLevelTags
-            highTag := label.new(bar_index + 20, activeHigh, activeHighRelation + " · " + str.tostring(activeHigh, format.mintick) + " · " + highLevelStatusName,
-                 style = label.style_label_left, color = color.new(color.black, 20), textcolor = color.aqua, size = size.tiny, tooltip = highLevelEvidenceTooltip)
-    if showLiveLevels and not na(activeLow)
-        lowLine := line.new(activeLowBar, activeLow, bar_index + 20, activeLow, color = color.new(color.orange, 30), style = line.style_dotted, width = lineWidth)
-        if showLevelTags
-            lowTag := label.new(bar_index + 20, activeLow, activeLowRelation + " · " + str.tostring(activeLow, format.mintick) + " · " + lowLevelStatusName,
-                 style = label.style_label_left, color = color.new(color.black, 20), textcolor = color.orange, size = size.tiny, tooltip = lowLevelEvidenceTooltip)
+    if array.size(keyLines) > 0
+        for i = array.size(keyLines) - 1 to 0
+            line.delete(array.get(keyLines, i))
+    if array.size(keyTags) > 0
+        for i = array.size(keyTags) - 1 to 0
+            label.delete(array.get(keyTags, i))
+    array.clear(keyLines)
+    array.clear(keyTags)
+    if showLiveLevels
+        for rank = 0 to levelsPerSide - 1
+            bool upperAvailable = rank < array.size(selectedUpper) or (rank == 0 and not na(pendingUpBar))
+            if upperAvailable
+                float levelPrice = na
+                int families = 0
+                int mask = 0
+                int pivots = 0
+                int newest = na
+                int oldest = na
+                if rank == 0 and not na(pendingUpBar)
+                    levelPrice := pendingUpLevel
+                    families := pendingUpFamilyCount
+                    mask := pendingUpMask
+                    pivots := pendingUpPivotObservations
+                    newest := pendingUpLevelBar
+                    oldest := pendingUpOldestBar
+                else
+                    int c = array.get(selectedUpper, rank)
+                    levelPrice := array.get(clusterPrices, c)
+                    families := array.get(clusterFamilyCounts, c)
+                    mask := array.get(clusterMasks, c)
+                    pivots := array.get(clusterPivotObservations, c)
+                    newest := array.get(clusterNewestBars, c)
+                    oldest := array.get(clusterOldestBars, c)
+                int transparency = families >= 3 ? 15 : families == 2 ? 35 : 55
+                int width = math.min(4, lineWidth + families - 1)
+                string evidence = rank == 0 ? highLevelEvidenceText : "Shown in dashboard for the monitored level only"
+                string tooltip = keyLevelTooltip(levelPrice, families, mask, pivots, newest, oldest, atr, keyClusterTolerance, evidence)
+                array.push(keyLines, line.new(oldest, levelPrice, bar_index + 20, levelPrice, color = color.new(color.aqua, transparency), style = line.style_dotted, width = width))
+                if showLevelTags
+                    array.push(keyTags, label.new(bar_index + 20, levelPrice, "Above " + str.tostring(rank + 1) + " · " + str.tostring(levelPrice, format.mintick) + " · " + str.tostring(families) + " refs", style = label.style_label_left, color = color.new(color.black, 20), textcolor = color.aqua, size = size.tiny, tooltip = tooltip))
+            bool lowerAvailable = rank < array.size(selectedLower) or (rank == 0 and not na(pendingDownBar))
+            if lowerAvailable
+                float levelPrice = na
+                int families = 0
+                int mask = 0
+                int pivots = 0
+                int newest = na
+                int oldest = na
+                if rank == 0 and not na(pendingDownBar)
+                    levelPrice := pendingDownLevel
+                    families := pendingDownFamilyCount
+                    mask := pendingDownMask
+                    pivots := pendingDownPivotObservations
+                    newest := pendingDownLevelBar
+                    oldest := pendingDownOldestBar
+                else
+                    int c = array.get(selectedLower, rank)
+                    levelPrice := array.get(clusterPrices, c)
+                    families := array.get(clusterFamilyCounts, c)
+                    mask := array.get(clusterMasks, c)
+                    pivots := array.get(clusterPivotObservations, c)
+                    newest := array.get(clusterNewestBars, c)
+                    oldest := array.get(clusterOldestBars, c)
+                int transparency = families >= 3 ? 15 : families == 2 ? 35 : 55
+                int width = math.min(4, lineWidth + families - 1)
+                string evidence = rank == 0 ? lowLevelEvidenceText : "Shown in dashboard for the monitored level only"
+                string tooltip = keyLevelTooltip(levelPrice, families, mask, pivots, newest, oldest, atr, keyClusterTolerance, evidence)
+                array.push(keyLines, line.new(oldest, levelPrice, bar_index + 20, levelPrice, color = color.new(color.orange, transparency), style = line.style_dotted, width = width))
+                if showLevelTags
+                    array.push(keyTags, label.new(bar_index + 20, levelPrice, "Below " + str.tostring(rank + 1) + " · " + str.tostring(levelPrice, format.mintick) + " · " + str.tostring(families) + " refs", style = label.style_label_left, color = color.new(color.black, 20), textcolor = color.orange, size = size.tiny, tooltip = tooltip))
 
 // ───────────────────────────── Facts table ─────────────────────────────────
 tablePositionResolved = tablePositionOf(tablePosition)
-var table facts = table.new(tablePositionResolved, 2, 28, border_width = 1, border_color = color.new(color.gray, 70))
+var table facts = table.new(tablePositionResolved, 2, 30, border_width = 1, border_color = color.new(color.gray, 70))
 var string latestType = "—"
 var float latestLevel = na
 var float latestInitialClearance = na
@@ -1216,6 +1604,7 @@ var int latestBreakBar = na
 var int latestCandidateDelay = na
 var bool latestCandidateSession = false
 var bool latestConfirmationSession = false
+var int latestFamilyCount = 0
 
 if anyBreak
     latestType := breakType
@@ -1226,6 +1615,7 @@ if anyBreak
     latestCandidateDelay := confirmationDelay
     latestCandidateSession := candidateInsideSession
     latestConfirmationSession := insideSession
+    latestFamilyCount := breakFamilyCount
 
 // Build one last-bar cohort summary for the guided dashboard and the optional
 // Research evidence table. No difference is labelled an edge.
@@ -1266,11 +1656,11 @@ if barstate.islast and enableEvidence
         for i = 0 to array.size(completedEvidence) - 1
             EvidenceResult r = array.get(completedEvidence, i)
             bool match = r.direction == latestEvidenceDirection
-            if evidenceCohort != "Direction only"
-                match := match and r.relation == latestEvidenceRelation
-            if evidenceCohort == "Relation + session" or evidenceCohort == "Relation + session + ATR" or evidenceCohort == "Full context"
+            if evidenceCohort != "Side only"
+                match := match and r.familyCount == latestEvidenceFamilyCount
+            if evidenceCohort == "Family count + session" or evidenceCohort == "Family count + session + ATR" or evidenceCohort == "Full context"
                 match := match and r.inSession == latestEvidenceSession
-            if evidenceCohort == "Relation + session + ATR" or evidenceCohort == "Full context"
+            if evidenceCohort == "Family count + session + ATR" or evidenceCohort == "Full context"
                 match := match and r.atrRegime == latestEvidenceAtrRegime
             if evidenceCohort == "Full context"
                 match := match and r.clearanceRegime == latestEvidenceClearanceRegime and r.volumeRegime == latestEvidenceVolumeRegime and r.delayRegime == latestEvidenceDelayRegime
@@ -1298,9 +1688,9 @@ if barstate.islast and enableEvidence
         for i = 0 to array.size(completedBaseline) - 1
             BaselineResult b = array.get(completedBaseline, i)
             bool match = true
-            if evidenceCohort == "Relation + session" or evidenceCohort == "Relation + session + ATR" or evidenceCohort == "Full context"
+            if evidenceCohort == "Family count + session" or evidenceCohort == "Family count + session + ATR" or evidenceCohort == "Full context"
                 match := b.inSession == latestEvidenceSession
-            if evidenceCohort == "Relation + session + ATR" or evidenceCohort == "Full context"
+            if evidenceCohort == "Family count + session + ATR" or evidenceCohort == "Full context"
                 match := match and b.atrRegime == latestEvidenceAtrRegime
             if match
                 array.push(baseMfeS, latestEvidenceDirection == 1 ? b.upMfeShort : b.upMaeShort)
@@ -1337,20 +1727,30 @@ string evidenceReadyTxt = not enableEvidence ? "Evidence collection disabled" : 
 
 // Guided current-state dashboard.
 if barstate.islast
-    table.clear(facts, 0, 0, 1, 27)
+    table.clear(facts, 0, 0, 1, 29)
     if showTable
         color bg = color.new(color.black, 20)
         color sectionBg = color.new(color.gray, 78)
         string appliedTxt = structureProfile + " · pivot " + str.tostring(effectiveSwingLen) + " · clear " + str.tostring(effectiveMinClearance, "#.##") + " ATR · confirm " + str.tostring(effectiveConfirmBars)
         string pendingTxt = not na(pendingUpBar) and not na(pendingDownBar) ? "Up + down candidates active" : not na(pendingUpBar) ? "Up candidate · " + str.tostring(bar_index - pendingUpBar) + "/" + str.tostring(effectiveConfirmBars) + " bars" : not na(pendingDownBar) ? "Down candidate · " + str.tostring(bar_index - pendingDownBar) + "/" + str.tostring(effectiveConfirmBars) + " bars" : "No active candidate"
-        string stateTxt = anyBreak ? (breakUp and breakDown ? "Confirmed both directions on this bar" : breakUp ? "Confirmed above active high" : "Confirmed below active low") : evtCandidateUpCanceled and evtCandidateDownCanceled ? "Up and down candidates canceled" : evtCandidateUpCanceled ? "Up candidate canceled" : evtCandidateDownCanceled ? "Down candidate canceled" : not na(pendingUpBar) or not na(pendingDownBar) ? pendingTxt : na(lastPivotHigh) or na(lastPivotLow) ? "Building first pivot pair" : na(activeHigh) or na(activeLow) ? "Waiting for replacement boundary" : "Monitoring active boundaries"
+        string stateTxt = anyBreak ? (breakUp and breakDown ? "Confirmed through both monitored levels" : breakUp ? "Confirmed above key level" : "Confirmed below key level") : evtCandidateUpCanceled and evtCandidateDownCanceled ? "Above and below candidates canceled" : evtCandidateUpCanceled ? "Above candidate canceled" : evtCandidateDownCanceled ? "Below candidate canceled" : not na(pendingUpBar) or not na(pendingDownBar) ? pendingTxt : array.size(levelSources) == 0 ? "Building first key levels" : na(activeHigh) or na(activeLow) ? "Waiting for a qualified cluster on one side" : "Monitoring calculated key levels"
         color stateColor = anyBreak ? (breakUp and not breakDown ? color.aqua : breakDown and not breakUp ? color.orange : color.white) : not na(pendingUpBar) or not na(pendingDownBar) or evtCandidateUpCanceled or evtCandidateDownCanceled ? color.yellow : color.white
-        string highTxt = na(activeHigh) ? "Waiting for confirmed high" : activeHighRelation + " · " + str.tostring(activeHigh, format.mintick) + " · " + str.tostring(highDistance, "#.##") + " ATR · age " + str.tostring(activeHighAge) + " · " + str.tostring(highApproaches) + " approaches"
-        string lowTxt = na(activeLow) ? "Waiting for confirmed low" : activeLowRelation + " · " + str.tostring(activeLow, format.mintick) + " · " + str.tostring(lowDistance, "#.##") + " ATR · age " + str.tostring(activeLowAge) + " · " + str.tostring(lowApproaches) + " approaches"
+        float shownAbove1 = not na(pendingUpBar) ? pendingUpLevel : activeHigh
+        float shownBelow1 = not na(pendingDownBar) ? pendingDownLevel : activeLow
+        int shownAbove1Families = not na(pendingUpBar) ? pendingUpFamilyCount : activeHighContextCount
+        int shownBelow1Families = not na(pendingDownBar) ? pendingDownFamilyCount : activeLowContextCount
+        string highTxt = na(shownAbove1) ? "No qualified cluster" : str.tostring(shownAbove1, format.mintick) + " · " + str.tostring(shownAbove1Families) + " refs · " + str.tostring(math.abs(shownAbove1 - close) / atr, "#.##") + " ATR · " + str.tostring(highApproaches) + " approaches"
+        string lowTxt = na(shownBelow1) ? "No qualified cluster" : str.tostring(shownBelow1, format.mintick) + " · " + str.tostring(shownBelow1Families) + " refs · " + str.tostring(math.abs(close - shownBelow1) / atr, "#.##") + " ATR · " + str.tostring(lowApproaches) + " approaches"
+        string above2Txt = "No second qualified cluster"
+        string below2Txt = "No second qualified cluster"
+        if upper2Index >= 0
+            above2Txt := str.tostring(keyAbove2, format.mintick) + " · " + str.tostring(array.get(clusterFamilyCounts, upper2Index)) + " refs · " + str.tostring(math.abs(keyAbove2 - close) / atr, "#.##") + " ATR"
+        if lower2Index >= 0
+            below2Txt := str.tostring(keyBelow2, format.mintick) + " · " + str.tostring(array.get(clusterFamilyCounts, lower2Index)) + " refs · " + str.tostring(math.abs(close - keyBelow2) / atr, "#.##") + " ATR"
         string structureChangeTxt = structureChange == -1 ? "compressed" : structureChange == 1 ? "expanded" : structureChange == 2 ? "unchanged" : "building"
-        string nearestTxt = nearestBoundary == 1 ? "high · " + str.tostring(math.abs(highDistance), "#.##") + " ATR away" : nearestBoundary == -1 ? "low · " + str.tostring(math.abs(lowDistance), "#.##") + " ATR away" : "Unavailable until a boundary exists"
-        string structureTxt = na(structureWidthAtr) ? "Building complete high/low pair" : str.tostring(structureWidthAtr, "#.##") + " ATR wide · close at " + str.tostring(structurePosition, "#") + "% · " + structureChangeTxt
-        string latestTxt = latestType == "—" ? "No completed break yet" : latestType + (na(latestLevel) ? "" : " · " + str.tostring(latestLevel, format.mintick)) + " · " + str.tostring(bar_index - latestBreakBar) + " bars ago"
+        string nearestTxt = nearestBoundary == 1 ? "Above 1 · " + str.tostring(math.abs(highDistance), "#.##") + " ATR away" : nearestBoundary == -1 ? "Below 1 · " + str.tostring(math.abs(lowDistance), "#.##") + " ATR away" : "Unavailable until a level exists"
+        string structureTxt = na(structureWidthAtr) ? "Building complete Above 1 / Below 1 pair" : str.tostring(structureWidthAtr, "#.##") + " ATR wide · close at " + str.tostring(structurePosition, "#") + "% · " + structureChangeTxt
+        string latestTxt = latestType == "—" ? "No completed break yet" : "Closed " + str.lower(latestType) + (na(latestLevel) ? "" : " · " + str.tostring(latestLevel, format.mintick)) + " · " + str.tostring(latestFamilyCount) + " refs · " + str.tostring(bar_index - latestBreakBar) + " bars ago"
         string volumeTxt = na(volume) ? "Volume unavailable from symbol" : na(volumeMultiple) ? "Volume average building" : str.tostring(volumeMultiple, "#.##") + "× 20-bar average"
         string priorRelationTxt = priorRangeRelation == 1 ? "above" : priorRangeRelation == -1 ? "below" : priorRangeRelation == 2 ? "inside" : "Unavailable"
         string overnightRelationTxt = overnightRangeRelation == 1 ? "above" : overnightRangeRelation == -1 ? "below" : overnightRangeRelation == 2 ? "inside" : "Unavailable"
@@ -1365,22 +1765,28 @@ if barstate.islast
         table.cell(facts, 0, row, "Current structure", text_color = color.gray, text_size = size.tiny, bgcolor = sectionBg, tooltip = "A factual state machine: building pivots, monitoring boundaries, candidate activity, cancellation, or completed confirmation.")
         table.cell(facts, 1, row, stateTxt, text_color = stateColor, text_size = size.tiny, bgcolor = sectionBg)
         row += 1
-        table.cell(facts, 0, row, "Active high", text_color = color.gray, text_size = size.tiny, bgcolor = bg, tooltip = "Latest confirmed unbroken pivot high. Approach counts one new entry into its ATR tolerance band.")
-        table.cell(facts, 1, row, highTxt, text_color = na(activeHigh) ? color.gray : color.aqua, text_size = size.tiny, bgcolor = bg)
+        table.cell(facts, 0, row, "Above 1", text_color = color.gray, text_size = size.tiny, bgcolor = bg, tooltip = "Nearest of the ranked displayed upper-source clusters. A pending candidate freezes this exact price.")
+        table.cell(facts, 1, row, highTxt, text_color = na(shownAbove1) ? color.gray : color.aqua, text_size = size.tiny, bgcolor = bg)
         row += 1
-        table.cell(facts, 0, row, "Active low", text_color = color.gray, text_size = size.tiny, bgcolor = bg, tooltip = "Latest confirmed unbroken pivot low. Approach counts one new entry into its ATR tolerance band.")
-        table.cell(facts, 1, row, lowTxt, text_color = na(activeLow) ? color.gray : color.orange, text_size = size.tiny, bgcolor = bg)
+        table.cell(facts, 0, row, "Below 1", text_color = color.gray, text_size = size.tiny, bgcolor = bg, tooltip = "Nearest of the ranked displayed lower-source clusters. A pending candidate freezes this exact price.")
+        table.cell(facts, 1, row, lowTxt, text_color = na(shownBelow1) ? color.gray : color.orange, text_size = size.tiny, bgcolor = bg)
         row += 1
-        table.cell(facts, 0, row, "High-level evidence", text_color = color.gray, text_size = size.tiny, bgcolor = sectionBg, tooltip = highLevelEvidenceTooltip)
+        table.cell(facts, 0, row, "Above 2", text_color = color.gray, text_size = size.tiny, bgcolor = bg)
+        table.cell(facts, 1, row, above2Txt, text_color = upper2Index < 0 ? color.gray : color.aqua, text_size = size.tiny, bgcolor = bg)
+        row += 1
+        table.cell(facts, 0, row, "Below 2", text_color = color.gray, text_size = size.tiny, bgcolor = bg)
+        table.cell(facts, 1, row, below2Txt, text_color = lower2Index < 0 ? color.gray : color.orange, text_size = size.tiny, bgcolor = bg)
+        row += 1
+        table.cell(facts, 0, row, "Above reaction evidence", text_color = color.gray, text_size = size.tiny, bgcolor = sectionBg, tooltip = highLevelEvidenceTooltip)
         table.cell(facts, 1, row, highLevelEvidenceText, text_color = highLevelStatus == 0 or highLevelStatus == -1 ? color.gray : color.aqua, text_size = size.tiny, bgcolor = sectionBg, tooltip = highLevelEvidenceTooltip)
         row += 1
-        table.cell(facts, 0, row, "Low-level evidence", text_color = color.gray, text_size = size.tiny, bgcolor = sectionBg, tooltip = lowLevelEvidenceTooltip)
+        table.cell(facts, 0, row, "Below reaction evidence", text_color = color.gray, text_size = size.tiny, bgcolor = sectionBg, tooltip = lowLevelEvidenceTooltip)
         table.cell(facts, 1, row, lowLevelEvidenceText, text_color = lowLevelStatus == 0 or lowLevelStatus == -1 ? color.gray : color.orange, text_size = size.tiny, bgcolor = sectionBg, tooltip = lowLevelEvidenceTooltip)
         row += 1
         table.cell(facts, 0, row, "Nearest boundary", text_color = color.gray, text_size = size.tiny, bgcolor = bg, tooltip = "Whichever active boundary has the smaller absolute distance from the close, measured in current ATR.")
         table.cell(facts, 1, row, nearestTxt, text_color = nearestBoundary == 1 ? color.aqua : nearestBoundary == -1 ? color.orange : color.gray, text_size = size.tiny, bgcolor = bg)
         row += 1
-        table.cell(facts, 0, row, "Structure span / location", text_color = color.gray, text_size = size.tiny, bgcolor = bg, tooltip = "Span is active-high minus active-low in ATR. Location is the close's percentage position from the lower to upper boundary. Compression compares raw width with the prior complete pivot pair.")
+        table.cell(facts, 0, row, "Level span / location", text_color = color.gray, text_size = size.tiny, bgcolor = bg, tooltip = "Span is Above 1 minus Below 1 in ATR. Location is the close's percentage position inside that pair. Compression compares snapshots only when a selected cluster identity changes.")
         table.cell(facts, 1, row, structureTxt, text_color = na(structureWidthAtr) ? color.gray : color.white, text_size = size.tiny, bgcolor = bg)
         row += 1
         table.cell(facts, 0, row, "Latest confirmed", text_color = color.gray, text_size = size.tiny, bgcolor = bg)
@@ -1499,10 +1905,9 @@ if barstate.islast
         table.cell(evidenceTable, 1, 8, sampleReady ? str.tostring(100.0 * crossedCount / eventN, "#") + "%" : evidenceReadyTxt, text_color = sampleReady ? color.white : color.gray, text_size = size.tiny, bgcolor = bg)
 
 // ───────────────────────────── Auditable export ────────────────────────────
-// Relationship codes: 1 HH, 2 LL, 3 LH, 4 HL, 5 first H, 6 first L,
-// 7 equal high, 8 equal low. Separate direction flags preserve rare same-bar
-// dual events without forcing two events into one numeric series.
-plot(anyBreak ? relationCode(breakType) : na, "Break relationship code", display = display.data_window)
+// The four former relationship/active-boundary slots now export the four
+// displayed key-cluster prices without increasing plot-count use.
+plot(keyAbove2, "Key level above 2", display = display.data_window + display.price_scale)
 plot(anyBreak ? (breakUp and breakDown ? 0 : breakUp ? 1 : -1) : na, "Break direction · 1 up, -1 down, 0 dual", display = display.data_window)
 plot(anyBreak ? (anyVisibleBreak ? 1 : 0) : na, "Break displayed by session filter", display = display.data_window)
 plot(breakUp ? upBreakLevel : breakDown ? downBreakLevel : na, "Break level", display = display.data_window)
@@ -1526,12 +1931,12 @@ plot(capacityDroppedLevels, "Broken levels capacity-dropped · cumulative", disp
 plot(atr, "ATR", display = display.data_window)
 plot(atrPct, "ATR percentile · 100 bars", display = display.data_window)
 plot(volumeMultiple, "Volume multiple", display = display.data_window)
-plot(activeHigh, "Active high", display = display.data_window + display.price_scale)
-plot(activeLow, "Active low", display = display.data_window + display.price_scale)
-plot(highDistance, "Distance to active high · ATR", display = display.data_window)
-plot(lowDistance, "Distance to active low · ATR", display = display.data_window)
-plot(highApproaches, "Approaches · active high", display = display.data_window)
-plot(lowApproaches, "Approaches · active low", display = display.data_window)
+plot(keyAbove1, "Key level above 1", display = display.data_window + display.price_scale)
+plot(keyBelow1, "Key level below 1", display = display.data_window + display.price_scale)
+plot(highDistance, "Distance to key level above 1 · ATR", display = display.data_window)
+plot(lowDistance, "Distance to key level below 1 · ATR", display = display.data_window)
+plot(highApproaches, "Approaches · key level above 1", display = display.data_window)
+plot(lowApproaches, "Approaches · key level below 1", display = display.data_window)
 plot(structureWidthAtr, "Active structure span · ATR", display = display.data_window)
 plot(structurePosition, "Close location in active structure · percent", display = display.data_window)
 plot(structureChange, "Structure snapshot change · -1 compressed, 1 expanded, 2 unchanged", display = display.data_window)
@@ -1544,7 +1949,7 @@ plot(openingRangeLow, "Opening-range low", display = display.data_window)
 plot(referenceOvernightHigh, "Overnight high", display = display.data_window)
 plot(referenceOvernightLow, "Overnight low", display = display.data_window)
 
-plot(evidenceResolved ? resolvedEvidenceRelation : na, "Evidence resolved · relationship code", display = display.data_window)
+plot(keyBelow2, "Key level below 2", display = display.data_window + display.price_scale)
 plot(evidenceResolved ? resolvedMfeShort : na, "Evidence short · favorable excursion ATR", display = display.data_window)
 plot(evidenceResolved ? resolvedMaeShort : na, "Evidence short · adverse excursion ATR", display = display.data_window)
 plot(evidenceResolved ? resolvedFinalShort : na, "Evidence short · final displacement ATR", display = display.data_window)
@@ -1566,10 +1971,10 @@ plot(advanceEventCount > 0 ? advanceEventCode : na, "Advance event code", displa
 plot(advanceEventCount > 0 ? advanceEventCount : na, "Advance event types on bar", display = display.data_window)
 
 // ───────────────────────────── Factual alerts ──────────────────────────────
-alertcondition(visibleBreakUp, "Pivot-high level closed above", "A confirmed close remained above an active pivot-high level on {{ticker}} @ {{close}}")
-alertcondition(visibleBreakDown, "Pivot-low level closed below", "A confirmed close remained below an active pivot-low level on {{ticker}} @ {{close}}")
-alertcondition(visibleReturnFromAbove, "Return to upward-broken level", "Price returned to a previously upward-broken pivot level and closed at or above it on {{ticker}} @ {{close}}")
-alertcondition(visibleReturnFromBelow, "Return to downward-broken level", "Price returned to a previously downward-broken pivot level and closed at or below it on {{ticker}} @ {{close}}")
+alertcondition(visibleBreakUp, "Key level closed above", "A confirmed close remained above the monitored key level on {{ticker}} @ {{close}}")
+alertcondition(visibleBreakDown, "Key level closed below", "A confirmed close remained below the monitored key level on {{ticker}} @ {{close}}")
+alertcondition(visibleReturnFromAbove, "Return to upward-broken level", "Price returned to a previously upward-broken key level and closed at or above it on {{ticker}} @ {{close}}")
+alertcondition(visibleReturnFromBelow, "Return to downward-broken level", "Price returned to a previously downward-broken key level and closed at or below it on {{ticker}} @ {{close}}")
 
 // Dynamic messages preserve the exact transition type without spending one
 // plot count per alertcondition. In TradingView choose "Any alert() function
@@ -1578,9 +1983,9 @@ bool candidateNoticesEnabled = advanceNoticeDetail == "Candidates" or advanceNot
 bool allTransitionNoticesEnabled = advanceNoticeDetail == "All transitions"
 if enableAdvanceAlerts and eventVisibleNow and barstate.isconfirmed and advanceNoticeDetail != "Confirmed only"
     if allTransitionNoticesEnabled and evtApproachHigh
-        alert("First approach to active pivot high " + str.tostring(approachedActiveHighLevel, format.mintick), alert.freq_all)
+        alert("First approach to key level above " + str.tostring(approachedActiveHighLevel, format.mintick), alert.freq_all)
     if allTransitionNoticesEnabled and evtApproachLow
-        alert("First approach to active pivot low " + str.tostring(approachedActiveLowLevel, format.mintick), alert.freq_all)
+        alert("First approach to key level below " + str.tostring(approachedActiveLowLevel, format.mintick), alert.freq_all)
     if candidateNoticesEnabled and evtCandidateUpStarted
         alert("Upward break candidate started above " + str.tostring(pendingUpLevel, format.mintick), alert.freq_all)
     if candidateNoticesEnabled and evtCandidateDownStarted

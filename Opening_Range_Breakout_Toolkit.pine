@@ -1,0 +1,612 @@
+//@version=5
+// Opening Range Breakout Toolkit — v1.0
+// Facts-only daily opening-range reader. The script reports completed chart
+// calculations and historical observations; it does not place orders, predict
+// a breakout, or recommend entries, exits, stops, targets, or direction.
+indicator("Opening Range Breakout Toolkit v1.0", overlay = true, max_bars_back = 5000, max_lines_count = 100, max_labels_count = 200)
+
+// ───────────────────────────── Inputs ──────────────────────────────────────
+grpQuick = "⓪ Quick setup"
+dashboardDetail = input.string("Standard", "Dashboard detail", options = ["Compact", "Standard", "Research"], group = grpQuick)
+showDashboard = input.bool(true, "Show dashboard", group = grpQuick)
+
+grpRange = "① Opening range"
+selectedSession = input.session("0930-1600", "Trading session · exchange time", group = grpRange,
+     tooltip = "TradingView interprets this in the symbol's exchange timezone. No market type is assumed.")
+openingMinutes = input.int(30, "Opening range minutes", minval = 1, maxval = 240, group = grpRange,
+     tooltip = "Bars are included when their opening timestamp falls before this cutoff. If the chart interval cannot divide the requested range exactly, the dashboard reports the effective completed duration.")
+atrLength = input.int(14, "ATR lookback", minval = 1, maxval = 200, group = grpRange)
+breakClearanceAtr = input.float(0.10, "Initial close clearance · ATR", minval = 0.0, maxval = 5.0, step = 0.05, group = grpRange)
+confirmationBars = input.int(0, "Confirmation bars after initial close", minval = 0, maxval = 20, group = grpRange,
+     tooltip = "Zero confirms on the first qualifying completed close. Higher values require additional completed closes to remain beyond the frozen range boundary.")
+
+grpDisplay = "② Display"
+showRangeLines = input.bool(true, "Show opening-range lines", group = grpDisplay)
+showMidpoint = input.bool(true, "Show opening-range midpoint", group = grpDisplay)
+showLineLabels = input.bool(true, "Show right-edge labels", group = grpDisplay)
+showBreakLabels = input.bool(false, "Label confirmed breaks", group = grpDisplay)
+lineExtensionBars = input.int(20, "Right extension · bars", minval = 0, maxval = 200, group = grpDisplay)
+lineWidth = input.int(2, "Range line width", minval = 1, maxval = 4, group = grpDisplay)
+tablePositionInput = input.string("Top Right", "Dashboard position", options = ["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group = grpDisplay)
+
+grpRetest = "③ Broken-range returns"
+showReturns = input.bool(true, "Mark returns to a broken boundary", group = grpRetest)
+returnBandAtr = input.float(0.20, "Return band · ATR", minval = 0.01, maxval = 2.0, step = 0.05, group = grpRetest)
+returnMinimumBars = input.int(1, "Minimum bars after confirmation", minval = 1, maxval = 100, group = grpRetest)
+
+grpHistory = "④ Historical observations"
+historyLimit = input.int(200, "Completed sessions retained", minval = 20, maxval = 500, group = grpHistory)
+minimumHistory = input.int(20, "Minimum sessions for proportions", minval = 5, maxval = 200, group = grpHistory)
+
+grpAlerts = "⑤ Alerts"
+enableDynamicAlerts = input.bool(true, "Enable dynamic transition alerts", group = grpAlerts)
+alertDetail = input.string("Candidates", "Dynamic alert detail", options = ["Confirmed only", "Candidates", "All transitions"], group = grpAlerts,
+     tooltip = "Named alert conditions cover range completion, confirmed breaks, and returns. Any alert() function call covers the dynamic categories enabled here.")
+
+// ───────────────────────────── Helpers ─────────────────────────────────────
+tablePositionOf(string value) =>
+    value == "Top Left" ? position.top_left : value == "Bottom Right" ? position.bottom_right : value == "Bottom Left" ? position.bottom_left : position.top_right
+
+formatMinutes(float minutes) =>
+    na(minutes) ? "Unavailable" : minutes < 60 ? str.tostring(minutes, "#") + " min" : str.tostring(minutes / 60.0, "#.##") + " hr"
+
+pushBoundedFloat(array<float> values, float value, int limit) =>
+    array.push(values, value)
+    while array.size(values) > limit
+        array.shift(values)
+
+pushBoundedInt(array<int> values, int value, int limit) =>
+    array.push(values, value)
+    while array.size(values) > limit
+        array.shift(values)
+
+// ───────────────────────────── Base facts ──────────────────────────────────
+float atr = ta.atr(atrLength)
+float volumeAverage = ta.sma(volume, 20)
+float volumeMultiple = not na(volumeAverage) and volumeAverage > 0 ? volume / volumeAverage : na
+int chartSeconds = timeframe.in_seconds(timeframe.period)
+
+bool insideSession = not na(time(timeframe.period, selectedSession))
+bool priorInsideSession = bar_index > 0 ? insideSession[1] : false
+bool newTradingDay = bar_index > 0 and ta.change(time_tradingday) != 0
+bool sessionStart = insideSession and (not priorInsideSession or newTradingDay)
+bool sessionEnd = not insideSession and priorInsideSession
+
+var int sessionStartBar = na
+var int sessionStartTime = na
+var int rangeLastBarCloseTime = na
+var float sessionOpen = na
+var float sessionHigh = na
+var float sessionLow = na
+var float sessionLastClose = na
+var float openingHigh = na
+var float openingLow = na
+var float openingVolume = na
+var int openingBars = 0
+var bool rangeComplete = false
+var bool sessionRecorded = true
+var float rangeAtrAtCompletion = na
+var float rangeWidth = na
+var float rangeWidthAtr = na
+
+// Per-session event facts.
+var int confirmedCode = 0                 // 0 none, 1 above, -1 below, 2 both
+var int firstConfirmedDirection = 0       // 2 means same-bar ambiguous
+var int firstConfirmationTime = na
+var float firstInitialClearance = na
+var float firstConfirmationClearance = na
+var int firstConfirmationDelay = na
+var bool closedBackInsideAfterBreak = false
+var bool returnedUpThisSession = false
+var bool returnedDownThisSession = false
+var float maximumAboveExtensionAtr = 0.0
+var float maximumBelowExtensionAtr = 0.0
+
+// Completed-session history.
+var array<float> histRangeAtr = array.new_float(0)
+var array<int> histBreakCode = array.new_int(0)
+var array<int> histFirstDirection = array.new_int(0)
+var array<float> histMinutesToFirst = array.new_float(0)
+var array<float> histAboveExtension = array.new_float(0)
+var array<float> histBelowExtension = array.new_float(0)
+var array<int> histClosedBackInside = array.new_int(0)
+var array<int> histReturnUp = array.new_int(0)
+var array<int> histReturnDown = array.new_int(0)
+bool rangeCompleteEvent = false
+
+// Complete the observed range before a possible session-end archive. This
+// matters on coarse charts that contain no bar opening after the requested
+// cutoff.
+if sessionEnd and not rangeComplete and not na(openingHigh)
+    rangeComplete := true
+    rangeCompleteEvent := true
+    rangeWidth := openingHigh - openingLow
+    rangeAtrAtCompletion := atr[1]
+    rangeWidthAtr := rangeAtrAtCompletion > 0 ? rangeWidth / rangeAtrAtCompletion : na
+
+bool finalizePriorSession = (sessionEnd or (sessionStart and newTradingDay and priorInsideSession)) and not sessionRecorded and not na(rangeWidth)
+if finalizePriorSession
+    pushBoundedFloat(histRangeAtr, rangeWidthAtr, historyLimit)
+    pushBoundedInt(histBreakCode, confirmedCode, historyLimit)
+    pushBoundedInt(histFirstDirection, firstConfirmedDirection, historyLimit)
+    float minutesToFirst = not na(firstConfirmationTime) and not na(rangeLastBarCloseTime) ? math.max(0.0, (firstConfirmationTime - rangeLastBarCloseTime) / 60000.0) : na
+    pushBoundedFloat(histMinutesToFirst, minutesToFirst, historyLimit)
+    pushBoundedFloat(histAboveExtension, maximumAboveExtensionAtr, historyLimit)
+    pushBoundedFloat(histBelowExtension, maximumBelowExtensionAtr, historyLimit)
+    pushBoundedInt(histClosedBackInside, closedBackInsideAfterBreak ? 1 : 0, historyLimit)
+    pushBoundedInt(histReturnUp, returnedUpThisSession ? 1 : 0, historyLimit)
+    pushBoundedInt(histReturnDown, returnedDownThisSession ? 1 : 0, historyLimit)
+    sessionRecorded := true
+
+if sessionStart
+    sessionStartBar := bar_index
+    sessionStartTime := time
+    rangeLastBarCloseTime := time_close
+    sessionOpen := open
+    sessionHigh := high
+    sessionLow := low
+    sessionLastClose := close
+    openingHigh := high
+    openingLow := low
+    openingVolume := volume
+    openingBars := 1
+    rangeComplete := false
+    sessionRecorded := false
+    rangeAtrAtCompletion := na
+    rangeWidth := na
+    rangeWidthAtr := na
+    confirmedCode := 0
+    firstConfirmedDirection := 0
+    firstConfirmationTime := na
+    firstInitialClearance := na
+    firstConfirmationClearance := na
+    firstConfirmationDelay := na
+    closedBackInsideAfterBreak := false
+    returnedUpThisSession := false
+    returnedDownThisSession := false
+    maximumAboveExtensionAtr := 0.0
+    maximumBelowExtensionAtr := 0.0
+else if insideSession
+    sessionHigh := math.max(sessionHigh, high)
+    sessionLow := math.min(sessionLow, low)
+    sessionLastClose := close
+
+if insideSession and not rangeComplete and not na(sessionStartTime)
+    int requestedEndTime = sessionStartTime + openingMinutes * 60000
+    if time < requestedEndTime
+        if not sessionStart
+            openingHigh := math.max(openingHigh, high)
+            openingLow := math.min(openingLow, low)
+            openingVolume += volume
+            openingBars += 1
+        rangeLastBarCloseTime := time_close
+    else
+        rangeComplete := true
+        rangeCompleteEvent := true
+        rangeWidth := openingHigh - openingLow
+        rangeAtrAtCompletion := atr
+        rangeWidthAtr := atr > 0 ? rangeWidth / atr : na
+
+float openingMidpoint = not na(openingHigh) and not na(openingLow) ? (openingHigh + openingLow) / 2.0 : na
+float locationPercent = not na(rangeWidth) and rangeWidth > 0 ? 100.0 * (close - openingLow) / rangeWidth : na
+float distanceAboveAtr = rangeComplete and atr > 0 ? (openingHigh - close) / atr : na
+float distanceBelowAtr = rangeComplete and atr > 0 ? (close - openingLow) / atr : na
+float effectiveRangeMinutes = not na(rangeLastBarCloseTime) and not na(sessionStartTime) ? (rangeLastBarCloseTime - sessionStartTime) / 60000.0 : na
+bool timeframeCoarserThanRange = not na(chartSeconds) and chartSeconds > openingMinutes * 60
+
+// ───────────────────────────── Break state machine ─────────────────────────
+var int pendingUpBar = na
+var int pendingDownBar = na
+var float pendingUpLevel = na
+var float pendingDownLevel = na
+var float pendingUpAtr = na
+var float pendingDownAtr = na
+var float pendingUpClearance = na
+var float pendingDownClearance = na
+var float pendingUpRangeAtr = na
+var float pendingDownRangeAtr = na
+var float pendingUpBodyRatio = na
+var float pendingDownBodyRatio = na
+var float pendingUpVolumeMultiple = na
+var float pendingDownVolumeMultiple = na
+
+bool candidateUpStarted = false
+bool candidateDownStarted = false
+bool candidateUpCanceled = false
+bool candidateDownCanceled = false
+bool oneUpRemaining = false
+bool oneDownRemaining = false
+
+if sessionStart or sessionEnd
+    pendingUpBar := na
+    pendingDownBar := na
+
+if barstate.isconfirmed and not na(pendingUpBar) and close <= pendingUpLevel
+    candidateUpCanceled := true
+    pendingUpBar := na
+if barstate.isconfirmed and not na(pendingDownBar) and close >= pendingDownLevel
+    candidateDownCanceled := true
+    pendingDownBar := na
+
+bool aboveAlreadyConfirmed = confirmedCode == 1 or confirmedCode == 2
+bool belowAlreadyConfirmed = confirmedCode == -1 or confirmedCode == 2
+bool rawAbove = insideSession and rangeComplete and not aboveAlreadyConfirmed and na(pendingUpBar) and atr > 0 and close > openingHigh + atr * breakClearanceAtr
+bool rawBelow = insideSession and rangeComplete and not belowAlreadyConfirmed and na(pendingDownBar) and atr > 0 and close < openingLow - atr * breakClearanceAtr
+
+if barstate.isconfirmed and rawAbove
+    candidateUpStarted := true
+    pendingUpBar := bar_index
+    pendingUpLevel := openingHigh
+    pendingUpAtr := atr
+    pendingUpClearance := (close - openingHigh) / atr
+    pendingUpRangeAtr := (high - low) / atr
+    pendingUpBodyRatio := high != low ? math.abs(close - open) / (high - low) : na
+    pendingUpVolumeMultiple := volumeMultiple
+
+if barstate.isconfirmed and rawBelow
+    candidateDownStarted := true
+    pendingDownBar := bar_index
+    pendingDownLevel := openingLow
+    pendingDownAtr := atr
+    pendingDownClearance := (openingLow - close) / atr
+    pendingDownRangeAtr := (high - low) / atr
+    pendingDownBodyRatio := high != low ? math.abs(close - open) / (high - low) : na
+    pendingDownVolumeMultiple := volumeMultiple
+
+if barstate.isconfirmed and confirmationBars > 0
+    oneUpRemaining := not na(pendingUpBar) and bar_index - pendingUpBar == confirmationBars - 1 and close > pendingUpLevel
+    oneDownRemaining := not na(pendingDownBar) and bar_index - pendingDownBar == confirmationBars - 1 and close < pendingDownLevel
+
+bool confirmedAbove = false
+bool confirmedBelow = false
+float eventLevel = na
+float eventInitialClearance = na
+float eventConfirmationClearance = na
+int eventDelay = na
+float eventAtr = na
+float eventRangeAtr = na
+float eventBodyRatio = na
+float eventVolumeMultiple = na
+
+if barstate.isconfirmed and not na(pendingUpBar) and bar_index - pendingUpBar >= confirmationBars and close > pendingUpLevel
+    confirmedAbove := true
+    eventLevel := pendingUpLevel
+    eventInitialClearance := pendingUpClearance
+    eventConfirmationClearance := atr > 0 ? (close - pendingUpLevel) / atr : na
+    eventDelay := bar_index - pendingUpBar
+    eventAtr := pendingUpAtr
+    eventRangeAtr := pendingUpRangeAtr
+    eventBodyRatio := pendingUpBodyRatio
+    eventVolumeMultiple := pendingUpVolumeMultiple
+    pendingUpBar := na
+
+if barstate.isconfirmed and not na(pendingDownBar) and bar_index - pendingDownBar >= confirmationBars and close < pendingDownLevel
+    confirmedBelow := true
+    eventLevel := pendingDownLevel
+    eventInitialClearance := pendingDownClearance
+    eventConfirmationClearance := atr > 0 ? (pendingDownLevel - close) / atr : na
+    eventDelay := bar_index - pendingDownBar
+    eventAtr := pendingDownAtr
+    eventRangeAtr := pendingDownRangeAtr
+    eventBodyRatio := pendingDownBodyRatio
+    eventVolumeMultiple := pendingDownVolumeMultiple
+    pendingDownBar := na
+
+if confirmedAbove or confirmedBelow
+    int eventDirection = confirmedAbove and confirmedBelow ? 2 : confirmedAbove ? 1 : -1
+    if firstConfirmedDirection == 0
+        firstConfirmedDirection := eventDirection
+        firstConfirmationTime := time_close
+        firstInitialClearance := eventInitialClearance
+        firstConfirmationClearance := eventConfirmationClearance
+        firstConfirmationDelay := eventDelay
+    if confirmedAbove and confirmedBelow
+        confirmedCode := 2
+    else if confirmedAbove
+        confirmedCode := confirmedCode == -1 ? 2 : 1
+    else
+        confirmedCode := confirmedCode == 1 ? 2 : -1
+
+if insideSession and rangeComplete and rangeAtrAtCompletion > 0
+    maximumAboveExtensionAtr := math.max(maximumAboveExtensionAtr, math.max(0.0, high - openingHigh) / rangeAtrAtCompletion)
+    maximumBelowExtensionAtr := math.max(maximumBelowExtensionAtr, math.max(0.0, openingLow - low) / rangeAtrAtCompletion)
+    if confirmedCode != 0 and close <= openingHigh and close >= openingLow
+        closedBackInsideAfterBreak := true
+
+// ───────────────────────────── Broken-boundary returns ─────────────────────
+var bool upwardReturnArmed = false
+var bool downwardReturnArmed = false
+var bool upwardInBand = false
+var bool downwardInBand = false
+var int upwardBreakBar = na
+var int downwardBreakBar = na
+bool returnToUpwardBreak = false
+bool returnToDownwardBreak = false
+bool upwardArmedEvent = false
+bool downwardArmedEvent = false
+
+if sessionStart
+    upwardReturnArmed := false
+    downwardReturnArmed := false
+    upwardInBand := false
+    downwardInBand := false
+    upwardBreakBar := na
+    downwardBreakBar := na
+
+if barstate.isconfirmed and insideSession and rangeComplete and atr > 0
+    float band = atr * returnBandAtr
+    if not na(upwardBreakBar)
+        if close > openingHigh + band and not upwardReturnArmed
+            upwardReturnArmed := true
+            upwardArmedEvent := true
+        bool touching = high >= openingHigh - band and low <= openingHigh + band
+        bool eligibleReturn = bar_index - upwardBreakBar >= returnMinimumBars
+        if upwardReturnArmed and eligibleReturn and touching and not upwardInBand and close >= openingHigh
+            returnToUpwardBreak := true
+            returnedUpThisSession := true
+            upwardReturnArmed := false
+        upwardInBand := touching
+    if not na(downwardBreakBar)
+        if close < openingLow - band and not downwardReturnArmed
+            downwardReturnArmed := true
+            downwardArmedEvent := true
+        bool touching = high >= openingLow - band and low <= openingLow + band
+        bool eligibleReturn = bar_index - downwardBreakBar >= returnMinimumBars
+        if downwardReturnArmed and eligibleReturn and touching and not downwardInBand and close <= openingLow
+            returnToDownwardBreak := true
+            returnedDownThisSession := true
+            downwardReturnArmed := false
+        downwardInBand := touching
+
+// Add new confirmations after older return records are processed, preventing a
+// break candle from becoming its own return.
+if confirmedAbove
+    upwardBreakBar := bar_index
+    upwardReturnArmed := false
+    upwardInBand := true
+if confirmedBelow
+    downwardBreakBar := bar_index
+    downwardReturnArmed := false
+    downwardInBand := true
+
+plotshape(showReturns and returnToUpwardBreak, "Return to upward-broken opening-range high", shape.triangleup, location.belowbar, color = color.aqua, size = size.tiny)
+plotshape(showReturns and returnToDownwardBreak, "Return to downward-broken opening-range low", shape.triangledown, location.abovebar, color = color.orange, size = size.tiny)
+
+if showBreakLabels and confirmedAbove
+    label.new(bar_index, high, "Closed above opening range · initial " + str.tostring(eventInitialClearance, "#.##") + " ATR · confirm " + str.tostring(eventConfirmationClearance, "#.##") + " ATR", style = label.style_label_down, color = color.new(color.black, 20), textcolor = color.aqua, size = size.tiny)
+if showBreakLabels and confirmedBelow
+    label.new(bar_index, low, "Closed below opening range · initial " + str.tostring(eventInitialClearance, "#.##") + " ATR · confirm " + str.tostring(eventConfirmationClearance, "#.##") + " ATR", style = label.style_label_up, color = color.new(color.black, 20), textcolor = color.orange, size = size.tiny)
+
+// ───────────────────────────── Range drawings ──────────────────────────────
+var line highLine = na
+var line lowLine = na
+var line midLine = na
+var label highTag = na
+var label lowTag = na
+var label midTag = na
+
+if sessionStart
+    if not na(highLine)
+        line.delete(highLine)
+        line.delete(lowLine)
+        line.delete(midLine)
+    highLine := line.new(bar_index, openingHigh, bar_index, openingHigh, color = color.aqua, width = lineWidth, style = line.style_dashed)
+    lowLine := line.new(bar_index, openingLow, bar_index, openingLow, color = color.orange, width = lineWidth, style = line.style_dashed)
+    midLine := line.new(bar_index, openingMidpoint, bar_index, openingMidpoint, color = color.new(color.gray, 45), width = 1, style = line.style_dotted)
+
+if barstate.islast
+    if not na(highTag)
+        label.delete(highTag)
+        label.delete(lowTag)
+        label.delete(midTag)
+    if showRangeLines and not na(openingHigh) and not na(sessionStartBar)
+        line.set_xy1(highLine, sessionStartBar, openingHigh)
+        line.set_xy2(highLine, bar_index + lineExtensionBars, openingHigh)
+        line.set_xy1(lowLine, sessionStartBar, openingLow)
+        line.set_xy2(lowLine, bar_index + lineExtensionBars, openingLow)
+        line.set_style(highLine, rangeComplete ? line.style_solid : line.style_dashed)
+        line.set_style(lowLine, rangeComplete ? line.style_solid : line.style_dashed)
+        line.set_width(highLine, lineWidth)
+        line.set_width(lowLine, lineWidth)
+        line.set_color(highLine, color.aqua)
+        line.set_color(lowLine, color.orange)
+        if showMidpoint
+            line.set_xy1(midLine, sessionStartBar, openingMidpoint)
+            line.set_xy2(midLine, bar_index + lineExtensionBars, openingMidpoint)
+            line.set_color(midLine, color.new(color.gray, 45))
+        else
+            line.set_color(midLine, color.new(color.gray, 100))
+        if showLineLabels
+            string statusText = rangeComplete ? "complete" : "building"
+            highTag := label.new(bar_index + lineExtensionBars, openingHigh, "OR High · " + str.tostring(openingHigh, format.mintick), style = label.style_label_left, color = color.new(color.black, 20), textcolor = color.aqua, size = size.tiny, tooltip = "Observed opening-range high. Range status: " + statusText + ". Included bars: " + str.tostring(openingBars) + ". Effective duration: " + formatMinutes(effectiveRangeMinutes) + ".")
+            lowTag := label.new(bar_index + lineExtensionBars, openingLow, "OR Low · " + str.tostring(openingLow, format.mintick), style = label.style_label_left, color = color.new(color.black, 20), textcolor = color.orange, size = size.tiny, tooltip = "Observed opening-range low. Range status: " + statusText + ". Included bars: " + str.tostring(openingBars) + ". Effective duration: " + formatMinutes(effectiveRangeMinutes) + ".")
+            if showMidpoint
+                midTag := label.new(bar_index + lineExtensionBars, openingMidpoint, "OR Mid · " + str.tostring(openingMidpoint, format.mintick), style = label.style_label_left, color = color.new(color.black, 40), textcolor = color.gray, size = size.tiny)
+    else
+        if not na(highLine)
+            line.set_color(highLine, color.new(color.aqua, 100))
+            line.set_color(lowLine, color.new(color.orange, 100))
+            line.set_color(midLine, color.new(color.gray, 100))
+
+// ───────────────────────────── Historical summaries ───────────────────────
+int completedSessions = array.size(histBreakCode)
+int aboveOnlySessions = 0
+int belowOnlySessions = 0
+int bothSessions = 0
+int neitherSessions = 0
+int firstAboveSessions = 0
+int firstBelowSessions = 0
+int firstAmbiguousSessions = 0
+int closedBackInsideCount = 0
+int upwardReturnCount = 0
+int downwardReturnCount = 0
+float medianRangeAtr = na
+float medianMinutesToFirst = na
+float medianAboveExtension = na
+float medianBelowExtension = na
+
+if barstate.islast and completedSessions > 0
+    for i = 0 to completedSessions - 1
+        int code = array.get(histBreakCode, i)
+        int firstCode = array.get(histFirstDirection, i)
+        aboveOnlySessions += code == 1 ? 1 : 0
+        belowOnlySessions += code == -1 ? 1 : 0
+        bothSessions += code == 2 ? 1 : 0
+        neitherSessions += code == 0 ? 1 : 0
+        firstAboveSessions += firstCode == 1 ? 1 : 0
+        firstBelowSessions += firstCode == -1 ? 1 : 0
+        firstAmbiguousSessions += firstCode == 2 ? 1 : 0
+        closedBackInsideCount += array.get(histClosedBackInside, i)
+        upwardReturnCount += array.get(histReturnUp, i)
+        downwardReturnCount += array.get(histReturnDown, i)
+    medianRangeAtr := array.median(histRangeAtr)
+    medianAboveExtension := array.median(histAboveExtension)
+    medianBelowExtension := array.median(histBelowExtension)
+    array<float> completedTimes = array.new_float(0)
+    for i = 0 to array.size(histMinutesToFirst) - 1
+        float observation = array.get(histMinutesToFirst, i)
+        if not na(observation)
+            array.push(completedTimes, observation)
+    if array.size(completedTimes) > 0
+        medianMinutesToFirst := array.median(completedTimes)
+
+bool historyReady = completedSessions >= minimumHistory
+string readinessText = historyReady ? "Ready · " + str.tostring(completedSessions) + " completed sessions" : "History building: " + str.tostring(completedSessions) + " of " + str.tostring(minimumHistory)
+
+// ───────────────────────────── Dashboard ───────────────────────────────────
+tablePosition = tablePositionOf(tablePositionInput)
+var table dashboard = table.new(tablePosition, 2, 22, border_width = 1, border_color = color.new(color.gray, 70))
+
+if barstate.islast
+    table.clear(dashboard, 0, 0, 1, 21)
+    if showDashboard
+        color bg = color.new(color.black, 20)
+        color sectionBg = color.new(color.gray, 78)
+        string stateText = not insideSession and na(sessionStartBar) ? "Waiting for selected session" : not insideSession and sessionRecorded ? "Selected session complete" : not rangeComplete ? "Opening range building · " + str.tostring(openingBars) + " bars" : confirmedAbove and confirmedBelow ? "Confirmed through both boundaries" : confirmedAbove ? "Confirmed above opening range" : confirmedBelow ? "Confirmed below opening range" : not na(pendingUpBar) ? "Above candidate · " + str.tostring(bar_index - pendingUpBar) + "/" + str.tostring(confirmationBars) + " bars" : not na(pendingDownBar) ? "Below candidate · " + str.tostring(bar_index - pendingDownBar) + "/" + str.tostring(confirmationBars) + " bars" : candidateUpCanceled ? "Above candidate canceled" : candidateDownCanceled ? "Below candidate canceled" : confirmedCode == 2 ? "Both boundaries confirmed this session" : confirmedCode == 1 ? "Above confirmed · monitoring OR Low" : confirmedCode == -1 ? "Below confirmed · monitoring OR High" : "Monitoring completed opening range"
+        color stateColor = not na(pendingUpBar) or not na(pendingDownBar) or candidateUpCanceled or candidateDownCanceled ? color.yellow : confirmedCode == 1 ? color.aqua : confirmedCode == -1 ? color.orange : color.white
+        string highText = na(openingHigh) ? "Unavailable" : str.tostring(openingHigh, format.mintick) + (rangeComplete and atr > 0 ? " · " + str.tostring(math.abs(distanceAboveAtr), "#.##") + " ATR" : " · building")
+        string lowText = na(openingLow) ? "Unavailable" : str.tostring(openingLow, format.mintick) + (rangeComplete and atr > 0 ? " · " + str.tostring(math.abs(distanceBelowAtr), "#.##") + " ATR" : " · building")
+        string rangeText = not rangeComplete ? "Building from completed chart bars" : str.tostring(rangeWidth, format.mintick) + " · " + str.tostring(rangeWidthAtr, "#.##") + " ATR · " + str.tostring(openingBars) + " bars"
+        string locationText = na(locationPercent) ? "Available after range completion" : str.tostring(locationPercent, "#") + "% from OR Low to OR High"
+        string nearestText = not rangeComplete ? "Available after range completion" : math.abs(distanceAboveAtr) <= math.abs(distanceBelowAtr) ? "OR High · " + str.tostring(math.abs(distanceAboveAtr), "#.##") + " ATR" : "OR Low · " + str.tostring(math.abs(distanceBelowAtr), "#.##") + " ATR"
+        string breakText = confirmedCode == 0 ? "No confirmed break this session" : confirmedCode == 1 ? "Above confirmed" : confirmedCode == -1 ? "Below confirmed" : "Above + below confirmed"
+        string frozenText = na(firstInitialClearance) ? "No completed break yet" : str.tostring(firstInitialClearance, "#.##") + " / " + str.tostring(firstConfirmationClearance, "#.##") + " ATR · " + str.tostring(firstConfirmationDelay) + " bars"
+        string timeframeText = timeframeCoarserThanRange ? "Chart interval is coarser than requested range" : effectiveRangeMinutes == openingMinutes ? "Exact requested duration" : "Effective duration " + formatMinutes(effectiveRangeMinutes)
+        string outcomeText = historyReady ? "Above " + str.tostring(100.0 * aboveOnlySessions / completedSessions, "#") + "% · Below " + str.tostring(100.0 * belowOnlySessions / completedSessions, "#") + "% · Both " + str.tostring(100.0 * bothSessions / completedSessions, "#") + "% · Neither " + str.tostring(100.0 * neitherSessions / completedSessions, "#") + "%" : readinessText
+        string firstText = historyReady ? "Above " + str.tostring(firstAboveSessions) + " · Below " + str.tostring(firstBelowSessions) + " · same-bar " + str.tostring(firstAmbiguousSessions) : readinessText
+        string extensionText = historyReady ? "Above " + str.tostring(medianAboveExtension, "#.##") + " / Below " + str.tostring(medianBelowExtension, "#.##") + " ATR" : readinessText
+        int sessionsWithAboveBreak = aboveOnlySessions + bothSessions
+        int sessionsWithBelowBreak = belowOnlySessions + bothSessions
+        int sessionsWithAnyBreak = completedSessions - neitherSessions
+        string upReturnRate = sessionsWithAboveBreak > 0 ? str.tostring(100.0 * upwardReturnCount / sessionsWithAboveBreak, "#") + "%" : "unavailable"
+        string downReturnRate = sessionsWithBelowBreak > 0 ? str.tostring(100.0 * downwardReturnCount / sessionsWithBelowBreak, "#") + "%" : "unavailable"
+        string backInsideRate = sessionsWithAnyBreak > 0 ? str.tostring(100.0 * closedBackInsideCount / sessionsWithAnyBreak, "#") + "%" : "unavailable"
+        string returnText = historyReady ? "Up " + upReturnRate + " · Down " + downReturnRate + " · back inside " + backInsideRate : readinessText
+        int row = 0
+        table.cell(dashboard, 0, row, "Current state", text_color = color.gray, text_size = size.tiny, bgcolor = sectionBg)
+        table.cell(dashboard, 1, row, stateText, text_color = stateColor, text_size = size.tiny, bgcolor = sectionBg)
+        row += 1
+        table.cell(dashboard, 0, row, "OR High", text_color = color.gray, text_size = size.tiny, bgcolor = bg)
+        table.cell(dashboard, 1, row, highText, text_color = na(openingHigh) ? color.gray : color.aqua, text_size = size.tiny, bgcolor = bg, tooltip = "Highest loaded chart-bar high included in the opening range.")
+        row += 1
+        table.cell(dashboard, 0, row, "OR Low", text_color = color.gray, text_size = size.tiny, bgcolor = bg)
+        table.cell(dashboard, 1, row, lowText, text_color = na(openingLow) ? color.gray : color.orange, text_size = size.tiny, bgcolor = bg, tooltip = "Lowest loaded chart-bar low included in the opening range.")
+        row += 1
+        table.cell(dashboard, 0, row, "Range width", text_color = color.gray, text_size = size.tiny, bgcolor = bg)
+        table.cell(dashboard, 1, row, rangeText, text_color = rangeComplete ? color.white : color.gray, text_size = size.tiny, bgcolor = bg)
+        row += 1
+        table.cell(dashboard, 0, row, "Close location", text_color = color.gray, text_size = size.tiny, bgcolor = bg)
+        table.cell(dashboard, 1, row, locationText, text_color = color.white, text_size = size.tiny, bgcolor = bg, tooltip = "0% is OR Low and 100% is OR High. Values outside that interval mean the close is outside the range.")
+        row += 1
+        table.cell(dashboard, 0, row, "Nearest boundary", text_color = color.gray, text_size = size.tiny, bgcolor = bg)
+        table.cell(dashboard, 1, row, nearestText, text_color = color.white, text_size = size.tiny, bgcolor = bg)
+        row += 1
+        table.cell(dashboard, 0, row, "Session break facts", text_color = color.gray, text_size = size.tiny, bgcolor = bg)
+        table.cell(dashboard, 1, row, breakText, text_color = confirmedCode == 1 ? color.aqua : confirmedCode == -1 ? color.orange : color.white, text_size = size.tiny, bgcolor = bg)
+        row += 1
+        table.cell(dashboard, 0, row, "Initial / confirm / delay", text_color = color.gray, text_size = size.tiny, bgcolor = bg)
+        table.cell(dashboard, 1, row, frozenText, text_color = na(firstInitialClearance) ? color.gray : color.white, text_size = size.tiny, bgcolor = bg)
+        row += 1
+        table.cell(dashboard, 0, row, "Historical readiness", text_color = color.gray, text_size = size.tiny, bgcolor = sectionBg)
+        table.cell(dashboard, 1, row, readinessText, text_color = historyReady ? color.white : color.gray, text_size = size.tiny, bgcolor = sectionBg)
+        row += 1
+        if dashboardDetail != "Compact"
+            table.cell(dashboard, 0, row, "Completed outcomes", text_color = color.gray, text_size = size.tiny, bgcolor = bg)
+            table.cell(dashboard, 1, row, outcomeText, text_color = color.white, text_size = size.tiny, bgcolor = bg, tooltip = "In-sample proportions of completed loaded sessions. They are descriptive, not a forecast for the next session.")
+            row += 1
+            table.cell(dashboard, 0, row, "First confirmation counts", text_color = color.gray, text_size = size.tiny, bgcolor = bg)
+            table.cell(dashboard, 1, row, firstText, text_color = color.white, text_size = size.tiny, bgcolor = bg)
+            row += 1
+            table.cell(dashboard, 0, row, "Median extension", text_color = color.gray, text_size = size.tiny, bgcolor = bg)
+            table.cell(dashboard, 1, row, extensionText, text_color = color.white, text_size = size.tiny, bgcolor = bg)
+            row += 1
+            table.cell(dashboard, 0, row, "Returns / back inside", text_color = color.gray, text_size = size.tiny, bgcolor = bg)
+            table.cell(dashboard, 1, row, returnText, text_color = color.white, text_size = size.tiny, bgcolor = bg)
+            row += 1
+        if dashboardDetail == "Research"
+            table.cell(dashboard, 0, row, "Requested / effective OR", text_color = color.gray, text_size = size.tiny, bgcolor = bg)
+            table.cell(dashboard, 1, row, str.tostring(openingMinutes) + " / " + formatMinutes(effectiveRangeMinutes), text_color = timeframeCoarserThanRange ? color.yellow : color.white, text_size = size.tiny, bgcolor = bg)
+            row += 1
+            table.cell(dashboard, 0, row, "Timeframe check", text_color = color.gray, text_size = size.tiny, bgcolor = bg)
+            table.cell(dashboard, 1, row, timeframeText, text_color = timeframeCoarserThanRange ? color.yellow : color.white, text_size = size.tiny, bgcolor = bg)
+            row += 1
+            table.cell(dashboard, 0, row, "Opening volume", text_color = color.gray, text_size = size.tiny, bgcolor = bg)
+            table.cell(dashboard, 1, row, na(openingVolume) ? "Volume unavailable from symbol" : str.tostring(openingVolume, format.volume), text_color = na(openingVolume) ? color.gray : color.white, text_size = size.tiny, bgcolor = bg)
+            row += 1
+            table.cell(dashboard, 0, row, "Median range / first time", text_color = color.gray, text_size = size.tiny, bgcolor = bg)
+            table.cell(dashboard, 1, row, historyReady ? str.tostring(medianRangeAtr, "#.##") + " ATR / " + formatMinutes(medianMinutesToFirst) : readinessText, text_color = color.white, text_size = size.tiny, bgcolor = bg)
+
+// ───────────────────────────── Exports ─────────────────────────────────────
+plot(openingHigh, "Opening range high", display = display.data_window + display.price_scale)
+plot(openingLow, "Opening range low", display = display.data_window + display.price_scale)
+plot(openingMidpoint, "Opening range midpoint", display = display.data_window)
+plot(rangeComplete ? 1 : 0, "Opening range complete", display = display.data_window)
+plot(openingBars, "Opening range included bars", display = display.data_window)
+plot(effectiveRangeMinutes, "Opening range effective minutes", display = display.data_window)
+plot(rangeWidth, "Opening range width", display = display.data_window)
+plot(rangeWidthAtr, "Opening range width · ATR", display = display.data_window)
+plot(locationPercent, "Close location in opening range · percent", display = display.data_window)
+plot(distanceAboveAtr, "Distance to opening range high · ATR", display = display.data_window)
+plot(distanceBelowAtr, "Distance to opening range low · ATR", display = display.data_window)
+plot(confirmedAbove ? 1 : confirmedBelow ? -1 : na, "Confirmed opening-range break direction", display = display.data_window)
+plot(confirmedAbove or confirmedBelow ? eventLevel : na, "Confirmed break level", display = display.data_window)
+plot(confirmedAbove or confirmedBelow ? eventInitialClearance : na, "Initial close clearance · ATR", display = display.data_window)
+plot(confirmedAbove or confirmedBelow ? eventConfirmationClearance : na, "Confirmation clearance · ATR", display = display.data_window)
+plot(confirmedAbove or confirmedBelow ? eventDelay : na, "Candidate-to-confirmation delay · bars", display = display.data_window)
+plot(confirmedAbove or confirmedBelow ? eventRangeAtr : na, "Initial candle range · ATR", display = display.data_window)
+plot(confirmedAbove or confirmedBelow ? eventBodyRatio : na, "Initial candle body ÷ range", display = display.data_window)
+plot(confirmedAbove or confirmedBelow ? eventVolumeMultiple : na, "Initial candle volume multiple", display = display.data_window)
+plot(confirmedCode, "Current session confirmed code · 1 above, -1 below, 2 both", display = display.data_window)
+plot(maximumAboveExtensionAtr, "Current session maximum extension above · frozen ATR", display = display.data_window)
+plot(maximumBelowExtensionAtr, "Current session maximum extension below · frozen ATR", display = display.data_window)
+plot(returnToUpwardBreak ? 1 : returnToDownwardBreak ? -1 : na, "Broken-boundary return direction", display = display.data_window)
+plot(completedSessions, "Completed sessions retained", display = display.data_window)
+plot(atr, "ATR", display = display.data_window)
+plot(volumeMultiple, "Volume multiple", display = display.data_window)
+
+// ───────────────────────────── Alerts ──────────────────────────────────────
+alertcondition(rangeCompleteEvent, "Opening range completed", "The configured opening range completed on {{ticker}} @ {{close}}")
+alertcondition(confirmedAbove, "Opening range closed above", "A completed close confirmed above the frozen opening-range high on {{ticker}} @ {{close}}")
+alertcondition(confirmedBelow, "Opening range closed below", "A completed close confirmed below the frozen opening-range low on {{ticker}} @ {{close}}")
+alertcondition(returnToUpwardBreak, "Return to upward-broken opening range", "Price returned to the upward-broken opening-range high and closed on the broken side on {{ticker}} @ {{close}}")
+alertcondition(returnToDownwardBreak, "Return to downward-broken opening range", "Price returned to the downward-broken opening-range low and closed on the broken side on {{ticker}} @ {{close}}")
+
+bool candidatesEnabled = enableDynamicAlerts and (alertDetail == "Candidates" or alertDetail == "All transitions")
+bool allTransitionsEnabled = enableDynamicAlerts and alertDetail == "All transitions"
+if barstate.isconfirmed
+    if candidatesEnabled and candidateUpStarted
+        alert("Opening-range above candidate started · level " + str.tostring(openingHigh, format.mintick) + " · clearance " + str.tostring(pendingUpClearance, "#.##") + " ATR", alert.freq_once_per_bar_close)
+    if candidatesEnabled and candidateDownStarted
+        alert("Opening-range below candidate started · level " + str.tostring(openingLow, format.mintick) + " · clearance " + str.tostring(pendingDownClearance, "#.##") + " ATR", alert.freq_once_per_bar_close)
+    if candidatesEnabled and candidateUpCanceled
+        alert("Opening-range above candidate canceled by completed close", alert.freq_once_per_bar_close)
+    if candidatesEnabled and candidateDownCanceled
+        alert("Opening-range below candidate canceled by completed close", alert.freq_once_per_bar_close)
+    if candidatesEnabled and oneUpRemaining
+        alert("Opening-range above candidate · one configured confirmation bar remaining", alert.freq_once_per_bar_close)
+    if candidatesEnabled and oneDownRemaining
+        alert("Opening-range below candidate · one configured confirmation bar remaining", alert.freq_once_per_bar_close)
+    if allTransitionsEnabled and upwardArmedEvent
+        alert("Upward-broken opening-range high moved outside its return band", alert.freq_once_per_bar_close)
+    if allTransitionsEnabled and downwardArmedEvent
+        alert("Downward-broken opening-range low moved outside its return band", alert.freq_once_per_bar_close)

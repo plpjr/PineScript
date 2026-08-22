@@ -8,14 +8,20 @@ badly.
 
 | | **[Structure Break Signals](Structure-Break-Signals.md)** | **[Key Zone Map](Key-Zone-Map.md)** |
 |---|---|---|
-| **Answers** | *What confirmed structure event occurred, and what were its measured details?* | *Which calculated regions are nearby, and what measurable attributes do they have?* |
-| **Draws** | Labelled break lines (HH / LL / LH / HL), live levels, and measured distances | Shaded zone boxes with confluence counts and in-chart frequency data |
+| **Answers** | *Which calculated key levels are nearby, and what confirmed event occurred at one?* | *Which calculated regions are nearby, and what measurable attributes do they have?* |
+| **Draws** | Up to two ranked horizontal key-level clusters above and below price | Shaded zone boxes with confluence counts and in-chart frequency data |
 | **File** | `Structure_Break_Signals.pine` | `Key_Zone_Map.pine` |
-| **Version** | v8.4 | v1.7 |
+| **Version** | v9.0 | v1.7 |
 | **Focus** | Confirmed structure events | Calculated price regions |
 
 They are most useful together — see **[Playbooks → Using both scripts
 together](Playbooks.md#using-both-scripts-together)**.
+
+**[Opening Range Breakout Toolkit](Opening-Range-Breakout-Toolkit.md) v1.0** is
+the focused daily-session companion. It draws the observed opening-range high,
+low, and midpoint; freezes completed-close candidates; tracks confirmed breaks
+and broken-boundary returns; and summarizes completed sessions without making a
+trading claim.
 
 ---
 
@@ -26,6 +32,7 @@ together](Playbooks.md#using-both-scripts-together)**.
 | Get the scripts onto a chart for the first time | **[Getting Started](Getting-Started.md)** |
 | Understand the vocabulary before touching settings | **[Concepts](Concepts.md)** |
 | Look up what a specific setting does | [Structure Break Signals](Structure-Break-Signals.md) · [Key Zone Map](Key-Zone-Map.md) |
+| Build a daily opening-range workflow | **[Opening Range Breakout Toolkit](Opening-Range-Breakout-Toolkit.md)** |
 | Understand the hit-rate numbers on zone labels | **[Confluence & Hit Rates](Confluence-and-Hit-Rates.md)** |
 | Choose between the two swing detection methods | **[Swing Engines](Swing-Engines.md)** |
 | Set up an actual trading routine | **[Playbooks](Playbooks.md)** |
@@ -38,14 +45,14 @@ together](Playbooks.md#using-both-scripts-together)**.
 
 ## The one-paragraph explanation
 
-**Structure Break Signals** watches the nearest unbroken swing high and swing
-low. When price closes through one under its stated rules, it records the
-resulting relationship, the candidate and confirmation measurements, the
-active structural span and session location. It then measures the completed
-5/10/20-bar path after the event and compares it with completed non-break
-starting bars from the same chart. Those observations describe history; they
-are not a probability or trade rating. Its guided dashboard leads with the
-current structure and keeps the complete research view available on demand.
+**Structure Break Signals** clusters confirmed pivots and completed prior-
+session, opening-range, and overnight facts into ranked horizontal levels. It
+shows the best calculated levels on each side, freezes the monitored cluster
+when a close-through candidate begins, and records the candidate and
+confirmation measurements. It then measures completed reaction and 5/10/20-
+bar event history against ordinary chart bars. Reference counts and historical
+comparisons describe the loaded data; they are not probabilities or trade
+ratings.
 
 **Key Zone Map** runs four independent detectors — swing zones, order blocks,
 fair value gaps and liquidity pools — and shows you where they *agree*. Then

@@ -13,10 +13,14 @@ public library — you paste the source in yourself.
 2. **Open → New indicator**, select all the boilerplate, delete it.
 3. Paste the entire contents of `Structure_Break_Signals.pine`.
 4. **Save**, give it a name, then **Add to chart**.
-5. Repeat from step 2 with `Key_Zone_Map.pine` if you want the zone half too.
+5. Repeat from step 2 with `Key_Zone_Map.pine` if you want the zone half, or
+   `Opening_Range_Breakout_Toolkit.pine` for the daily ORB workflow.
 
 The scripts remain separate because one reports structure events and the other
 maps persistent price regions. This keeps their chart roles and settings clear.
+
+The ORB toolkit is also separate: it resets around one explicitly configured
+daily session and should not inherit every general-purpose structure setting.
 
 > **If the editor throws a compile error**, don't start editing settings —
 > check [Troubleshooting → Compile
@@ -28,8 +32,8 @@ maps persistent price regions. This keeps their chart roles and settings clear.
 
 You do not have to run both.
 
-**Run only Structure Break Signals if** you trade breaks and continuations and
-mostly want to know whether a move through a level was real. It is the more
+**Run only Structure Break Signals if** you want a clean map of calculated key
+levels and completed-close facts when price moves through one. It is the more
 self-contained of the two.
 
 **Run only Key Zone Map if** you trade reactions off levels and want to know
@@ -41,6 +45,10 @@ pay attention, Structure Break Signals tells you *whether something real
 happened* when price got there. See [Playbooks → Using both scripts
 together](Playbooks.md#using-both-scripts-together).
 
+**Run Opening Range Breakout Toolkit if** your daily process begins with a
+defined session opening range and you want its exact boundaries, completed-close
+state, returns, and loaded-history session facts in one compact indicator.
+
 ---
 
 ## 3. Structure Break Signals — the five-minute setup
@@ -51,10 +59,10 @@ together](Playbooks.md#using-both-scripts-together).
    confirmation 1` definition. Fast and Broad change event definitions, not
    expected performance.
 2. Leave **Dashboard detail = Standard**. Read it from top to bottom: current
-   state → active boundaries → high/low measured evidence → price location →
-   latest confirmed event → historical evidence. Hover either evidence row or
-   active-level label to see its sample counts, comparison cohort, overlapping
-   references, and 95% difference interval.
+   state → Above/Below levels → nearest boundary → span/location → pending or
+   latest confirmed break → historical evidence. Hover a key-level label for
+   exact source families, pivot observations, ages, tolerance, distance, and
+   reaction evidence.
 3. Leave **Show session context in dashboard = OFF** unless session ranges are
    meaningful for the market. When enabled, enter the selected and overnight
    periods in the symbol's exchange time.
@@ -89,10 +97,12 @@ ATR-normalized clearance:
 
 ## 4. What you should see
 
-**Structure Break Signals** should show two dotted active boundaries, confirmed
-pivot labels, a guided dashboard in the top right, and bounded horizontal lines
-at confirmed broken levels. The separate evidence table appears only in
-Research detail. Break-bar text labels are off by default.
+**Structure Break Signals** should show up to four dotted horizontal levels:
+`Above 1`, `Above 2`, `Below 1`, and `Below 2`. Their labels show exact price
+and independent reference count. The guided dashboard appears in the top right;
+the separate evidence table appears only in Research detail. Pivot labels and
+HH/LH/HL/LL text are intentionally absent. Historical break drawings default
+to zero so the live map remains clean.
 
 **Key Zone Map** should show a shaded box above and below price labelled
 `Resistance` and `Support`, plus boxes for order blocks, gaps and liquidity
@@ -112,9 +122,10 @@ counts need time to build:
   cohort reaches its minimum sample count. Compare completed break observations
   with the displayed non-break baseline; do not convert an early difference
   into a rule.
-- A stronger/weaker active-level label describes separation from its loaded-
-  chart ordinary-bar baseline under one exact reaction definition. It does not
-  claim the live level will hold, and it is not a trade instruction.
+- A stronger/weaker key-level evidence row describes separation from its
+  loaded-chart ordinary-bar baseline under one exact reaction definition. It
+  does not select the displayed lines, claim a live level will hold, or provide
+  a trade instruction.
 - Key Zone Map's **[hit rates](Confluence-and-Hit-Rates.md)** need zones to
   actually resolve before the numbers mean anything, and **every settings
   change resets the count to zero** because TradingView recalculates the

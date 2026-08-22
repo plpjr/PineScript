@@ -10,6 +10,9 @@
 **Structure Break Signals**
 - [Overview & Settings](Structure-Break-Signals.md)
 
+**Opening Range Breakout Toolkit**
+- [Overview & Settings](Opening-Range-Breakout-Toolkit.md)
+
 **Key Zone Map**
 - [Overview & Settings](Key-Zone-Map.md)
 - [Confluence & Hit Rates](Confluence-and-Hit-Rates.md)
