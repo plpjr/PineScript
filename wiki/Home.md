@@ -8,11 +8,11 @@ badly.
 
 | | **[Structure Break Signals](Structure-Break-Signals.md)** | **[Key Zone Map](Key-Zone-Map.md)** |
 |---|---|---|
-| **Answers** | *Did structure actually break, and how convincingly?* | *Which level is worth watching, and why?* |
-| **Draws** | Labelled break lines (HH / LL / LH / HL) with a 0–100 score | Shaded zone boxes with confluence counts and hit rates |
+| **Answers** | *What confirmed structure event occurred, and what were its measured details?* | *Which calculated regions are nearby, and what measurable attributes do they have?* |
+| **Draws** | Labelled break lines (HH / LL / LH / HL), live levels, and measured distances | Shaded zone boxes with confluence counts and in-chart frequency data |
 | **File** | `Structure_Break_Signals.pine` | `Key_Zone_Map.pine` |
-| **Version** | v7.12 | v1.7 |
-| **Signature feature** | The [confidence score](Confidence-Score.md) | [Confluence + historical hit rates](Confluence-and-Hit-Rates.md) |
+| **Version** | v8.4 | v1.7 |
+| **Focus** | Confirmed structure events | Calculated price regions |
 
 They are most useful together — see **[Playbooks → Using both scripts
 together](Playbooks.md#using-both-scripts-together)**.
@@ -26,11 +26,9 @@ together](Playbooks.md#using-both-scripts-together)**.
 | Get the scripts onto a chart for the first time | **[Getting Started](Getting-Started.md)** |
 | Understand the vocabulary before touching settings | **[Concepts](Concepts.md)** |
 | Look up what a specific setting does | [Structure Break Signals](Structure-Break-Signals.md) · [Key Zone Map](Key-Zone-Map.md) |
-| Understand how breaks get graded | **[Confidence Score](Confidence-Score.md)** |
 | Understand the hit-rate numbers on zone labels | **[Confluence & Hit Rates](Confluence-and-Hit-Rates.md)** |
 | Choose between the two swing detection methods | **[Swing Engines](Swing-Engines.md)** |
 | Set up an actual trading routine | **[Playbooks](Playbooks.md)** |
-| Test whether the score actually works | **[Backtesting](Backtesting.md)** |
 | Set it up on MNQ futures | **[Running on MNQ](Running-on-MNQ.md)** |
 | Get notified without watching the chart | **[Alerts](Alerts.md)** |
 | Fix something that looks wrong | **[Troubleshooting](Troubleshooting.md)** |
@@ -41,17 +39,19 @@ together](Playbooks.md#using-both-scripts-together)**.
 ## The one-paragraph explanation
 
 **Structure Break Signals** watches the nearest unbroken swing high and swing
-low. When price closes decisively through one, it draws a line at that level
-and labels it with what just happened in classic Dow Theory terms — **HH**
-(higher high), **LL** (lower low), **LH** (a lower high giving way), **HL** (a
-higher low giving way) — plus a 0–100 score describing how emphatic the break
-was. A pile of filters decides what counts as "decisively."
+low. When price closes through one under its stated rules, it records the
+resulting relationship, the candidate and confirmation measurements, the
+active structural span and session location. It then measures the completed
+5/10/20-bar path after the event and compares it with completed non-break
+starting bars from the same chart. Those observations describe history; they
+are not a probability or trade rating. Its guided dashboard leads with the
+current structure and keeps the complete research view available on demand.
 
 **Key Zone Map** runs four independent detectors — swing zones, order blocks,
 fair value gaps and liquidity pools — and shows you where they *agree*. Then
 it tracks, from your own chart's history, how often zones with that much
-agreement actually got touched and actually held. So the number on a zone
-label isn't a claim about the future; it's a count of what happened before.
+agreement occurred. Its frequency figures are counts over loaded chart history,
+not claims about what price will do next.
 
 ---
 
@@ -76,9 +76,9 @@ Timeframe adaptation](Concepts.md#timeframe-adaptation).
 rather than a raw percentage, because 3-for-3 and 300-for-300 are not the same
 evidence even though both are "100%".
 
-**Nothing here predicts.** The score grades a break that already happened. The
-hit rate counts zones that already resolved. Both are descriptions of the
-past, presented so you can decide what to do about the present.
+**Nothing here predicts.** The indicators report confirmed events, calculated
+distances, and counts from the chart history. They do not rate opportunities or
+recommend an action.
 
 ---
 

@@ -5,7 +5,142 @@
 Both scripts version independently. The authoritative history lives in each
 `.pine` file's header comment; this page is the readable summary.
 
-**Current:** Structure Break Signals **v7.23** · Key Zone Map **v1.7**
+**Current:** Structure Break Signals **v8.4** · Key Zone Map **v1.7**
+
+---
+
+## v8.4 — measured active-level evidence
+
+- Added completed first-approach observations for active pivot highs and lows.
+  Reaction and completed-close-through thresholds are explicit ATR inputs, and
+  the approach candle is excluded from its own forward window.
+- Added a same-chart ordinary-bar baseline with matched side and, when samples
+  permit, selected-session state and ATR regime.
+- Added reference-overlap context from same-side prior-session, opening-range,
+  and overnight facts available when the pivot confirms.
+- Active levels now report `Stronger measured`, `Weaker measured`, `No measured
+  separation`, or `Evidence building`. Stronger/weaker requires the 95%
+  reaction-rate difference interval to exclude zero and both sample minimums
+  to be met.
+- Added two compact dashboard rows and short live-level labels; detailed rates,
+  counts, cohort fallback, overlap references, and uncertainty are in tooltips.
+  No plot-count consumer was added.
+
+---
+
+## v8.3 — guided, market-neutral usability
+
+- Added transparent `Fast`, `Standard`, `Broad`, and `Custom` structure
+  profiles. `Custom` remains the default so existing numeric configurations
+  stay authoritative.
+- Added Compact, Standard, and Research dashboards. Standard leads with the
+  current state, active boundaries, structure location, latest confirmation,
+  and evidence readiness; Research retains every v8.2 facts-table field and
+  the separate cohort table.
+- Added an optional session-context display switch. Calculations and exports
+  remain active when session rows are hidden.
+- Replaced unexplained blank states with factual building, unavailable, or
+  disabled messages and added calculation tooltips throughout the tables.
+- Added Confirmed-only, Candidates, and All-transitions advance-notice levels.
+  Named confirmed-event alert conditions are unchanged.
+- Detection and export formulas are unchanged when `Structure profile =
+  Custom`. No new plot-count consumers were added.
+
+---
+
+## v8.2 — context, event evidence, and advance notice
+
+- Added fixed 5/10/20-bar post-break measurements: favorable and adverse
+  excursion, final displacement, first threshold reached, first broken-level
+  return age, and whether price later closed back through the broken level.
+- Added a rolling non-break baseline from actual chart bars. The evidence table
+  reports break/baseline sample counts and medians and withholds cohort
+  statistics until the configured minimum sample count is met.
+- Added selectable break cohorts by direction, pivot relationship, session,
+  ATR regime, initial clearance, volume, and confirmation delay. Baseline bars
+  can match direction, session, and ATR only; the table and documentation say
+  so explicitly.
+- Added active-structure span in ATR, close location inside the span, boundary
+  ages, nearest boundary, and snapshot compression/expansion.
+- Added selected-session elapsed time, range size/location, prior-session range
+  relation, a completed-bar opening range, and a separate overnight range that
+  remains unavailable when the chart has no overnight bars.
+- Added transition-only dynamic alerts for first approaches, candidate starts
+  and cancellations, one remaining confirmation bar, and broken-level arm/band
+  re-entry events.
+- Expanded the auditable Data Window export. The script compiles at the
+  TradingView limit of 64 plot-count consumers.
+
+---
+
+## v8.1 — event integrity and broken-level returns
+
+- Pivot relationships now use permanent prior-pivot history, independent of
+  whether the active level has already broken.
+- Initial-cross candle measurements are frozen when a candidate starts;
+  confirmation-bar clearance, delay, and session state are reported separately.
+- The session option is display-only. Detection and state updates continue on
+  every loaded bar, and prior-session O/H/L now rolls on session-only charts.
+- Return markers now track previously broken levels, require price to move away
+  first, and fire only on a new band entry that closes on the broken side.
+- Active-level counts are named `approaches`, not tests or holds.
+- Drawing history and calculation history are separately bounded. Expired and
+  capacity-dropped broken-level records are counted rather than graded.
+- Expanded Data Window fields make candidate, confirmation, session, return,
+  and lifecycle facts independently auditable.
+
+---
+
+## v8.0 — facts-only structure reader
+
+Structure Break Signals was rebuilt around confirmed chart facts. It now has
+16 inputs, down from the prior research instrument's 100+ inputs.
+
+- Removed composite scores, score tuning, forward-outcome diagnostics, and
+  score-based filtering.
+- Removed the duplicate nearby-level map; Key Zone Map owns persistent price
+  regions.
+- Displays all-session events by default and reports selected/prior session
+  O/H/L facts explicitly.
+- Exports an auditable event record: source bar, source age, clearance, candle
+  range/body, volume multiple, session flag, ATR context, active-level facts,
+  and session facts.
+- Uses factual language only; it does not rate, predict, or recommend trades.
+
+---
+
+## v7.25 — complete session facts
+
+- Events now display around the clock by default. A session filter is available
+  only when the user explicitly wants to hide outside-session events.
+- The Chart facts table and data export now include the selected session’s
+  open, high, low, and the prior completed session’s open, high, and low.
+- Removed the duplicate nearby-level-map controls from this indicator. Key Zone
+  Map remains the dedicated tool for persistent price regions.
+
+---
+
+## v7.24 — facts-first defaults
+
+- The 0–100 composite break measurement, score labels, score-based fading, and
+  forward-excursion diagnostic are now **off by default**. They remain
+  available as optional research tools, but do not imply probability, quality,
+  or a trading recommendation.
+- The status table is renamed **Chart facts table**. It replaces `Last score`
+  with the most recent confirmed event type, exact broken level, and ATR
+  clearance; it also shows current session state beside pending confirmation.
+- Alert names and messages now describe the confirmed structural event rather
+  than claiming a continuation, reversal, support, or resistance outcome.
+
+---
+
+## Repository focus — two indicators only
+
+The generated backtest strategy, strategy build tooling, and strategy-specific
+documentation have been removed. This repository now ships only the two
+TradingView indicators. They report directly calculated structure and
+price-region information; they do not place orders, backtest a trading system,
+or recommend an action.
 
 ---
 
@@ -352,15 +487,11 @@ behaviour.
   from the `Retest marker size` input. Broken since the setting was added in
   v7.3 — the script would not load at all. Now one gated `plotshape` per size
   constant, so the setting works for the first time.
-- **Backtestable strategy added.** `Structure_Break_Strategy.pine`, generated
-  from the indicator by `tools/build_strategy.py` so the two cannot drift.
-  Exists to answer whether tightening `Minimum score to signal` actually
-  improves results — see [Backtesting](Backtesting.md).
-- **`Retest level` exposed and exported.** The backtest strategy places its
-  structural stop relative to the level a trade is reacting to; on retest
-  entries it previously had to approximate that with "the most recent break
-  level", which is wrong whenever an older level in the window is the one price
-  returned to.
+- **Historical:** a generated strategy was added for backtesting. It has since
+  been removed as the repository was refocused on the two indicators.
+- **`Retest level` exposed and exported.** It records the exact broken level
+  that price returned to, rather than assuming the most recent break is the
+  relevant reference.
 - Internal-structure pivots computed unconditionally and gated afterwards,
   matching the swing engine — a `ta.*` call behind a condition isn't guaranteed
   to run every bar.

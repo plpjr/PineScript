@@ -15,9 +15,8 @@ public library — you paste the source in yourself.
 4. **Save**, give it a name, then **Add to chart**.
 5. Repeat from step 2 with `Key_Zone_Map.pine` if you want the zone half too.
 
-Both scripts fit within a free TradingView account's indicator limit when run
-as two separate indicators. That constraint is a large part of why they were
-split rather than kept as one.
+The scripts remain separate because one reports structure events and the other
+maps persistent price regions. This keeps their chart roles and settings clear.
 
 > **If the editor throws a compile error**, don't start editing settings —
 > check [Troubleshooting → Compile
@@ -44,29 +43,38 @@ together](Playbooks.md#using-both-scripts-together).
 
 ---
 
-## 3. First run — leave almost everything alone
+## 3. Structure Break Signals — the five-minute setup
 
-Both ship with defaults chosen for **intraday futures on 5M–15M**. If that's
-roughly your context, the only things worth touching on day one are:
+1. Add the indicator and open its settings. Leave **Structure profile =
+   Custom** to preserve the numeric defaults or any saved settings. Choose
+   **Standard** if you want the documented `pivot 5 / clearance 0.10 ATR /
+   confirmation 1` definition. Fast and Broad change event definitions, not
+   expected performance.
+2. Leave **Dashboard detail = Standard**. Read it from top to bottom: current
+   state → active boundaries → high/low measured evidence → price location →
+   latest confirmed event → historical evidence. Hover either evidence row or
+   active-level label to see its sample counts, comparison cohort, overlapping
+   references, and 95% difference interval.
+3. Leave **Show session context in dashboard = OFF** unless session ranges are
+   meaningful for the market. When enabled, enter the selected and overnight
+   periods in the symbol's exchange time.
+4. For notifications, use a named alert condition for completed breaks or
+   returns. Use **Any alert() function call** only for the enabled candidate or
+   transition notices.
+5. Wait until **Historical evidence** says `Ready`. Before then, the displayed
+   count is still building toward the configured minimum. Active-level
+   evidence has its own minimum and says `Evidence building` until both the
+   structural-level and ordinary-bar samples are large enough.
 
-### Structure Break Signals
+The three guided profiles are market-neutral because they use bar counts and
+ATR-normalized clearance:
 
-| Setting | Do this | Why |
+| Profile | Effective definition | What changes |
 |---|---|---|
-| `Preset` | Match it to your timeframe — see the table below | One control sets every filter at once |
-| `Minimum score to signal` | **Leave at 0** | You have no idea what your cutoff is yet. See [Calibration](Playbooks.md#calibrating-the-confidence-score) |
-| `Show score on label` | Leave ON | You're collecting data on what scores mean |
-| `Only signal with EMA trend` | **Leave OFF** | It suppresses exactly the reversal signals you'd want to see |
-| `Restrict to a session` | Turn ON once you know your window | Overnight chop generates structure you can't trade |
-
-Preset by timeframe:
-
-| Your chart | Preset | Notes |
-|---|---|---|
-| 1M–3M scalping | `Loose` | More signals, earlier, noisier — you filter manually |
-| 5M–15M intraday | `Balanced` | What the defaults are tuned for |
-| 1H swing | `Strict` | Fewer, more decisive breaks |
-| 4H / Daily | `Very Strict` | Major structure only |
+| `Fast` | Pivot 3 · clearance 0.05 ATR · confirm 0 | More responsive, smaller structural turns |
+| `Standard` | Pivot 5 · clearance 0.10 ATR · confirm 1 | Documented middle definition |
+| `Broad` | Pivot 10 · clearance 0.10 ATR · confirm 1 | Broader turns with a 10-bar known pivot delay |
+| `Custom` | Uses the numeric Structure inputs | Preserves existing configurations |
 
 ### Key Zone Map
 
@@ -81,9 +89,10 @@ Preset by timeframe:
 
 ## 4. What you should see
 
-**Structure Break Signals** should show two dotted lines (the swing high and
-low currently being watched), a status table in the top right, and labelled
-lines appearing when price breaks through one of them.
+**Structure Break Signals** should show two dotted active boundaries, confirmed
+pivot labels, a guided dashboard in the top right, and bounded horizontal lines
+at confirmed broken levels. The separate evidence table appears only in
+Research detail. Break-bar text labels are off by default.
 
 **Key Zone Map** should show a shaded box above and below price labelled
 `Resistance` and `Support`, plus boxes for order blocks, gaps and liquidity
@@ -96,13 +105,16 @@ signals appear](Troubleshooting.md#no-signals-or-zones-appear).
 
 ## 5. The first week
 
-Resist the urge to tune. Both scripts have a learning-based feature that needs
-history before it means anything:
+Resist the urge to tune. Both scripts summarize loaded history, so their sample
+counts need time to build:
 
-- Structure Break Signals' **[confidence score](Confidence-Score.md)** is
-  display-only until you set a minimum. Spend a week watching which scores
-  actually led to follow-through on your instrument, *then* set the cutoff to
-  what you observed. Guessing it just tightens the filters slowly.
+- Structure Break Signals withholds event-cohort statistics until the selected
+  cohort reaches its minimum sample count. Compare completed break observations
+  with the displayed non-break baseline; do not convert an early difference
+  into a rule.
+- A stronger/weaker active-level label describes separation from its loaded-
+  chart ordinary-bar baseline under one exact reaction definition. It does not
+  claim the live level will hold, and it is not a trade instruction.
 - Key Zone Map's **[hit rates](Confluence-and-Hit-Rates.md)** need zones to
   actually resolve before the numbers mean anything, and **every settings
   change resets the count to zero** because TradingView recalculates the
@@ -116,7 +128,6 @@ The full procedures are in [Playbooks → Calibration](Playbooks.md#calibration)
 
 - **[Concepts](Concepts.md)** — the vocabulary. Worth 10 minutes before you
   start changing things.
-- **[Swing Engines](Swing-Engines.md)** — the single deepest setting in either
-  script. Defaults to the conventional choice; the alternative is worth
-  understanding.
+- **[Structure Break Signals](Structure-Break-Signals.md)** — exact event,
+  evidence, session, and export definitions.
 - **[Playbooks](Playbooks.md)** — concrete timeframe setups and workflows.

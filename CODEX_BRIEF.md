@@ -12,16 +12,14 @@ assumed rather than measured, it says so.
 
 ## 1. What this is
 
-Two TradingView Pine v5 indicators for reading market structure, plus a
-generated backtest strategy used only as a measuring instrument.
+Two TradingView Pine v5 indicators for reporting calculated market structure
+and price-region information. The repository intentionally contains no trading
+strategy or order-generation code.
 
 | File | Purpose | Version | Lines | Inputs |
 |---|---|---|---|---|
-| `Structure_Break_Signals.pine` | Swing structure: HH/HL/LH/LL sequence, break events, live levels | **v7.23** | 2,644 | **113** |
+| `Structure_Break_Signals.pine` | Guided facts-only pivots, breaks, active structure, sessions, level/event evidence, and exports | **v8.4** | 1,603 | **46** |
 | `Key_Zone_Map.pine` | Zones: swing zones, order blocks, FVGs, liquidity pools, confluence | **v1.7** | 1,158 | 45 |
-| `Structure_Break_Strategy.pine` | **GENERATED — never edit** | v7.23 | 3,042 | — |
-| `tools/build_strategy.py` | Generates the strategy from the indicator | | 175 | |
-| `tools/strategy_tail.pine` | Trade logic appended by the generator | | 359 | |
 | `tools/tv_paste.js` | Pastes a `.pine` into TradingView over CDP | | 86 | |
 | `tools/tv_export_bars.js` | Exports chart bars to JSON over CDP | | 61 | |
 | `tools/level_quality.js` | In-page level-quality harness | | 106 | |
@@ -39,30 +37,18 @@ working documents with fuller history than this brief.
 Test when unsure: a break happens at an instant → Structure Break Signals. A
 zone persists across bars → Key Zone Map.
 
-⚠️ **Known overlap:** `⑭ Level map` in Structure Break Signals (8 inputs)
-duplicates Key Zone Map's swing zones, and does it worse — no confluence, no
-hit rates. It was added in v7.15 to solve "nothing is marked near price". It is
-a candidate for removal.
+Persistent price regions remain Key Zone Map's responsibility. Structure Break
+Signals contains only event-time structure, active pivot levels, and bounded
+records of previously broken levels for objective return detection.
 
 ---
 
-## 2. How the strategy is generated
+## 2. Product boundary
 
-`indicator()` and `strategy()` are mutually exclusive declarations, so the
-strategy must be a separate file. Hand-maintaining ~3,000 duplicated lines
-would guarantee drift.
-
-```bash
-python3 tools/build_strategy.py           # write
-python3 tools/build_strategy.py --check   # exit 1 if stale — run before every commit
-```
-
-The generator makes exactly three changes: `indicator(...)` → `strategy(...)`,
-drops `alertcondition(...)` lines (Pine rejects them in strategies), and
-appends `tools/strategy_tail.pine`. It injects `BUILD_ID`, a SHA of
-indicator+tail, displayed on the chart label — the only reliable way to confirm
-TradingView is running the code you just pasted. Deterministic: re-running
-reproduces byte-identical output.
+The project ships indicators only. They may report confirmed events, exact
+prices, distances, timestamps, counts, and other directly calculated chart
+facts. They must not place orders, backtest a trading system, predict price, or
+recommend a trading action.
 
 ---
 
@@ -155,7 +141,10 @@ Breaks arrive about **once every 157 bars** — 32 in 5,000 bars. Validating a
 history. **Pooling across the watchlist (ES, MES, MNQ, MCL, HG, SI, MGC) is the
 only route to statistical power.** This is the highest-value unstarted task.
 
-### Backtest, for context only
+### Historical strategy research, for context only
+
+The former strategy and its tooling have been removed. These historical results
+remain only as evidence of why no trading claims are made by the indicators.
 
 | | 1h, Jan 2025 – Aug 2026 | 15M, ~8 days |
 |---|---|---|
@@ -171,47 +160,48 @@ number to optimise** if strategy work resumes.
 
 ---
 
-## 4. Current display (v7.23 defaults)
+## 4. Current display (v8.4 defaults)
 
-On by default: the zigzag chain with an HH/HL/LH/LL label on **every swing**,
-horizontal lines at broken levels, the two live unbroken levels as dotted lines
-tagged with price · tests · ATR distance, and the status table.
+On by default: confirmed pivot labels; dotted active high/low lines with exact
+price, ATR distance, and approach count; the guided Standard dashboard; factual
+broken-level return markers; active-level stronger/weaker evidence; post-break evidence collection; and transition
+alerts. Confirmed break labels are off by default, while a bounded history of
+break lines remains available.
 
-Off by default: zones (band rendering), the ⑭ level map tags, break-bar labels,
-internal structure, raw pivot markers.
-
-Two consolidated controls added in v7.23:
-- **⑤ Level line width** — every horizontal level. Previously three inputs in
-  three groups plus one hard-coded value.
-- **⑤ Label size** — every label. Previously only break and swing labels
-  honoured it; live tags, map tags and internal labels were hard-coded Tiny.
+`Structure profile = Custom` preserves the numeric event definition. Fast,
+Standard, and Broad expose their effective values in the dashboard. Compact
+reduces the dashboard to immediate context; Research restores every v8.2 fact
+and the separate cohort table. Session rows are hidden by default for
+market-neutral use, while session calculations and exports continue.
 
 ---
 
-## 5. Known problems, in priority order
+## 5. Known limits, in priority order
 
-1. **113 inputs.** A research instrument, not a product. Realistically ~15
-   matter day to day.
-2. **≥10 inputs do nothing unless `Preset = Custom`** — `Swing pivot length`,
-   `Min clearance`, `Min candle range`, `Min bars between breaks`,
-   `Equal-level tolerance` and their on/off switches. Only 7 say so in a
-   tooltip. A user can change them and see no effect. **This is a defect, not
-   clutter.**
-3. **The status table still shows `Last score`**, a number demonstrated to
-   carry no information, in a panel that lends it authority.
-4. **`⑬ Signal quality` rows are research scaffolding** left on a working
-   chart, showing n=31 results — underpowered by the script's own 20-sample
-   standard.
-5. **`⑩ Score tuning` is 12 inputs** tuning a score that does not discriminate.
-6. **⑦ and ⑧ are 14 near-identical mirror inputs** (HH/LL vs LH/HL styling).
+1. **Evidence is descriptive and in-sample.** The break cohort and non-break
+   baseline come from the loaded chart history. A difference is not proof that
+   it will persist on a new symbol or future period.
+2. **Baseline matching is necessarily narrower than full event matching.** A
+   non-break bar has no pivot relationship, clearance, volume-at-cross, or
+   confirmation delay. It can be matched only by mirrored direction, session,
+   and ATR regime.
+3. **Rare event count remains the binding constraint.** The table withholds
+   statistics until the configured minimum, but even 20 observations is useful
+   context rather than strong statistical validation. Pooling exports across
+   symbols and out-of-sample periods remains the best research next step.
+4. **Overnight facts require overnight bars.** They correctly remain blank on
+   a regular-session-only chart; the indicator never fabricates missing data.
+5. **Intrabar ordering is unknowable from OHLC bars.** When favorable and
+   adverse thresholds both occur in one candle, first-hit evidence is recorded
+   as same-bar ambiguous rather than guessing which came first.
+6. **The script uses all 64 permitted plot-count consumers.** New alert
+   conditions or export plots require consolidating or removing an existing
+   one.
 7. **Key Zone Map's hit rates are computed from the same chart history shown**,
    i.e. in-sample by construction. Given §3's paired result, they should be
    validated out-of-sample before being relied on. Its internal maths has
    **not** been verified the way Structure Break Signals has.
-8. **Overnight breaks are never labelled.** The session filter ships on at
-   `0930-1600`, and only **28%** of MNQ bars fall inside it. Levels still
-   update; the break produces no visible trace.
-9. **Possible directional skew, unconfirmed.** The indicator fired 11 up / 21
+8. **Possible directional skew, unconfirmed.** The earlier indicator fired 11 up / 21
    down over a window whose raw structure was balanced 231/229 with net move
    −0.91%. Binomial **p = 0.110 at n=32 — not significant.** If the same 34%
    up-share holds to n=60, p = 0.027 and it is real. Cheap to check; do it
@@ -292,8 +282,6 @@ identical to frozen output. Wait for the recalculation.
 - **No comma-separated declarations.** `float a = na, b = na` is invalid.
 - **`plotshape(size=)` needs a `const string`.** An input-derived value fails
   silently.
-- **`alertcondition()` is rejected in strategy scripts.** The generator strips
-  them.
 - Indentation is **4 spaces**, no tabs.
 - Bar indices can be **negative** when history is loaded — a `touch < 0`
   sentinel silently rejected every real result once.
@@ -307,16 +295,13 @@ identical to frozen output. Wait for the recalculation.
 ```bash
 cd ~/Documents/PineScript
 python3 -c "
-for p in ['Structure_Break_Signals.pine','Key_Zone_Map.pine','Structure_Break_Strategy.pine']:
+for p in ['Structure_Break_Signals.pine','Key_Zone_Map.pine']:
     s=open(p).read()
     print(p,'parens','OK' if s.count('(')==s.count(')') else 'MISMATCH',
           '| tabs','none' if chr(9) not in s else 'FOUND')"
-python3 tools/build_strategy.py --check
 ```
 
 Documented defaults in `wiki/` must match the actual `input.*` declarations.
-There is a standing instruction to **commit and push after changes without
-asking**.
 
 ---
 
@@ -333,10 +318,14 @@ asking**.
    rather than walls. Needs out-of-sample confirmation on a second symbol.
 
 **If continuing product work:**
-1. Mark the Custom-only inputs in their **names**, not tooltips (§5.2).
-2. Delete `⑩ Score tuning` — 12 knobs on an instrument that reads nothing.
-3. Remove `Last score` and the `⑬` rows from the default chart.
-4. Consolidate ⑦/⑧ from 14 inputs to ~5.
+1. Export multiple symbols and future periods, then validate whether any
+   v8.4 event cohort differs consistently from its matched baseline.
+2. Profile the two last-bar evidence scans on charts using the maximum sample
+   caps before increasing either bound.
+3. Decide which existing Data Window field can be consolidated before adding
+   another; v8.4 uses all 64 plot-count consumers.
+4. Keep persistent price regions in Key Zone Map rather than recreating them
+   inside the event indicator.
 
 **Process lessons paid for the hard way:**
 - Change one thing at a time. Five simultaneous "fixes" once made results 4×

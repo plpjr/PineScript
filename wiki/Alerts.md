@@ -15,26 +15,44 @@ want some of each:
 
 <a id="structure-break-signals-alerts"></a>
 
-## Structure Break Signals — the six alert conditions
+## Structure Break Signals — confirmed events and advance transitions
 
-| Alert | Fires when | Read as |
-|---|---|---|
-| **HH (Continuation)** | An up break confirms above a high that sits above the previous high | Uptrend confirmed itself again |
-| **LL (Continuation)** | A down break confirms below a low that sits below the previous low | Downtrend confirmed itself again |
-| **LH (Reversal Up)** | An up break confirms above a high that sits *below* the previous high | The downtrend's ceiling gave way — earliest, riskiest reversal read |
-| **HL (Reversal Down)** | A down break confirms below a low that sits *above* the previous low | The uptrend's floor gave way |
-| **Retest Support** | Price returns to a recently broken level from above and holds | Generally a **higher-confidence entry than the original break** |
-| **Retest Resistance** | Price returns to a recently broken level from below and holds | Same, mirrored |
+Four named alert conditions describe confirmed observed events. They do not
+call a break a continuation or reversal and do not call a return a successful
+hold.
 
-The four break alerts are split by type specifically so you can wire
-**reversals and continuations to different notification channels** — most
-people want to be interrupted by one and not the other.
+| Alert | Fires when |
+|---|---|
+| **Pivot-high level closed above** | Any upward break completes its configured confirmation delay. |
+| **Pivot-low level closed below** | Any downward break completes its configured confirmation delay. |
+| **Return to upward-broken level** | Price first moved above the return band, then re-entered it and closed at or above the level. |
+| **Return to downward-broken level** | Mirrored: price moved below, re-entered, and closed at or below the level. |
 
-> **The alert always matches the label.** Both read the same classification, so
-> a break drawn as `HH` can never fire the `LH (Reversal Up)` alert. In v7.5
-> and earlier both were derived from a running bias flag — they agreed with
-> each other, but could jointly mislabel a break. v7.6 moved both onto the
-> pivot sequence together.
+The generic break alerts cover every relationship (`HH`, `LH`, `LL`, `HL`,
+`H`, `L`, `EH`, and `EL`). The exact relationship remains available in the
+Data Window export.
+
+The script also supplies dynamic, transition-only notices for:
+
+- first approach to the active high or low band;
+- upward/downward candidate start or cancellation;
+- one configured confirmation bar remaining;
+- an upward/downward broken level becoming armed after price moves away; and
+- a new entry into an armed broken level's band.
+
+Create one alert using **Any alert() function call** to receive these messages.
+`Enable transition alerts` is the on-chart master switch. These alerts indicate
+that a measurable state changed; they are not early confirmation or trade
+recommendations.
+
+| Advance notice detail | Dynamic messages received |
+|---|---|
+| `Confirmed only` | None. Use the four named conditions for completed events. |
+| `Candidates` | Candidate start, cancellation, and one configured confirmation bar remaining. |
+| `All transitions` | Candidate notices plus active-boundary approaches and broken-level arm/re-entry preparation. |
+
+`All transitions` is the default to preserve v8.2 behavior. A developing user
+who wants a quieter setup can choose `Candidates`.
 
 ---
 
@@ -42,41 +60,40 @@ people want to be interrupted by one and not the other.
 
 1. Right-click the chart → **Add alert**, or press `Alt+A`.
 2. Under **Condition**, select **Structure Break Signals**.
-3. In the second dropdown, pick one of the six conditions above.
+3. In the second dropdown, pick one of the four confirmed-event conditions, or
+   **Any alert() function call** for the categories selected by `Advance notice
+   detail`.
 4. Set **Options** — see the timing note below.
 5. Configure notification (app, email, webhook) and **Create**.
 
-Repeat per condition. TradingView alerts are one-condition-each, so a full
-setup is typically 2–4 separate alerts.
+Repeat per named condition. One **Any alert() function call** alert covers every
+enabled dynamic category.
 
 ### Alert message variables
 
-The built-in messages already include ticker and price:
+The built-in messages include ticker and confirmation-bar close:
 
 ```
-New HH — bullish continuation on {{ticker}} @ {{close}}
-LH broken — bullish reversal on {{ticker}} @ {{close}}
-Price retesting broken support level on {{ticker}} @ {{close}}
+A confirmed close remained above an active pivot-high level on {{ticker}} @ {{close}}
+Price returned to a previously upward-broken pivot level and closed at or above it on {{ticker}} @ {{close}}
 ```
 
 You can overwrite the message in the alert dialog and use any TradingView
 placeholder (`{{interval}}`, `{{time}}`, `{{exchange}}`, …).
 
-### Including the score in an alert
+### Including measured fields in an alert
 
 The script exposes its break data as named plots, so alert messages can
 interpolate them directly:
 
 ```
-{{plot("Break type")}} on {{ticker}} @ {{close}} — score {{plot("Break score")}}, level {{plot("Break level")}}
+relation {{plot("Break relationship code")}} on {{ticker}} @ {{close}} — level {{plot("Break level")}}, initial {{plot("Initial-cross clearance · ATR")}} ATR, confirmed {{plot("Confirmation clearance · ATR")}} ATR
 ```
 
-Available: `Break score`, `Break type` (`1`=HH `2`=LL `3`=LH `4`=HL),
-`Break level`, `Break clearance (ATR)`, `Retest fired`, `ATR`, `Bias`. Full
-table under [Data export](Structure-Break-Signals.md#data-export).
-
-This is the difference between an alert that says something happened and one
-you can act on — or log — without opening the chart.
+Relationship codes are `1`=HH, `2`=LL, `3`=LH, `4`=HL, `5`=first H,
+`6`=first L, `7`=equal high, and `8`=equal low. Candidate and confirmation
+measurements, session flags, return events, and active-level facts are also
+available as named plots. See [Export fields](Structure-Break-Signals.md#export-fields).
 
 ---
 
@@ -84,54 +101,18 @@ you can act on — or log — without opening the chart.
 
 **Set alert frequency to `Once Per Bar Close`.**
 
-The break conditions evaluate against `close`, which on a forming bar is the
-*current price* and updates every tick. On any other frequency setting, a break
-that appears mid-bar and fails before the bar closes will still have fired your
-alert.
+The script gates confirmations, broken-level returns, and advance transitions
+to completed bars.
+`Once Per Bar Close` remains the clearest matching TradingView alert setting
+and avoids platform-level intrabar notification ambiguity.
 
-This is the standard live-bar caveat for close-based indicators, not a defect —
-but it matters more here than usual, because a mid-bar break that fails is
-precisely the fakeout the filters exist to reject.
+The session filter also applies at the event bar. When enabled, outside-session
+events remain in exported data and still update structure, but their drawings
+and alerts are suppressed.
 
-The same applies to what you see on the chart: a label can appear on the
-forming bar and vanish before it closes. Once a bar closes, its labels are
-final.
-
-> Retest alerts are already gated to confirmed bars internally, so they don't
-> have this issue.
-
----
-
-## Which alerts are worth having
-
-**If you trade reversals:** `LH (Reversal Up)` and `HL (Reversal Down)`, plus
-both retests. The reversal alerts get your attention; the retests give you the
-actual entry.
-
-**If you trade continuations:** `HH` and `LL` only, and largely ignore the
-reversal alerts.
-
-**If you want the highest-quality subset only:** set `Minimum score to signal`
-to your [calibrated cutoff](Confidence-Score.md#calibration) first. Alerts
-respect that gate, so a scored-out break fires nothing.
-
-**If you want the retest alerts to be more selective:** raise `Minimum score to
-signal` — a retest only fires if the *original break* cleared the score gate.
-Also consider tightening `Retest proximity (× ATR)` from `0.20` to `0.10–0.15`.
-
----
-
-## Repeat retests
-
-As of v7.8, a level can retest more than once, gated by `Bars before a level
-can retest again` (default `10`, scales with auto-adapt).
-
-The reasoning: **a level that holds a second retest is stronger evidence than
-one that held once.** The previous behaviour retired a level permanently after
-its first retest, which discarded the better signal.
-
-If you preferred one-alert-per-level, turn off `Allow repeat retests of a
-level` in `⑤ Display & history`.
+Repeated broken-level returns require price to move outside the ATR band again
+and satisfy `Minimum bars between repeated returns`. This prevents one extended
+visit from generating an alert on every candle.
 
 ---
 
@@ -170,10 +151,10 @@ pair is the core loop of the zone workflow.
 **Trading breakouts:** `Zone invalidated` — a level failing is your signal, and
 it's the one the visual-only design made easiest to miss.
 
-**Combining with the companion script:** pair `Zone held` with a high-score
-`HH`/`LL`/`LH`/`HL` in the same direction. Two independent systems agreeing is
-the highest-confidence read available — see [Playbooks → Using both scripts
-together](Playbooks.md#using-both-scripts-together).
+**Combining with the companion script:** compare a zone lifecycle event with a
+confirmed `HH`/`LL`/`LH`/`HL` event and its measured context. Agreement is a
+fact worth recording, not proof of a higher-probability trade. See [Playbooks →
+Using both scripts together](Playbooks.md#using-both-scripts-together).
 
 ---
 
@@ -181,10 +162,10 @@ together](Playbooks.md#using-both-scripts-together).
 
 | Symptom | Likely cause |
 |---|---|
-| Alert never fires | `Minimum score to signal` is gating everything, or a `Draw …lines` master switch is off for that type |
+| Structure alert never fires | Check that the alert uses this indicator version, the intended condition, and that the optional session display filter includes the event bar. |
 | Alert fires then the label disappears | Alert frequency isn't `Once Per Bar Close` — see [timing](#timing-once-per-bar-close) |
-| Retest alerts spam | Raise `Bars before a level can retest again`, or turn off `Allow repeat retests` |
-| Too many reversal alerts in chop | Raise the preset strictness, or `Min bars between breaks` |
+| Return alerts repeat too often | Raise `Minimum bars between repeated returns`. |
+| Too many advance notices | Turn off `Enable transition alerts`, or create named confirmed-event alerts instead of `Any alert() function call`. |
 | Alert message lacks context | Overwrite it in the alert dialog with extra `{{placeholders}}` |
 
 More at [Troubleshooting](Troubleshooting.md).

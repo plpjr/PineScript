@@ -9,7 +9,6 @@
 
 **Structure Break Signals**
 - [Overview & Settings](Structure-Break-Signals.md)
-- [Confidence Score](Confidence-Score.md)
 
 **Key Zone Map**
 - [Overview & Settings](Key-Zone-Map.md)
@@ -17,7 +16,6 @@
 
 **Using them**
 - [Playbooks](Playbooks.md)
-- [Backtesting](Backtesting.md)
 - [Running on MNQ](Running-on-MNQ.md)
 - [Alerts](Alerts.md)
 - [Troubleshooting](Troubleshooting.md)
